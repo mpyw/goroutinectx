@@ -1,9 +1,12 @@
-# ctxrelay
+# goroutinectx
+
+> [!CAUTION]
+> This project is under heavy construction. The repository will be renamed from `ctxrelay` to `goroutinectx` before the first release. See [TASK_ARCH_REFACTOR.md](./TASK_ARCH_REFACTOR.md) for details.
 
 > [!NOTE]
 > This project was 99% written by AI (Claude Code).
 
-A Go linter that enforces context propagation best practices.
+A Go linter that checks goroutine context propagation.
 
 ## Overview
 

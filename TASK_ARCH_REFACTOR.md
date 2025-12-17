@@ -1,40 +1,35 @@
-# Architecture Refactoring Plan: ctxrelay Monorepo Split
+# Architecture Refactoring Plan: ctxrelay Simplification
 
 ## Executive Summary
 
-Split ctxrelay into two independent analyzers while maintaining a monorepo structure:
-- `ctxrelay/goroutine` (crgoroutine) - Goroutine context propagation
-- `ctxrelay/zerolog` (crzerolog) - zerolog chain context injection
+Simplify ctxrelay to focus solely on **goroutine context propagation**.
 
-Remove slog checker (delegate to [sloglint](https://github.com/go-simpler/sloglint)).
+- **Remove**: zerolog checker, slog checker
+- **Keep**: go stmt, errgroup, waitgroup, gotask, goroutine_creator, goroutine-deriver
 
 ## Motivation
 
-| Concern | Current | After Refactor |
-|---------|---------|----------------|
-| Goroutine spawning | go, errgroup, waitgroup, gotask, creator | `crgoroutine` |
-| Struct chain ctx injection | zerolog | `crzerolog` |
-| Non-context variant ban | slog.Info vs InfoContext | **Remove** (use sloglint) |
+| Concern | Tool |
+|---------|------|
+| Goroutine spawning ctx propagation | **ctxrelay** (this project) |
+| zerolog .Ctx(ctx) chain | zerologlint (PR) or zerologlintctx (separate) |
+| slog.Info vs InfoContext | sloglint |
+| context.Background() misuse | contextcheck |
 
-**Why split?**
-1. **golangci-lint integration**: Each analyzer becomes independently configurable
-2. **Separation of concerns**: SSA-based zerolog vs AST-based goroutine checks are fundamentally different
-3. **Smaller attack surface**: Users only include what they need
+**Why simplify?**
+1. **Single responsibility**: Goroutine context propagation only
+2. **Ecosystem collaboration**: Extend existing linters rather than duplicate
+3. **Cleaner codebase**: Remove SSA complexity (zerolog), simpler maintenance
 
 ## Target Structure
 
 ```
 ctxrelay/
-├── go.mod                          # Single module (monorepo)
-├── goroutine/                      # Package: crgoroutine
-│   ├── analyzer.go                 # Analyzer entry point
-│   ├── analyzer_test.go
-│   └── doc.go
-├── zerolog/                        # Package: crzerolog
-│   ├── analyzer.go
-│   ├── analyzer_test.go
-│   └── doc.go
-├── internal/                       # Shared utilities (not exported)
+├── go.mod
+├── analyzer.go                     # Main analyzer entry point
+├── analyzer_test.go
+├── doc.go
+├── internal/
 │   ├── check/                      # CheckContext, ContextScope
 │   │   ├── context.go
 │   │   ├── closure.go
@@ -43,7 +38,7 @@ ctxrelay/
 │   │   └── matcher.go
 │   ├── ignore/                     # IgnoreMap (//ctxrelay:ignore)
 │   │   └── ignore.go
-│   ├── directive/                  # Directive parsing (//ctxrelay:*)
+│   ├── directive/                  # Directive parsing (//ctxrelay:goroutine_creator)
 │   │   └── directive.go
 │   ├── typeutil/                   # Type checking utilities
 │   │   └── typeutil.go
@@ -55,21 +50,12 @@ ctxrelay/
 │   │   └── checker.go
 │   ├── gotask/                     # siketyan/gotask checker
 │   │   └── checker.go
-│   ├── creator/                    # goroutine_creator directive checker
-│   │   └── checker.go
-│   └── zerolog/                    # zerolog SSA tracer
-│       ├── checker.go
-│       ├── tracer.go
-│       ├── trace.go
-│       └── types.go
+│   └── creator/                    # goroutine_creator directive checker
+│       └── checker.go
 ├── cmd/
-│   ├── crgoroutine/                # Standalone CLI
-│   │   └── main.go
-│   ├── crzerolog/                  # Standalone CLI
-│   │   └── main.go
-│   └── ctxrelay/                   # Legacy combined CLI (optional, for migration)
+│   └── ctxrelay/
 │       └── main.go
-├── testdata/                       # Shared test fixtures
+├── testdata/
 │   └── src/
 │       ├── goroutine/
 │       ├── errgroup/
@@ -77,189 +63,170 @@ ctxrelay/
 │       ├── gotask/
 │       ├── goroutinecreator/
 │       ├── goroutinederive/
-│       ├── zerolog/
 │       └── stubs/                  # External package stubs
-│           ├── golang.org/
-│           ├── github.com/rs/zerolog/
-│           └── github.com/siketyan/gotask/
+│           ├── golang.org/x/sync/errgroup/
+│           ├── github.com/siketyan/gotask/
+│           └── github.com/my-example-app/telemetry/apm/
 ├── CLAUDE.md
 ├── README.md
 └── docs/
 ```
 
-## Package Design
+## What Gets Removed
 
-### `goroutine/` (crgoroutine)
+| File/Directory | Reason |
+|----------------|--------|
+| `pkg/analyzer/checkers/zerologchecker/` | Delegate to zerologlint |
+| `pkg/analyzer/checkers/slogchecker/` | Delegate to sloglint |
+| `testdata/src/zerolog/` | No longer needed |
+| `testdata/src/slog/` | No longer needed |
+| `testdata/src/github.com/rs/zerolog/` | No longer needed |
+| `-zerolog` flag | Removed |
+| `-slog` flag | Removed |
 
-```go
-package crgoroutine
+## What Gets Kept (and Reorganized)
 
-import "golang.org/x/tools/go/analysis"
+| Current | New Location |
+|---------|--------------|
+| `pkg/analyzer/analyzer.go` | `analyzer.go` |
+| `pkg/analyzer/checkers/checker.go` | `internal/check/` |
+| `pkg/analyzer/checkers/deriver.go` | `internal/deriver/` |
+| `pkg/analyzer/checkers/ignore.go` | `internal/ignore/` |
+| `pkg/analyzer/checkers/directive.go` | `internal/directive/` |
+| `pkg/analyzer/checkers/typeutil.go` | `internal/typeutil/` |
+| `pkg/analyzer/checkers/goroutinechecker/` | `internal/gostmt/` |
+| `pkg/analyzer/checkers/goroutinederivechecker/` | merged into `internal/gostmt/` |
+| `pkg/analyzer/checkers/errgroupchecker/` | `internal/errgroup/` |
+| `pkg/analyzer/checkers/waitgroupchecker/` | `internal/waitgroup/` |
+| `pkg/analyzer/checkers/gotaskchecker/` | `internal/gotask/` |
+| `pkg/analyzer/checkers/goroutinecreatorchecker/` | `internal/creator/` |
 
-var Analyzer = &analysis.Analyzer{
-    Name: "crgoroutine",
-    Doc:  "checks goroutine context propagation",
-    // ...
-}
+## Flags (After Refactor)
+
 ```
-
-**Flags:**
-- `-goroutine-deriver` - Require deriver function in goroutines
-- `-context-carriers` - Additional context carrier types
-- `-errgroup` (default: true)
-- `-waitgroup` (default: true)
-- `-gotask` (default: true)
-- `-goroutine-creator` (default: true)
-
-### `zerolog/` (crzerolog)
-
-```go
-package crzerolog
-
-import "golang.org/x/tools/go/analysis"
-
-var Analyzer = &analysis.Analyzer{
-    Name: "crzerolog",
-    Doc:  "checks zerolog chains for .Ctx(ctx) calls",
-    // ...
-}
+-goroutine-deriver    Require deriver function call in goroutines
+-context-carriers     Additional context carrier types (comma-separated)
+-errgroup            Enable errgroup.Group.Go checker (default: true)
+-waitgroup           Enable sync.WaitGroup.Go checker (default: true)
+-gotask              Enable gotask checker (default: true)
+-goroutine-creator   Enable goroutine_creator directive (default: true)
 ```
-
-**Flags:**
-- (none currently, may add custom logger type support later)
-
-### `internal/` Structure
-
-| Package | Contents | Used By |
-|---------|----------|---------|
-| `internal/check` | CheckContext, ContextScope, ClosureChecker | goroutine, zerolog |
-| `internal/deriver` | DeriveMatcher, DeriveFuncSpec | goroutine |
-| `internal/ignore` | IgnoreMap | goroutine, zerolog |
-| `internal/directive` | ParseDirective, GoroutineCreatorDirective | goroutine |
-| `internal/typeutil` | IsContextType, IsContextOrCarrierType | goroutine, zerolog |
-| `internal/gostmt` | GoStmtChecker | goroutine |
-| `internal/errgroup` | ErrgroupChecker | goroutine |
-| `internal/waitgroup` | WaitgroupChecker | goroutine |
-| `internal/gotask` | GotaskChecker | goroutine |
-| `internal/creator` | CreatorChecker | goroutine |
-| `internal/zerolog` | SSA tracers, Event/Logger/Context tracers | zerolog |
 
 ## Migration Steps
 
-### Phase 1: Restructure Internal Packages (Non-Breaking)
+### Phase 1: Remove zerolog & slog
 
-1. Create `internal/` directory structure
-2. Move shared utilities:
-   - `pkg/analyzer/checkers/checker.go` → `internal/check/`
-   - `pkg/analyzer/checkers/deriver.go` → `internal/deriver/`
-   - `pkg/analyzer/checkers/ignore.go` → `internal/ignore/`
-   - `pkg/analyzer/checkers/directive.go` → `internal/directive/`
-   - `pkg/analyzer/checkers/typeutil.go` → `internal/typeutil/`
-3. Move checker implementations:
-   - `pkg/analyzer/checkers/goroutinechecker/` → `internal/gostmt/`
-   - `pkg/analyzer/checkers/errgroupchecker/` → `internal/errgroup/`
-   - `pkg/analyzer/checkers/waitgroupchecker/` → `internal/waitgroup/`
-   - `pkg/analyzer/checkers/gotaskchecker/` → `internal/gotask/`
-   - `pkg/analyzer/checkers/goroutinecreatorchecker/` → `internal/creator/`
-   - `pkg/analyzer/checkers/goroutinederivechecker/` → merged into `internal/gostmt/`
-   - `pkg/analyzer/checkers/zerologchecker/` → `internal/zerolog/`
-4. Update all import paths
-5. Tests should still pass with old structure
+1. Delete `pkg/analyzer/checkers/zerologchecker/`
+2. Delete `pkg/analyzer/checkers/slogchecker/`
+3. Delete related test fixtures
+4. Remove flags from `analyzer.go`
+5. Update imports
+6. Run tests
 
-### Phase 2: Create New Entry Points
+### Phase 2: Flatten Structure
 
-1. Create `goroutine/analyzer.go`:
-   - Combine gostmt, errgroup, waitgroup, gotask, creator, goroutinederive
-   - Register flags
-   - Export `Analyzer` variable
-2. Create `zerolog/analyzer.go`:
-   - Wrap internal/zerolog
-   - Export `Analyzer` variable
-3. Create new CLI entry points:
-   - `cmd/crgoroutine/main.go`
-   - `cmd/crzerolog/main.go`
-4. Keep `cmd/ctxrelay/main.go` as combined CLI for migration
+1. Move `pkg/analyzer/analyzer.go` → `analyzer.go`
+2. Move `pkg/analyzer/analyzer_test.go` → `analyzer_test.go`
+3. Move `pkg/analyzer/checkers/` → `internal/`
+4. Move `pkg/analyzer/testdata/` → `testdata/`
+5. Update all import paths
+6. Delete empty `pkg/` directory
 
-### Phase 3: Remove slog Checker
+### Phase 3: Reorganize Internal
 
-1. Remove `pkg/analyzer/checkers/slogchecker/`
-2. Remove slog-related test fixtures
-3. Update documentation to recommend sloglint
+1. Split `internal/checker.go` into focused files:
+   - `internal/check/context.go` - ContextScope, FindContextScope
+   - `internal/check/closure.go` - CheckClosureUsesContext
+   - `internal/check/funcarg.go` - CheckFuncArgUsesContext, tracing helpers
+2. Move deriver to `internal/deriver/`
+3. Move ignore to `internal/ignore/`
+4. Move directive to `internal/directive/`
+5. Move typeutil to `internal/typeutil/`
+6. Rename checker directories (drop "checker" suffix)
 
-### Phase 4: Cleanup Old Structure
+### Phase 4: Merge goroutine-derive into gostmt
 
-1. Remove `pkg/analyzer/` directory
-2. Move test fixtures to `testdata/`
-3. Update `go.mod` if needed
-4. Update all documentation
+1. `goroutinederivechecker` logic merges into `gostmt/checker.go`
+2. Both check `*ast.GoStmt`, just different aspects
+3. Delete separate `goroutinederivechecker/` directory
 
-### Phase 5: Documentation & Release
+### Phase 5: Documentation & Cleanup
 
-1. Update README.md with new usage
-2. Update CLAUDE.md
-3. Create migration guide for existing users
-4. Tag new version
+1. Update README.md - remove zerolog/slog sections
+2. Update CLAUDE.md - reflect new structure
+3. Delete TASK_ARCH_REFACTOR.md (this file)
+4. Clean up any remaining references
 
-## golangci-lint Integration
+## Package API (After Refactor)
 
-After refactoring, users can configure in `.golangci.yml`:
+```go
+package ctxrelay
 
-```yaml
-linters:
-  enable:
-    - crgoroutine
-    - crzerolog
+import "golang.org/x/tools/go/analysis"
 
-linters-settings:
-  crgoroutine:
-    goroutine-deriver: "github.com/my-app/apm.NewGoroutineContext"
-    context-carriers:
-      - "github.com/labstack/echo/v4.Context"
-    errgroup: true
-    waitgroup: true
-    gotask: true
-    goroutine-creator: true
+// Analyzer checks goroutine context propagation.
+var Analyzer *analysis.Analyzer
 ```
 
-## Risk Assessment
+## Usage (After Refactor)
 
-| Risk | Mitigation |
-|------|------------|
-| Breaking existing users | Keep `cmd/ctxrelay` as combined CLI during transition |
-| Import path changes | Internal packages only, no public API change |
-| Test coverage loss | Move tests alongside code, run full suite after each phase |
-| golangci-lint compatibility | Test with golangci-lint before release |
+```bash
+# Standalone
+ctxrelay ./...
 
-## Success Criteria
+# With go vet
+go vet -vettool=$(which ctxrelay) ./...
 
-- [ ] All existing tests pass
-- [ ] `crgoroutine` analyzer works standalone
-- [ ] `crzerolog` analyzer works standalone
-- [ ] golangci-lint can load each analyzer independently
-- [ ] Combined CLI still works for migration
-- [ ] Documentation updated
+# With goroutine-deriver
+ctxrelay -goroutine-deriver=github.com/my-app/apm.NewGoroutineContext ./...
+```
+
+## Recommended Companion Linters
+
+Document in README that users should combine with:
+
+```yaml
+# .golangci.yml
+linters:
+  enable:
+    - ctxrelay        # goroutine context propagation
+    - contextcheck    # context.Background() misuse
+    - sloglint        # slog.Info vs InfoContext
+    # - zerologlint   # zerolog .Ctx() (if/when available)
+```
 
 ## Timeline Estimate
 
 | Phase | Effort |
 |-------|--------|
-| Phase 1: Restructure | 2-3 hours |
-| Phase 2: Entry Points | 1-2 hours |
-| Phase 3: Remove slog | 30 min |
-| Phase 4: Cleanup | 1 hour |
-| Phase 5: Documentation | 1 hour |
-| **Total** | **~6-8 hours** |
+| Phase 1: Remove zerolog & slog | 30 min |
+| Phase 2: Flatten structure | 1 hour |
+| Phase 3: Reorganize internal | 1-2 hours |
+| Phase 4: Merge goroutine-derive | 30 min |
+| Phase 5: Documentation | 30 min |
+| **Total** | **~4 hours** |
 
-## Open Questions
+## Success Criteria
 
-1. **Package naming**: `crgoroutine` vs `ctxgoroutine` vs just `goroutine`?
-   - Current choice: `crgoroutine` (cr = ctxrelay prefix, avoids collision)
+- [ ] zerolog/slog code completely removed
+- [ ] All goroutine-related tests pass
+- [ ] Structure matches target layout
+- [ ] Single `Analyzer` export at package root
+- [ ] README updated with companion linter recommendations
+- [ ] CLAUDE.md reflects new architecture
 
-2. **goroutine-derive merger**: Merge `goroutinederivechecker` into `gostmt` or keep separate?
-   - Current choice: Merge (it's just an additional check on go statements)
+## Future Consideration: Rename to goroutinectx
 
-3. **Legacy CLI**: Keep `cmd/ctxrelay` permanently or deprecate?
-   - Current choice: Keep for now, decide based on adoption
+| Current | Proposed |
+|---------|----------|
+| `ctxrelay` | `goroutinectx` |
+| `github.com/mpyw/ctxrelay` | `github.com/mpyw/goroutinectx` |
 
-4. **Testdata location**: Per-package or shared?
-   - Current choice: Shared `testdata/` at root (reuse stubs)
+**Rationale:**
+- `ctxrelay` is abstract ("relay context" - to where?)
+- `goroutinectx` is direct ("goroutine context" - exactly what it checks)
+
+**When to rename:**
+- After architecture refactor is complete
+- Before first public release
+- Single commit: rename repo + update all references
