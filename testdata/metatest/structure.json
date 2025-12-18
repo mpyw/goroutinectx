@@ -2148,6 +2148,22 @@
       },
       "level": "basic"
     },
+    "derivedCtxInForLoopWithFunctionVariable": {
+      "title": "Derived ctx in for loop with function variable",
+      "targets": [
+        "errgroup"
+      ],
+      "variants": {
+        "good": {
+          "description": "Real-world production pattern: derived ctx used in closure inside for loop",
+          "functions": {
+            "errgroup": "goodErrgroupWithContextForLoop"
+          }
+        },
+        "bad": null
+      },
+      "level": "basic"
+    },
     "literalWithDerivedCtxWithDefer": {
       "title": "Literal with derived ctx - with defer",
       "targets": [

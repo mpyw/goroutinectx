@@ -176,24 +176,23 @@ The gotask checker handles `github.com/siketyan/gotask` library:
 ## Development Commands
 
 ```bash
-# Run all tests
-go test ./...
-
-# Run tests with verbose output
-go test -v ./...
+# Run ALL tests (ALWAYS use this before committing)
+./test_all.sh
 
 # Run golangci-lint
 golangci-lint run ./...
 
 # Format code
 go fmt ./...
-
-# Validate test metadata (structure.json)
-cd testdata/metatest && go test -v ./...
-
-# Validate JSON schema
-cd testdata/metatest && go run github.com/santhosh-tekuri/jsonschema/cmd/jv@29cbed9 structure.schema.json structure.json
 ```
+
+> [!IMPORTANT]
+> Always use `./test_all.sh` before committing. This script runs:
+> 1. JSON schema validation for `structure.json`
+> 2. Test metadata validation (ensures all test functions are in `structure.json`)
+> 3. All analyzer tests
+>
+> Running only `go test ./...` will miss structure validation failures.
 
 ## Adding a New Checker
 
