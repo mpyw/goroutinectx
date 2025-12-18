@@ -31,12 +31,12 @@ var (
 	contextCarriers  string
 
 	// Checker enable/disable flags (all enabled by default).
-	enableErrgroup     bool
-	enableWaitgroup    bool
 	enableGoroutine    bool
+	enableWaitgroup    bool
+	enableErrgroup     bool
 	enableSpawner      bool
-	enableGotask       bool
 	enableSpawnerlabel bool
+	enableGotask       bool
 )
 
 func init() {
@@ -46,12 +46,12 @@ func init() {
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 
 	// Checker flags (default: all enabled)
-	Analyzer.Flags.BoolVar(&enableErrgroup, "errgroup", true, "enable errgroup checker")
-	Analyzer.Flags.BoolVar(&enableWaitgroup, "waitgroup", true, "enable waitgroup checker")
 	Analyzer.Flags.BoolVar(&enableGoroutine, "goroutine", true, "enable goroutine checker")
+	Analyzer.Flags.BoolVar(&enableWaitgroup, "waitgroup", true, "enable waitgroup checker")
+	Analyzer.Flags.BoolVar(&enableErrgroup, "errgroup", true, "enable errgroup checker")
 	Analyzer.Flags.BoolVar(&enableSpawner, "spawner", true, "enable spawner checker")
+	Analyzer.Flags.BoolVar(&enableSpawnerlabel, "spawnerlabel", false, "enable spawnerlabel checker")
 	Analyzer.Flags.BoolVar(&enableGotask, "gotask", true, "enable gotask checker (requires -goroutine-deriver)")
-	Analyzer.Flags.BoolVar(&enableSpawnerlabel, "spawnerlabel", false, "check that spawner functions are properly labeled")
 }
 
 // Analyzer is the main analyzer for goroutinectx.
@@ -121,12 +121,20 @@ func runASTChecks(
 		goStmtCheckers []checkers.GoStmtChecker
 	)
 
-	if enableErrgroup {
-		callCheckers = append(callCheckers, errgroup.New())
+	// When goroutine-deriver is set, it replaces the base goroutine checker.
+	// The derive checker is a more specific version that checks for deriver function calls.
+	if goroutineDeriver != "" {
+		goStmtCheckers = append(goStmtCheckers, goroutinederive.New(goroutineDeriver))
+	} else if enableGoroutine {
+		goStmtCheckers = append(goStmtCheckers, goroutine.New())
 	}
 
 	if enableWaitgroup {
 		callCheckers = append(callCheckers, waitgroup.New())
+	}
+
+	if enableErrgroup {
+		callCheckers = append(callCheckers, errgroup.New())
 	}
 
 	// Add spawner checker if enabled and any functions are marked
@@ -134,16 +142,9 @@ func runASTChecks(
 		callCheckers = append(callCheckers, spawner.New(spawners))
 	}
 
-	// When goroutine-deriver is set, it replaces the base goroutine checker.
-	// The derive checker is a more specific version that checks for deriver function calls.
-	if goroutineDeriver != "" {
-		goStmtCheckers = append(goStmtCheckers, goroutinederive.New(goroutineDeriver))
-		// gotask checker also requires goroutine-deriver to be set
-		if enableGotask {
-			callCheckers = append(callCheckers, gotask.New(goroutineDeriver))
-		}
-	} else if enableGoroutine {
-		goStmtCheckers = append(goStmtCheckers, goroutine.New())
+	// gotask checker requires goroutine-deriver to be set
+	if goroutineDeriver != "" && enableGotask {
+		callCheckers = append(callCheckers, gotask.New(goroutineDeriver))
 	}
 
 	// Node types we're interested in
