@@ -7,21 +7,23 @@ A Go linter that checks goroutine context propagation.
 
 ## Overview
 
-`goroutinectx` detects cases where a `context.Context` is available in function parameters but not properly passed to downstream calls that should receive it.
+`goroutinectx` detects cases where a [`context.Context`](https://pkg.go.dev/context#Context) is available in function parameters but not properly passed to downstream calls that should receive it.
 
 ## Installation
 
-This analyzer is designed to be used as a library with `go/analysis`. To use it, import the analyzer in your own tool:
+This analyzer is designed to be used as a library with [`go/analysis`](https://pkg.go.dev/golang.org/x/tools/go/analysis). To use it, import the analyzer in your own tool:
 
 ```go
 import "github.com/mpyw/goroutinectx"
 
 func main() {
-    singlechecker.Main(goroutinectx.Analyzer)
+    singlechecker.Main(goroutinectx.Analyzer)  // singlechecker from go/analysis
 }
 ```
 
-Or use it with `multichecker` alongside other analyzers.
+See [`singlechecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/singlechecker) for details.
+
+Or use it with [`multichecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/multichecker) alongside other analyzers.
 
 ## What It Checks
 
@@ -66,9 +68,9 @@ func handler(ctx context.Context) {
 
 This design ensures every goroutine explicitly acknowledges context propagation. If your goroutine doesn't need to use context directly but spawns nested goroutines that do, add `_ = ctx` to signal intentional propagation.
 
-### errgroup.Group
+### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 
-Detects `errgroup.Group.Go()` closures that don't use context:
+Detects [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) closures that don't use context:
 
 ```go
 func handler(ctx context.Context) {
@@ -86,9 +88,9 @@ func handler(ctx context.Context) {
 }
 ```
 
-### sync.WaitGroup (Go 1.25+)
+### [`sync.WaitGroup`](https://pkg.go.dev/sync#WaitGroup) (Go 1.25+)
 
-Detects `sync.WaitGroup.Go()` closures that don't use context:
+Detects [`sync.WaitGroup.Go`](https://pkg.go.dev/sync#WaitGroup.Go) closures that don't use context:
 
 ```go
 func handler(ctx context.Context) {
@@ -218,7 +220,7 @@ goroutinectx -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transa
 
 ### `-context-carriers`
 
-Treat additional types as context carriers (like `context.Context`). Useful for web frameworks that have their own context types.
+Treat additional types as context carriers (like [`context.Context`](https://pkg.go.dev/context#Context)). Useful for web frameworks that have their own context types.
 
 ```bash
 # Treat echo.Context as a context carrier
@@ -272,12 +274,12 @@ Also warns about unnecessary labels on functions that don't spawn and have no fu
 ## Design Principles
 
 1. **Zero false positives** - Prefer missing issues over false alarms
-2. **Type-safe analysis** - Uses `go/types` for accurate detection
+2. **Type-safe analysis** - Uses [`go/types`](https://pkg.go.dev/go/types) for accurate detection
 3. **Nested function support** - Correctly tracks context through closures
 
 ## Related Tools
 
-- [contextcheck](https://github.com/kkHAIKE/contextcheck) - Detects `context.Background()`/`context.TODO()` usage and missing context parameters
+- [contextcheck](https://github.com/kkHAIKE/contextcheck) - Detects [`context.Background`](https://pkg.go.dev/context#Background)/[`context.TODO`](https://pkg.go.dev/context#TODO) usage and missing context parameters
 
 `goroutinectx` is complementary to `contextcheck`:
 - `contextcheck` warns about creating new contexts when one should be propagated
