@@ -2,8 +2,9 @@
 package main
 
 import (
-	"github.com/mpyw/goroutinectx"
 	"golang.org/x/tools/go/analysis/singlechecker"
+
+	"github.com/mpyw/goroutinectx"
 )
 
 func main() {

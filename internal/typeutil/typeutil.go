@@ -48,14 +48,14 @@ func unwrapPointer(t types.Type) types.Type {
 	return t
 }
 
-// isContextType checks if the type is context.Context.
-func isContextType(t types.Type) bool {
+// IsContextType checks if the type is context.Context.
+func IsContextType(t types.Type) bool {
 	return isNamedTypeFromType(t, contextPkgPath, "Context")
 }
 
 // IsContextOrCarrierType checks if the type is context.Context or a configured carrier type.
 func IsContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
-	if isContextType(t) {
+	if IsContextType(t) {
 		return true
 	}
 

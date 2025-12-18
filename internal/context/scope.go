@@ -79,11 +79,15 @@ func (s *Scope) IsContextVar(obj types.Object) bool {
 	return false
 }
 
-// UsesContext checks if the given AST node uses any of the context variables.
+// UsesContext checks if the given AST node uses any context.Context variable.
+// It checks for:
+//  1. The original context parameters tracked in this scope
+//  2. ANY variable with type context.Context (to handle shadowing like `ctx := errgroup.WithContext(ctx)`)
+//
 // It uses type information to correctly handle shadowing.
 // It does NOT descend into nested function literals (closures) - each closure
 // should be checked separately with its own scope.
-// Returns true if ANY of the tracked context variables is used.
+// Returns true if ANY context.Context variable is used.
 func (s *Scope) UsesContext(pass *analysis.Pass, node ast.Node) bool {
 	if s == nil || len(s.Vars) == 0 {
 		return false
@@ -100,8 +104,27 @@ func (s *Scope) UsesContext(pass *analysis.Pass, node ast.Node) bool {
 			return false
 		}
 
-		if ident, ok := n.(*ast.Ident); ok {
-			if s.IsContextVar(pass.TypesInfo.ObjectOf(ident)) {
+		ident, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := pass.TypesInfo.ObjectOf(ident)
+		if obj == nil {
+			return true
+		}
+
+		// Check 1: Is it one of the original context parameters?
+		if s.IsContextVar(obj) {
+			found = true
+
+			return false
+		}
+
+		// Check 2: Is it ANY variable with type context.Context?
+		// This handles shadowing like: ctx := errgroup.WithContext(ctx)
+		if v, ok := obj.(*types.Var); ok {
+			if typeutil.IsContextType(v.Type()) {
 				found = true
 
 				return false

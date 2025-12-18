@@ -6,6 +6,7 @@ import (
 	"go/types"
 
 	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Checker checks go statements for context propagation.
@@ -133,8 +134,10 @@ func funcLitUsesContextOrReturnsCtxFunc(cctx *context.CheckContext, funcLit *ast
 	return cctx.FuncLitReturnUsesContext(funcLit)
 }
 
-// usesContextDeep checks if the given AST node uses any context variable,
+// usesContextDeep checks if the given AST node uses any context.Context variable,
 // INCLUDING nested function literals.
+// It checks for both the original context parameters AND any context.Context typed variable
+// (to handle shadowing like `ctx := errgroup.WithContext(ctx)`).
 func usesContextDeep(cctx *context.CheckContext, node ast.Node) bool {
 	if cctx.Scope == nil || len(cctx.Scope.Vars) == 0 {
 		return false
@@ -148,8 +151,27 @@ func usesContextDeep(cctx *context.CheckContext, node ast.Node) bool {
 		}
 		// DO NOT skip nested function literals - we want to trace ctx
 		// through closures like: captured := ctx; return func() { use(captured) }
-		if ident, ok := n.(*ast.Ident); ok {
-			if cctx.Scope.IsContextVar(cctx.Pass.TypesInfo.ObjectOf(ident)) {
+		ident, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		obj := cctx.Pass.TypesInfo.ObjectOf(ident)
+		if obj == nil {
+			return true
+		}
+
+		// Check 1: Is it one of the original context parameters?
+		if cctx.Scope.IsContextVar(obj) {
+			found = true
+
+			return false
+		}
+
+		// Check 2: Is it ANY variable with type context.Context?
+		// This handles shadowing like: ctx := errgroup.WithContext(ctx)
+		if v, ok := obj.(*types.Var); ok {
+			if typeutil.IsContextType(v.Type()) {
 				found = true
 
 				return false

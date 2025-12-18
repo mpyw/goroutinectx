@@ -102,6 +102,19 @@ func goodErrgroupWithContext(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// [GOOD]: Derived ctx in for loop with function variable
+//
+// Real-world production pattern: derived ctx used in closure inside for loop
+func goodErrgroupWithContextForLoop(ctx context.Context) {
+	eg, ctx := errgroup.WithContext(ctx)
+	for _, f := range []func(context.Context) error{doWork, doWork} {
+		eg.Go(func() error {
+			return f(ctx) // uses derived ctx
+		})
+	}
+	_ = eg.Wait()
+}
+
 // [GOOD]: No ctx param
 //
 // No ctx param - not checked
