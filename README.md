@@ -9,21 +9,45 @@ A Go linter that checks goroutine context propagation.
 
 `goroutinectx` detects cases where a [`context.Context`](https://pkg.go.dev/context#Context) is available in function parameters but not properly passed to downstream calls that should receive it.
 
-## Installation
+## Installation & Usage
 
-This analyzer is designed to be used as a library with [`go/analysis`](https://pkg.go.dev/golang.org/x/tools/go/analysis). To use it, import the analyzer in your own tool:
+### Using [`go vet`](https://pkg.go.dev/cmd/go#hdr-Report_likely_mistakes_in_packages) (Recommended)
+
+```bash
+# Install the analyzer
+go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
+
+# Run with go vet
+go vet -vettool=$(which goroutinectx) ./...
+```
+
+### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool) (Go 1.24+)
+
+```bash
+# Add to go.mod as a tool dependency
+go get -tool github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
+
+# Run via go tool
+go tool goroutinectx ./...
+```
+
+### As a Library
 
 ```go
 import "github.com/mpyw/goroutinectx"
 
 func main() {
-    singlechecker.Main(goroutinectx.Analyzer)  // singlechecker from go/analysis
+    singlechecker.Main(goroutinectx.Analyzer)
 }
 ```
 
 See [`singlechecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/singlechecker) for details.
 
 Or use it with [`multichecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/multichecker) alongside other analyzers.
+
+### golangci-lint
+
+Not currently integrated with golangci-lint. PRs welcome if someone wants to add it, but not actively pursuing integration.
 
 ## What It Checks
 
