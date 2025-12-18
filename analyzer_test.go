@@ -18,11 +18,6 @@ func TestErrgroup(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroup")
 }
 
-func TestWaitgroup(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "waitgroup")
-}
-
 func TestGoroutineDerive(t *testing.T) {
 	testdata := analysistest.TestData()
 

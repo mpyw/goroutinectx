@@ -1,3 +1,5 @@
+//go:build go1.25
+
 // Package waitgroup contains test fixtures for the waitgroup context propagation checker.
 // This file covers adversarial patterns - tests analyzer limits: higher-order functions,
 // non-literal function arguments, interface methods.

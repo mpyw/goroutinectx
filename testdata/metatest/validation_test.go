@@ -8,9 +8,35 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// supportsWaitgroupGo returns true if the current Go version supports sync.WaitGroup.Go()
+// which was added in Go 1.25.
+func supportsWaitgroupGo() bool {
+	// runtime.Version() returns something like "go1.25.3"
+	version := runtime.Version()
+	// Extract major.minor version
+	if !strings.HasPrefix(version, "go") {
+		return false
+	}
+	version = strings.TrimPrefix(version, "go")
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	major := parts[0]
+	minor := parts[1]
+	// Go 1.25+ supports WaitGroup.Go()
+	if major == "1" {
+		if len(minor) >= 2 && minor >= "25" {
+			return true
+		}
+	}
+	return false
+}
 
 // Structure represents the test metadata structure.
 type Structure struct {
@@ -87,6 +113,10 @@ func validateVariant(t *testing.T, structure *Structure, testName string, test *
 
 	// Get function name from variant.Functions
 	for _, target := range test.Targets {
+		// Skip waitgroup tests on Go < 1.25
+		if target == "waitgroup" && !supportsWaitgroupGo() {
+			t.Skipf("Skipping waitgroup test: sync.WaitGroup.Go() requires Go 1.25+")
+		}
 		funcName, ok := variant.Functions[target]
 		if !ok {
 			t.Errorf("Missing function for target %q in test %q variant %q", target, testName, variantType)
@@ -133,6 +163,10 @@ func validateAllFunctionsAccountedFor(t *testing.T, structure *Structure) {
 
 	// Check each target's files
 	for target := range expectedFunctions {
+		// Skip waitgroup on Go < 1.25
+		if target == "waitgroup" && !supportsWaitgroupGo() {
+			continue
+		}
 		for level := range expectedFunctions[target] {
 			testFile := findTestFile(target, level)
 			if testFile == "" {

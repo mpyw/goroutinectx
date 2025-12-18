@@ -1,3 +1,5 @@
+//go:build go1.25
+
 // Package waitgroup contains test fixtures for the waitgroup context propagation checker.
 // This file covers basic/daily patterns - simple good/bad cases, shadowing, ignore directives.
 // Note: sync.WaitGroup.Go() was added in Go 1.25.
