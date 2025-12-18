@@ -108,9 +108,19 @@ func handler(ctx context.Context) {
 }
 ```
 
-### gotask (requires `-goroutine-deriver`)
+### [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) (requires `-goroutine-deriver`)
 
-Detects [gotask](https://github.com/siketyan/gotask) calls where task functions don't call the context deriver. Since tasks run as goroutines, they need to call the deriver function (e.g., `apm.NewGoroutineContext`) inside their body - there's no way to wrap the context at the call site.
+Detects [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) calls where task functions don't call the context deriver. Since tasks run as goroutines, they need to call the deriver function (e.g., `apm.NewGoroutineContext`) inside their body - there's no way to wrap the context at the call site.
+
+Supported functions:
+- [`gotask.DoAll`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAll)
+- [`gotask.DoAllFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllFns)
+- [`gotask.DoAllSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllSettled)
+- [`gotask.DoAllFnsSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllFnsSettled)
+- [`gotask.DoRace`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRace)
+- [`gotask.DoRaceFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRaceFns)
+- [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync)
+- [`gotask.CancelableTask.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask.DoAsync)
 
 ```go
 func handler(ctx context.Context) {
@@ -133,7 +143,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-For `Task.DoAsync` and `CancelableTask.DoAsync`, the context argument must contain a deriver call:
+For [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync) and [`gotask.CancelableTask.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask.DoAsync), the context argument must contain a deriver call:
 
 ```go
 func handler(ctx context.Context) {
