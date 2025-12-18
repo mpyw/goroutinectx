@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **goroutine**: Detect `go func()` that doesn't capture/use context
 - **errgroup**: Detect `errgroup.Group.Go()` closures without context
 - **waitgroup**: Detect `sync.WaitGroup.Go()` closures without context (Go 1.25+)
-- **goroutine-creator**: Detect calls to functions marked with `//goroutinectx:goroutine_creator` that pass closures without context
+- **spawner**: Detect calls to functions marked with `//goroutinectx:spawner` that pass closures without context
 - **goroutine-derive**: Detect goroutines that don't call a specified context-derivation function (e.g., `apm.NewGoroutineContext`)
   - Activated via flag: `-goroutine-deriver=pkg/path.Func` or `-goroutine-deriver=pkg/path.Type.Method`
   - OR (comma): `-goroutine-deriver=pkg1.Func1,pkg2.Func2` - at least one must be called
@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Directives
 
 - `//goroutinectx:ignore` - Suppress warnings for the next line or same line
-- `//goroutinectx:goroutine_creator` - Mark a function as spawning goroutines with its func arguments
+- `//goroutinectx:spawner` - Mark a function as spawning goroutines with its func arguments
 
 ## Architecture
 
@@ -39,13 +39,13 @@ goroutinectx/
 │   │   ├── errgroup/          # errgroup.Group.Go() checker
 │   │   ├── waitgroup/         # sync.WaitGroup.Go() checker (Go 1.25+)
 │   │   ├── goroutine/         # go statement checker
-│   │   ├── goroutinecreator/  # goroutine_creator directive checker
+│   │   ├── spawner/           # spawner directive checker
 │   │   ├── goroutinederive/   # goroutine_derive checker
 │   │   └── gotask/            # gotask library checker
 │   ├── context/               # Context scope detection
 │   ├── directives/            # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
-│   │   ├── creator/           # //goroutinectx:goroutine_creator
+│   │   ├── spawner/           # //goroutinectx:spawner
 │   │   ├── carrier/           # Context carrier types
 │   │   └── deriver/           # DeriveMatcher for OR/AND deriver matching
 │   └── typeutil/              # Type checking utilities
@@ -55,7 +55,7 @@ goroutinectx/
 │       ├── goroutine/         # goroutine checker tests
 │       ├── errgroup/          # errgroup checker tests
 │       ├── waitgroup/         # waitgroup checker tests
-│       ├── goroutinecreator/  # goroutine_creator directive tests
+│       ├── spawner/           # spawner directive tests
 │       ├── goroutinederive/   # Single deriver tests
 │       ├── goroutinederiveand/    # AND (all must be called) tests
 │       ├── goroutinederivemixed/  # Mixed AND/OR tests
@@ -85,7 +85,7 @@ type CallChecker interface { CheckCall(cctx *CheckContext, call *ast.CallExpr) }
 type GoStmtChecker interface { CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) }
 
 type Checkers struct {
-    Call   []CallChecker   // errgroup, waitgroup, goroutinecreator, gotask
+    Call   []CallChecker   // errgroup, waitgroup, spawner, gotask
     GoStmt []GoStmtChecker // goroutine, goroutine_derive
 }
 ```
@@ -105,18 +105,18 @@ Four checkers handle goroutine context propagation:
 | goroutine | `go func(){}()` | `*ast.GoStmt` | Yes (`go fn()()`) |
 | errgroup | `g.Go(func(){})` | `*ast.CallExpr` | Yes (`g.Go(fn)`, `g.Go(make())`) |
 | waitgroup | `wg.Go(func(){})` | `*ast.CallExpr` | Yes (`wg.Go(fn)`, `wg.Go(make())`) |
-| goroutine-creator | `//goroutinectx:goroutine_creator` marked funcs | `*ast.CallExpr` | Yes (func args checked) |
+| spawner | `//goroutinectx:spawner` marked funcs | `*ast.CallExpr` | Yes (func args checked) |
 
 **Supported patterns:**
 - Literal: `g.Go(func() { ... })`
 - Variable: `g.Go(fn)` where `fn := func() { ... }`
 - Call result: `g.Go(makeWorker())` where `makeWorker` returns a func
 - Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory
-- Directive: Functions marked with `//goroutinectx:goroutine_creator` check their func arguments
+- Directive: Functions marked with `//goroutinectx:spawner` check their func arguments
 
-**goroutine_creator Directive:**
+**spawner Directive:**
 ```go
-//goroutinectx:goroutine_creator
+//goroutinectx:spawner
 func runWithGroup(g *errgroup.Group, fn func() error) {
     g.Go(fn)  // fn is spawned as goroutine
 }

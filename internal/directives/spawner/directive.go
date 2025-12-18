@@ -1,5 +1,5 @@
-// Package creator handles //goroutinectx:goroutine_creator directives.
-package creator
+// Package spawner handles //goroutinectx:spawner directives.
+package spawner
 
 import (
 	"go/ast"
@@ -9,12 +9,12 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// Map tracks functions marked with //goroutinectx:goroutine_creator.
+// Map tracks functions marked with //goroutinectx:spawner.
 // These functions are expected to spawn goroutines with their func arguments.
 type Map map[*types.Func]struct{}
 
-// IsGoroutineCreator checks if a function is marked as a goroutine creator.
-func (m Map) IsGoroutineCreator(fn *types.Func) bool {
+// IsSpawner checks if a function is marked as a spawner.
+func (m Map) IsSpawner(fn *types.Func) bool {
 	_, ok := m[fn]
 
 	return ok
@@ -25,20 +25,20 @@ func Build(pass *analysis.Pass) Map {
 	m := make(Map)
 
 	for _, file := range pass.Files {
-		buildGoroutineCreatorsForFile(pass, file, m)
+		buildSpawnersForFile(pass, file, m)
 	}
 
 	return m
 }
 
-// buildGoroutineCreatorsForFile scans a single file for goroutine creator directives.
-func buildGoroutineCreatorsForFile(pass *analysis.Pass, file *ast.File, m Map) {
+// buildSpawnersForFile scans a single file for spawner directives.
+func buildSpawnersForFile(pass *analysis.Pass, file *ast.File, m Map) {
 	// Build a map of line -> comment for quick lookup
 	lineComments := make(map[int]string)
 
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
-			if isGoroutineCreatorComment(c.Text) {
+			if isSpawnerComment(c.Text) {
 				line := pass.Fset.Position(c.Pos()).Line
 				lineComments[line] = c.Text
 			}
@@ -74,12 +74,12 @@ func buildGoroutineCreatorsForFile(pass *analysis.Pass, file *ast.File, m Map) {
 	}
 }
 
-// isGoroutineCreatorComment checks if a comment is a goroutine_creator directive.
-func isGoroutineCreatorComment(text string) bool {
+// isSpawnerComment checks if a comment is a spawner directive.
+func isSpawnerComment(text string) bool {
 	text = strings.TrimPrefix(text, "//")
 	text = strings.TrimSpace(text)
 
-	return strings.HasPrefix(text, "goroutinectx:goroutine_creator")
+	return strings.HasPrefix(text, "goroutinectx:spawner")
 }
 
 // GetFuncFromCall extracts the *types.Func from a call expression if possible.

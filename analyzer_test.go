@@ -81,9 +81,9 @@ func TestContextCarriers(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "carrier")
 }
 
-func TestGoroutineCreator(t *testing.T) {
+func TestSpawner(t *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutinecreator")
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawner")
 }
 
 func TestGotask(t *testing.T) {

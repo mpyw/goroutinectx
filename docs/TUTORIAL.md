@@ -376,12 +376,12 @@ func handler(ctx context.Context) {
 }
 ```
 
-### The `//goroutinectx:goroutine_creator` Directive
+### The `//goroutinectx:spawner` Directive
 
 For wrapper functions that spawn goroutines:
 
 ```go
-//goroutinectx:goroutine_creator
+//goroutinectx:spawner
 func runAsync(g *errgroup.Group, fn func() error) {
     g.Go(fn)
 }

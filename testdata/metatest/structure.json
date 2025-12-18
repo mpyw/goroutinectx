@@ -3,7 +3,7 @@
     "goroutine",
     "errgroup",
     "waitgroup",
-    "goroutinecreator",
+    "spawner",
     "goroutinederive",
     "goroutinederiveand",
     "goroutinederivemixed",
@@ -715,21 +715,21 @@
       },
       "level": "evil"
     },
-    "callToNonCreatorFunction": {
-      "title": "Call to non-creator function",
+    "callToNonSpawnerFunction": {
+      "title": "Call to non-spawner function",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
       "variants": {
         "good": {
-          "description": "Call to non-creator function - not checked",
+          "description": "Call to non-spawner function - not checked",
           "functions": {
-            "goroutinecreator": "goodNonCreatorFunction"
+            "spawner": "goodNonSpawnerFunction"
           }
         },
         "bad": null
       },
-      "level": "creator"
+      "level": "spawner"
     },
     "cancelableChainDoasyncWithDerivedCtx": {
       "title": "Cancelable chain DoAsync with derived ctx",
@@ -1404,18 +1404,18 @@
     "funcHasOwnCtxParam": {
       "title": "Func has own ctx param",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
       "variants": {
         "good": {
           "description": "Function declares own context parameter, outer context not required.",
           "functions": {
-            "goroutinecreator": "goodFuncHasOwnCtx"
+            "spawner": "goodFuncHasOwnCtx"
           }
         },
         "bad": null
       },
-      "level": "creator"
+      "level": "spawner"
     },
     "functionFromMapWithoutCtx": {
       "title": "Function from map without ctx",
@@ -1489,36 +1489,36 @@
       },
       "level": "evil"
     },
-    "functionWithCtxPassedThroughCreator": {
-      "title": "Function with ctx passed through creator",
+    "functionWithCtxPassedThroughSpawner": {
+      "title": "Function with ctx passed through spawner",
       "targets": [
         "errgroup",
         "waitgroup"
       ],
       "variants": {
         "good": {
-          "description": "Function with ctx passed through creator - should pass",
+          "description": "Function with ctx passed through spawner - should pass",
           "functions": {
-            "errgroup": "goodFuncPassedThroughCreator",
-            "waitgroup": "goodFuncPassedThroughCreator"
+            "errgroup": "goodFuncPassedThroughSpawner",
+            "waitgroup": "goodFuncPassedThroughSpawner"
           }
         },
         "bad": null
       },
       "level": "evil"
     },
-    "functionWithoutCtxPassedThroughCreator": {
-      "title": "Function without ctx passed through creator",
+    "functionWithoutCtxPassedThroughSpawner": {
+      "title": "Function without ctx passed through spawner",
       "targets": [
         "errgroup",
         "waitgroup"
       ],
       "variants": {
         "bad": {
-          "description": "Function without ctx passed through creator - should report",
+          "description": "Function without ctx passed through spawner - should report",
           "functions": {
-            "errgroup": "badFuncPassedThroughCreator",
-            "waitgroup": "badFuncPassedThroughCreator"
+            "errgroup": "badFuncPassedThroughSpawner",
+            "waitgroup": "badFuncPassedThroughSpawner"
           }
         },
         "good": null
@@ -2838,34 +2838,34 @@
     "multipleFuncArgsFirstBad": {
       "title": "Multiple func args - first bad",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
       "variants": {
         "bad": {
           "description": "First function argument does not use context.",
           "functions": {
-            "goroutinecreator": "badFirstFuncOnly"
+            "spawner": "badFirstFuncOnly"
           }
         },
         "good": null
       },
-      "level": "creator"
+      "level": "spawner"
     },
     "multipleFuncArgsSecondBad": {
       "title": "Multiple func args - second bad",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
       "variants": {
         "bad": {
           "description": "Second function argument does not use context.",
           "functions": {
-            "goroutinecreator": "badSecondFuncOnly"
+            "spawner": "badSecondFuncOnly"
           }
         },
         "good": null
       },
-      "level": "creator"
+      "level": "spawner"
     },
     "multipleGoCallsWithoutCtx": {
       "title": "Multiple Go calls without ctx",
@@ -3051,18 +3051,18 @@
     "noCtxParam3": {
       "title": "No ctx param",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
       "variants": {
         "good": {
           "description": "No ctx param - not checked",
           "functions": {
-            "goroutinecreator": "goodNoCtxParam"
+            "spawner": "goodNoCtxParam"
           }
         },
         "bad": null
       },
-      "level": "creator"
+      "level": "spawner"
     },
     "noCtxParam4": {
       "title": "No ctx param",
@@ -3613,20 +3613,20 @@
     "basicErrgroupFunc": {
       "title": "Basic errgroup func context usage",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
-      "level": "creator",
+      "level": "spawner",
       "variants": {
         "good": {
           "description": "Basic - func uses ctx",
           "functions": {
-            "goroutinecreator": "goodBasicErrgroup"
+            "spawner": "goodBasicErrgroup"
           }
         },
         "bad": {
           "description": "Basic - func doesn't use ctx",
           "functions": {
-            "goroutinecreator": "badBasicErrgroup"
+            "spawner": "badBasicErrgroup"
           }
         }
       }
@@ -3634,20 +3634,20 @@
     "basicWaitgroupFunc": {
       "title": "Basic waitgroup func context usage",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
-      "level": "creator",
+      "level": "spawner",
       "variants": {
         "good": {
           "description": "Basic - func uses ctx (waitgroup)",
           "functions": {
-            "goroutinecreator": "goodBasicWaitGroup"
+            "spawner": "goodBasicWaitGroup"
           }
         },
         "bad": {
           "description": "Basic - func doesn't use ctx (waitgroup)",
           "functions": {
-            "goroutinecreator": "badBasicWaitGroup"
+            "spawner": "badBasicWaitGroup"
           }
         }
       }
@@ -3826,20 +3826,20 @@
     "inlineFuncLiteral": {
       "title": "Inline func literal context usage",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
-      "level": "creator",
+      "level": "spawner",
       "variants": {
         "good": {
           "description": "Inline function literal properly uses context.",
           "functions": {
-            "goroutinecreator": "goodInlineFuncLiteral"
+            "spawner": "goodInlineFuncLiteral"
           }
         },
         "bad": {
           "description": "Inline function literal does not use context.",
           "functions": {
-            "goroutinecreator": "badInlineFuncLiteral"
+            "spawner": "badInlineFuncLiteral"
           }
         }
       }
@@ -3997,20 +3997,20 @@
     "multipleFuncArgsBoth": {
       "title": "Multiple func args - both context usage",
       "targets": [
-        "goroutinecreator"
+        "spawner"
       ],
-      "level": "creator",
+      "level": "spawner",
       "variants": {
         "good": {
           "description": "Multiple function arguments, all use context.",
           "functions": {
-            "goroutinecreator": "goodMultipleFuncs"
+            "spawner": "goodMultipleFuncs"
           }
         },
         "bad": {
           "description": "Multiple function arguments, none use context.",
           "functions": {
-            "goroutinecreator": "badMultipleFuncs"
+            "spawner": "badMultipleFuncs"
           }
         }
       }

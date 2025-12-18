@@ -49,7 +49,7 @@
         "level": {
           "type": "string",
           "description": "Complexity level of the test",
-          "enum": ["basic", "advanced", "evil", "carrier", "creator", "goroutinederive"]
+          "enum": ["basic", "advanced", "evil", "carrier", "spawner", "goroutinederive"]
         },
         "variants": {
           "type": "object",

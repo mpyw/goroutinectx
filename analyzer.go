@@ -14,14 +14,14 @@ import (
 	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/checkers/errgroup"
 	"github.com/mpyw/goroutinectx/internal/checkers/goroutine"
-	"github.com/mpyw/goroutinectx/internal/checkers/goroutinecreator"
 	"github.com/mpyw/goroutinectx/internal/checkers/goroutinederive"
 	"github.com/mpyw/goroutinectx/internal/checkers/gotask"
+	"github.com/mpyw/goroutinectx/internal/checkers/spawner"
 	"github.com/mpyw/goroutinectx/internal/checkers/waitgroup"
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
-	"github.com/mpyw/goroutinectx/internal/directives/creator"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	spawnerdir "github.com/mpyw/goroutinectx/internal/directives/spawner"
 )
 
 // Flags for the analyzer.
@@ -30,11 +30,11 @@ var (
 	contextCarriers  string
 
 	// Checker enable/disable flags (all enabled by default).
-	enableErrgroup         bool
-	enableWaitgroup        bool
-	enableGoroutine        bool
-	enableGoroutineCreator bool
-	enableGotask           bool
+	enableErrgroup  bool
+	enableWaitgroup bool
+	enableGoroutine bool
+	enableSpawner   bool
+	enableGotask    bool
 )
 
 func init() {
@@ -47,7 +47,7 @@ func init() {
 	Analyzer.Flags.BoolVar(&enableErrgroup, "errgroup", true, "enable errgroup checker")
 	Analyzer.Flags.BoolVar(&enableWaitgroup, "waitgroup", true, "enable waitgroup checker")
 	Analyzer.Flags.BoolVar(&enableGoroutine, "goroutine", true, "enable goroutine checker")
-	Analyzer.Flags.BoolVar(&enableGoroutineCreator, "goroutine-creator", true, "enable goroutine-creator checker")
+	Analyzer.Flags.BoolVar(&enableSpawner, "spawner", true, "enable spawner checker")
 	Analyzer.Flags.BoolVar(&enableGotask, "gotask", true, "enable gotask checker (requires -goroutine-deriver)")
 }
 
@@ -74,11 +74,11 @@ func run(pass *analysis.Pass) (any, error) {
 	// Build ignore maps for each file
 	ignoreMaps := buildIgnoreMaps(pass)
 
-	// Build goroutine creator map from //goroutinectx:goroutine_creator directives
-	goroutineCreators := creator.Build(pass)
+	// Build spawner map from //goroutinectx:spawner directives
+	spawners := spawnerdir.Build(pass)
 
 	// Run AST-based checks (goroutine, errgroup, waitgroup)
-	runASTChecks(pass, insp, ignoreMaps, carriers, goroutineCreators)
+	runASTChecks(pass, insp, ignoreMaps, carriers, spawners)
 
 	return nil, nil
 }
@@ -101,7 +101,7 @@ func runASTChecks(
 	insp *inspector.Inspector,
 	ignoreMaps map[string]ignore.Map,
 	carriers []carrier.Carrier,
-	goroutineCreators creator.Map,
+	spawners spawnerdir.Map,
 ) {
 	// Build context scopes for functions with context parameters
 	funcScopes := buildFuncScopes(pass, insp, carriers)
@@ -120,9 +120,9 @@ func runASTChecks(
 		callCheckers = append(callCheckers, waitgroup.New())
 	}
 
-	// Add goroutine creator checker if enabled and any functions are marked
-	if enableGoroutineCreator && len(goroutineCreators) > 0 {
-		callCheckers = append(callCheckers, goroutinecreator.New(goroutineCreators))
+	// Add spawner checker if enabled and any functions are marked
+	if enableSpawner && len(spawners) > 0 {
+		callCheckers = append(callCheckers, spawner.New(spawners))
 	}
 
 	// When goroutine-deriver is set, it replaces the base goroutine checker.

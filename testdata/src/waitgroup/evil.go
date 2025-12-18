@@ -191,33 +191,33 @@ func badInterfaceMethodWithoutCtxArg(ctx context.Context, factory WorkerFactoryN
 // These patterns cannot be tracked statically.
 // LIMITATION = false positive: ctx IS used but analyzer can't detect it.
 
-//goroutinectx:goroutine_creator //vt:helper
+//goroutinectx:spawner //vt:helper
 func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 	wg.Go(fn)
 }
 
-// [GOOD]: Function with ctx passed through creator
+// [GOOD]: Function with ctx passed through spawner
 //
-// Function with ctx passed through creator - should pass
+// Function with ctx passed through spawner - should pass
 //
 // See also:
-//   errgroup: goodFuncPassedThroughCreator
-func goodFuncPassedThroughCreator(ctx context.Context) {
+//   errgroup: goodFuncPassedThroughSpawner
+func goodFuncPassedThroughSpawner(ctx context.Context) {
 	var wg sync.WaitGroup
 	fn := func() {
 		_ = ctx // fn uses ctx
 	}
-	runWithWaitGroup(&wg, fn) // OK - fn uses ctx, and runWithWaitGroup is marked as creator
+	runWithWaitGroup(&wg, fn) // OK - fn uses ctx, and runWithWaitGroup is marked as spawner
 	wg.Wait()
 }
 
-// [BAD]: Function without ctx passed through creator
+// [BAD]: Function without ctx passed through spawner
 //
-// Function without ctx passed through creator - should report
+// Function without ctx passed through spawner - should report
 //
 // See also:
-//   errgroup: badFuncPassedThroughCreator
-func badFuncPassedThroughCreator(ctx context.Context) {
+//   errgroup: badFuncPassedThroughSpawner
+func badFuncPassedThroughSpawner(ctx context.Context) {
 	var wg sync.WaitGroup
 	fn := func() {
 		fmt.Println("no ctx")

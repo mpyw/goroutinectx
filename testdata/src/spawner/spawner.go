@@ -1,5 +1,5 @@
-// Package goroutinecreator tests the //goroutinectx:goroutine_creator directive.
-package goroutinecreator
+// Package spawner tests the //goroutinectx:spawner directive.
+package spawner
 
 import (
 	"context"
@@ -9,14 +9,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// ===== GOROUTINE CREATOR FUNCTIONS =====
+// ===== SPAWNER FUNCTIONS =====
 
-//goroutinectx:goroutine_creator //vt:helper
+//goroutinectx:spawner //vt:helper
 func runWithGroup(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
 
-//goroutinectx:goroutine_creator //vt:helper
+//goroutinectx:spawner //vt:helper
 func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 	wg.Add(1)
 	go func() {
@@ -25,7 +25,7 @@ func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 	}()
 }
 
-//goroutinectx:goroutine_creator //vt:helper
+//goroutinectx:spawner //vt:helper
 func runMultipleFuncs(fn1, fn2 func()) {
 	go fn1()
 	go fn2()
@@ -176,22 +176,22 @@ func goodFuncHasOwnCtx(ctx context.Context) {
 	_ = g
 }
 
-// ===== NON-CREATOR FUNCTIONS (should not be checked) =====
+// ===== NON-SPAWNER FUNCTIONS (should not be checked) =====
 
 //vt:helper
 func normalHelper(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
 
-// [GOOD]: Call to non-creator function
+// [GOOD]: Call to non-spawner function
 //
-// Call to non-creator function - not checked
-func goodNonCreatorFunction(ctx context.Context) {
+// Call to non-spawner function - not checked
+func goodNonSpawnerFunction(ctx context.Context) {
 	g := new(errgroup.Group)
 	fn := func() error {
 		fmt.Println("no ctx")
 		return nil
 	}
-	normalHelper(g, fn) // OK - normalHelper is not marked as goroutine_creator
+	normalHelper(g, fn) // OK - normalHelper is not marked as spawner
 	_ = g.Wait()
 }

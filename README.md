@@ -166,12 +166,12 @@ func handler(ctx context.Context) {
 
 The comment can be on the same line or the line above.
 
-### `//goroutinectx:goroutine_creator`
+### `//goroutinectx:spawner`
 
 Mark a function as one that spawns goroutines with its func arguments. The analyzer will check that func arguments passed to marked functions properly use context:
 
 ```go
-//goroutinectx:goroutine_creator
+//goroutinectx:spawner
 func runAsync(g *errgroup.Group, fn func() error) {
     g.Go(fn)
 }
@@ -238,7 +238,7 @@ Available flags:
 - `-goroutine` (default: true)
 - `-errgroup` (default: true)
 - `-waitgroup` (default: true)
-- `-goroutine-creator` (default: true)
+- `-spawner` (default: true)
 - `-gotask` (default: true, requires `-goroutine-deriver`)
 
 ## Design Principles

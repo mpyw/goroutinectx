@@ -220,8 +220,8 @@ func findTestFile(target, level string) string {
 	// Map level to actual filename based on target
 	var fileName string
 	switch target {
-	case "goroutinecreator":
-		fileName = "creator.go"
+	case "spawner":
+		fileName = "spawner.go"
 	case "goroutinederive":
 		fileName = "goroutinederive.go"
 	case "carrier":

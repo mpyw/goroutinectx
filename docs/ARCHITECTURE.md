@@ -38,14 +38,14 @@ goroutinectx/
 │   │   ├── errgroup/          # errgroup.Group.Go() checker
 │   │   ├── waitgroup/         # sync.WaitGroup.Go() checker
 │   │   ├── goroutine/         # go statement checker
-│   │   ├── goroutinecreator/  # goroutine_creator directive checker
+│   │   ├── spawner/           # spawner directive checker
 │   │   ├── goroutinederive/   # goroutine_derive checker
 │   │   └── gotask/            # gotask library checker
 │   ├── context/               # Context scope detection
 │   │   └── scope.go           # ContextScope, FindScope
 │   ├── directives/            # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
-│   │   ├── creator/           # //goroutinectx:goroutine_creator
+│   │   ├── spawner/           # //goroutinectx:spawner
 │   │   ├── carrier/           # Context carrier types
 │   │   └── deriver/           # DeriveMatcher for OR/AND deriver matching
 │   └── typeutil/              # Type checking utilities
@@ -58,7 +58,7 @@ goroutinectx/
 │       ├── goroutine/         # goroutine checker tests
 │       ├── errgroup/          # errgroup checker tests
 │       ├── waitgroup/         # waitgroup checker tests
-│       ├── goroutinecreator/  # goroutine_creator tests
+│       ├── spawner/           # spawner tests
 │       ├── goroutinederive/   # Single deriver tests
 │       ├── goroutinederiveand/    # AND deriver tests
 │       ├── goroutinederivemixed/  # Mixed AND/OR tests
@@ -154,7 +154,7 @@ func (m *DeriveMatcher) SatisfiesAnyGroup(pass *analysis.Pass, node ast.Node) bo
 | errgroup | internal/checkers/errgroup | CallChecker | Context in `g.Go()` |
 | waitgroup | internal/checkers/waitgroup | CallChecker | Context in `wg.Go()` |
 | goroutine | internal/checkers/goroutine | GoStmtChecker | Context in `go func()` |
-| goroutinecreator | internal/checkers/goroutinecreator | CallChecker | Context in `//goroutinectx:goroutine_creator` marked function calls |
+| spawner | internal/checkers/spawner | CallChecker | Context in `//goroutinectx:spawner` marked function calls |
 | goroutinederive | internal/checkers/goroutinederive | GoStmtChecker | Specific function call in `go func()` |
 | gotask | internal/checkers/gotask | CallChecker | Deriver in gotask task functions |
 
