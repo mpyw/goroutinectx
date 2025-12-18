@@ -14,8 +14,8 @@ import (
 	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/checkers/errgroup"
 	"github.com/mpyw/goroutinectx/internal/checkers/goroutine"
-	goroutinecreatorchecker "github.com/mpyw/goroutinectx/internal/checkers/goroutinecreator"
-	goroutinederivechecker "github.com/mpyw/goroutinectx/internal/checkers/goroutinederive"
+	"github.com/mpyw/goroutinectx/internal/checkers/goroutinecreator"
+	"github.com/mpyw/goroutinectx/internal/checkers/goroutinederive"
 	"github.com/mpyw/goroutinectx/internal/checkers/gotask"
 	"github.com/mpyw/goroutinectx/internal/checkers/waitgroup"
 	"github.com/mpyw/goroutinectx/internal/context"
@@ -122,13 +122,13 @@ func runASTChecks(
 
 	// Add goroutine creator checker if enabled and any functions are marked
 	if enableGoroutineCreator && len(goroutineCreators) > 0 {
-		callCheckers = append(callCheckers, goroutinecreatorchecker.New(goroutineCreators))
+		callCheckers = append(callCheckers, goroutinecreator.New(goroutineCreators))
 	}
 
 	// When goroutine-deriver is set, it replaces the base goroutine checker.
 	// The derive checker is a more specific version that checks for deriver function calls.
 	if goroutineDeriver != "" {
-		goStmtCheckers = append(goStmtCheckers, goroutinederivechecker.New(goroutineDeriver))
+		goStmtCheckers = append(goStmtCheckers, goroutinederive.New(goroutineDeriver))
 		// gotask checker also requires goroutine-deriver to be set
 		if enableGotask {
 			callCheckers = append(callCheckers, gotask.New(goroutineDeriver))
