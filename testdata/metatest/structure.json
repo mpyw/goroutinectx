@@ -1977,42 +1977,6 @@
       },
       "level": "advanced"
     },
-    "interfaceMethodWithCtxArgument": {
-      "title": "Interface method with ctx argument",
-      "targets": [
-        "errgroup",
-        "waitgroup"
-      ],
-      "variants": {
-        "good": {
-          "description": "Context is passed as argument to interface method.",
-          "functions": {
-            "errgroup": "goodInterfaceMethodWithCtxArg",
-            "waitgroup": "goodInterfaceMethodWithCtxArg"
-          }
-        },
-        "bad": null
-      },
-      "level": "evil"
-    },
-    "interfaceMethodWithoutCtxArgument": {
-      "title": "Interface method without ctx argument",
-      "targets": [
-        "errgroup",
-        "waitgroup"
-      ],
-      "variants": {
-        "bad": {
-          "description": "Interface method call without context argument.",
-          "functions": {
-            "errgroup": "badInterfaceMethodWithoutCtxArg",
-            "waitgroup": "badInterfaceMethodWithoutCtxArg"
-          }
-        },
-        "good": null
-      },
-      "level": "evil"
-    },
     "interleavedLayersCtxNoCtxCtxShadowing": {
       "title": "Interleaved layers - ctx->no ctx->ctx shadowing",
       "targets": [
@@ -2934,38 +2898,6 @@
         "bad": null
       },
       "level": "basic"
-    },
-    "multipleFuncArgsBothBad": {
-      "title": "Multiple func args - both bad",
-      "targets": [
-        "goroutinecreator"
-      ],
-      "variants": {
-        "bad": {
-          "description": "Multiple function arguments, none use context.",
-          "functions": {
-            "goroutinecreator": "badMultipleFuncs"
-          }
-        },
-        "good": null
-      },
-      "level": "creator"
-    },
-    "multipleFuncArgsBothGood": {
-      "title": "Multiple func args - both good",
-      "targets": [
-        "goroutinecreator"
-      ],
-      "variants": {
-        "good": {
-          "description": "Multiple function arguments, all use context.",
-          "functions": {
-            "goroutinecreator": "goodMultipleFuncs"
-          }
-        },
-        "bad": null
-      },
-      "level": "creator"
     },
     "multipleFuncArgsFirstBad": {
       "title": "Multiple func args - first bad",
@@ -4122,6 +4054,51 @@
           "description": "Traditional WaitGroup Add/Done pattern without context usage.",
           "functions": {
             "goroutine": "badGoroutineWithWaitGroup"
+          }
+        }
+      }
+    },
+    "multipleFuncArgsBoth": {
+      "title": "Multiple func args - both context usage",
+      "targets": [
+        "goroutinecreator"
+      ],
+      "level": "creator",
+      "variants": {
+        "good": {
+          "description": "Multiple function arguments, all use context.",
+          "functions": {
+            "goroutinecreator": "goodMultipleFuncs"
+          }
+        },
+        "bad": {
+          "description": "Multiple function arguments, none use context.",
+          "functions": {
+            "goroutinecreator": "badMultipleFuncs"
+          }
+        }
+      }
+    },
+    "interfaceMethodWithArgument": {
+      "title": "Interface method with argument",
+      "targets": [
+        "errgroup",
+        "waitgroup"
+      ],
+      "level": "evil",
+      "variants": {
+        "good": {
+          "description": "Context is passed as argument to interface method.",
+          "functions": {
+            "errgroup": "goodInterfaceMethodWithCtxArg",
+            "waitgroup": "goodInterfaceMethodWithCtxArg"
+          }
+        },
+        "bad": {
+          "description": "Interface method call without context argument.",
+          "functions": {
+            "errgroup": "badInterfaceMethodWithoutCtxArg",
+            "waitgroup": "badInterfaceMethodWithoutCtxArg"
           }
         }
       }

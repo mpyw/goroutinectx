@@ -157,7 +157,7 @@ func (f *myFactory) CreateWorker(ctx context.Context) func() {
 	}
 }
 
-// [GOOD]: Interface method with ctx argument
+// [GOOD]: Interface method with argument
 //
 // Context is passed as argument to interface method.
 //
@@ -174,7 +174,7 @@ type WorkerFactoryNoCtx interface {
 	CreateWorker() func()
 }
 
-// [BAD]: Interface method without ctx argument
+// [BAD]: Interface method with argument
 //
 // Interface method call without context argument.
 //

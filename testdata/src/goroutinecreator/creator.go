@@ -70,7 +70,7 @@ func badInlineFuncLiteral(ctx context.Context) {
 	_ = g.Wait()
 }
 
-// [BAD]: Multiple func args - both bad
+// [BAD]: Multiple func args - both context usage
 //
 // Multiple function arguments, none use context.
 func badMultipleFuncs(ctx context.Context) {
@@ -139,7 +139,7 @@ func goodInlineFuncLiteral(ctx context.Context) {
 	_ = g.Wait()
 }
 
-// [GOOD]: Multiple func args - both good
+// [GOOD]: Multiple func args - both context usage
 //
 // Multiple function arguments, all use context.
 func goodMultipleFuncs(ctx context.Context) {
