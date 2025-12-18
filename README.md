@@ -1,8 +1,5 @@
 # goroutinectx
 
-> [!CAUTION]
-> This project is under heavy construction. The repository has been renamed from `ctxrelay` to `goroutinectx`. See [TASK_ARCH_REFACTOR.md](./TASK_ARCH_REFACTOR.md) for details.
-
 > [!NOTE]
 > This project was 99% written by AI (Claude Code).
 
@@ -14,53 +11,19 @@ A Go linter that checks goroutine context propagation.
 
 ## Installation
 
-```bash
-go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
+This analyzer is designed to be used as a library with `go/analysis`. To use it, import the analyzer in your own tool:
+
+```go
+import "github.com/mpyw/goroutinectx"
+
+func main() {
+    singlechecker.Main(goroutinectx.Analyzer)
+}
 ```
 
-## Usage
-
-### Standalone
-
-```bash
-goroutinectx ./...
-```
-
-### With go vet
-
-```bash
-go vet -vettool=$(which goroutinectx) ./...
-```
+Or use it with `multichecker` alongside other analyzers.
 
 ## What It Checks
-
-### zerolog
-
-Detects zerolog logging chains missing `.Ctx(ctx)`:
-
-```go
-func handler(ctx context.Context, log zerolog.Logger) {
-    // Bad: missing .Ctx(ctx)
-    log.Info().Str("key", "value").Msg("hello")
-
-    // Good: includes .Ctx(ctx)
-    log.Info().Ctx(ctx).Str("key", "value").Msg("hello")
-}
-```
-
-### slog
-
-Detects slog calls that should use context-aware variants:
-
-```go
-func handler(ctx context.Context) {
-    // Bad: use InfoContext instead
-    slog.Info("hello")
-
-    // Good: uses context
-    slog.InfoContext(ctx, "hello")
-}
-```
 
 ### goroutines
 
@@ -238,7 +201,7 @@ Require goroutines to call a specific function to derive context. Useful for APM
 
 ```bash
 # Single deriver - require apm.NewGoroutineContext() in goroutines
-goroutinectx -goroutine-deriver=github.com/my-example-app/telemetry/apm.NewGoroutineContext ./...
+goroutinectx -goroutine-deriver='github.com/my-example-app/telemetry/apm.NewGoroutineContext' ./...
 
 # AND (plus) - require BOTH txn.NewGoroutine() AND newrelic.NewContext()
 goroutinectx -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext' ./...
@@ -267,23 +230,11 @@ goroutinectx -context-carriers=github.com/labstack/echo/v4.Context,github.com/ur
 
 When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs.
 
-**Note**: This flag applies to AST-based checkers (slog, goroutine, errgroup, waitgroup). zerolog analysis only checks `context.Context` because `zerolog.Ctx()` only accepts `context.Context`.
-
 ### Checker Enable/Disable Flags
 
 All checkers are enabled by default. Use these flags to disable specific checkers:
 
-```bash
-# Disable specific checkers
-goroutinectx -slog=false -zerolog=false ./...
-
-# Run only goroutine-related checks
-goroutinectx -slog=false -zerolog=false ./...
-```
-
 Available flags:
-- `-slog` (default: true)
-- `-zerolog` (default: true)
 - `-goroutine` (default: true)
 - `-errgroup` (default: true)
 - `-waitgroup` (default: true)

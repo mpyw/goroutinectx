@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "structure.schema.json",
   "title": "Test Structure",
-  "description": "Schema for ctxrelay test metadata structure",
+  "description": "Schema for goroutinectx test metadata structure",
   "type": "object",
   "required": ["targets", "tests"],
   "additionalProperties": false,

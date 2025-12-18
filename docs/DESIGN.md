@@ -1,8 +1,6 @@
 # Design Document
 
-## Overview
-
-ctxrelay is a static analysis tool for Go that enforces context propagation best practices.
+This document explains **why** goroutinectx was designed the way it is. For technical specifications and implementation details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Problem Statement
 
@@ -12,14 +10,15 @@ In Go applications, `context.Context` is used for:
 - Trace/span correlation (APM, distributed tracing)
 - Request-scoped values
 
-However, developers often forget to pass context to downstream calls, breaking the propagation chain. This leads to:
+However, developers often forget to pass context to goroutines, breaking the propagation chain. This leads to:
 - Incomplete traces in APM tools
-- Uncancellable operations
+- Uncancellable goroutines (resource leaks)
 - Lost request-scoped data
+- Goroutines running beyond request lifetime
 
 ## Goals
 
-1. **Detect missing context propagation** in common patterns
+1. **Detect missing context propagation** in goroutines and related patterns
 2. **Integration** with existing Go tooling (`go vet`, `golangci-lint`)
 3. **Zero false positives** - prefer missing issues over false alarms
 4. **Type-safe analysis** - use `go/types` for accurate detection
@@ -28,82 +27,8 @@ However, developers often forget to pass context to downstream calls, breaking t
 
 1. Auto-fixing (may be added later)
 2. Runtime checking
-3. Configuration files (v1.0 will have hardcoded rules)
+3. Configuration files (flags only for v1)
 4. Custom rule definition (future version)
-
----
-
-## Architecture
-
-### Directory Structure
-
-```
-pkg/analyzer/
-├── analyzer.go              # Main entry point (orchestration)
-├── analyzer_test.go         # Integration tests
-└── checkers/
-    ├── checker.go           # Checker interfaces & ContextScope
-    ├── typeutil.go          # Type utilities (shared)
-    ├── ignore.go            # Ignore directive handling
-    ├── errgroupchecker/     # errgroup.Group.Go() checker
-    │   └── checker.go
-    ├── goroutinechecker/    # go statement checker
-    │   └── checker.go
-    ├── goroutinederivechecker/  # goroutine derive function checker
-    │   └── checker.go
-    ├── slogchecker/         # slog logging checker
-    │   └── checker.go
-    ├── waitgroupchecker/    # sync.WaitGroup.Go() checker
-    │   └── checker.go
-    └── zerologchecker/      # zerolog SSA-based checker
-        ├── checker.go       # Entry point
-        ├── tracer.go        # Strategy pattern tracers
-        ├── trace.go         # SSA value tracing
-        └── types.go         # Type checking
-```
-
-### Checker Interface
-
-```go
-// checker.go
-package checkers
-
-// Checker defines the interface for context propagation checks.
-type Checker interface {
-    Name() string
-    CheckCall(pass *analysis.Pass, call *ast.CallExpr, scope *ContextScope)
-    CheckGoStmt(pass *analysis.Pass, stmt *ast.GoStmt, scope *ContextScope)
-}
-```
-
-### ContextScope
-
-```go
-// ContextScope tracks context availability in a scope.
-type ContextScope struct {
-    Var  *types.Var  // The context variable (from go/types)
-    Name string      // Variable name (for error messages)
-}
-
-// UsesContext checks if the given AST node uses the context variable.
-func (s *ContextScope) UsesContext(node ast.Node) bool
-```
-
-### Type Utilities
-
-```go
-// typeutil.go
-package checkers
-
-// IsNamedType checks if expr has the given named type (handles pointers).
-func IsNamedType(pass *analysis.Pass, expr ast.Expr, pkgPath, typeName string) bool
-
-// IsContextType checks if the type is context.Context.
-func IsContextType(t types.Type) bool
-
-// unwrapPointer returns the element type if t is a pointer, otherwise t.
-func unwrapPointer(t types.Type) types.Type
-```
 
 ---
 
@@ -111,21 +36,9 @@ func unwrapPointer(t types.Type) types.Type
 
 ### 1. `inspector.WithStack` for Nested Function Support
 
-Using `inspector.WithStack` instead of `ast.Inspect` allows proper tracking of context through nested functions and closures:
+**Decision:** Use `inspector.WithStack` instead of `ast.Inspect`.
 
-```go
-insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-    // Find nearest enclosing function with context
-    for i := len(stack) - 1; i >= 0; i-- {
-        if scope, ok := funcScopes[stack[i]]; ok {
-            // Run checkers with this scope
-            break
-        }
-    }
-})
-```
-
-This correctly handles:
+**Rationale:** Proper tracking of context through nested functions and closures requires knowing the enclosing function at any point in the AST traversal. `inspector.WithStack` provides this stack context, enabling correct handling of:
 - Nested functions at any depth
 - Closures capturing context
 - Shadowed context parameters
@@ -133,42 +46,57 @@ This correctly handles:
 
 ### 2. Type-Safe Analysis
 
-All checkers use `go/types` for accurate detection instead of name-based string matching:
+**Decision:** Use `go/types` for all type checking instead of name-based string matching.
 
-```go
-// Good: Type-safe checking
-func IsNamedType(pass *analysis.Pass, expr ast.Expr, pkgPath, typeName string) bool {
-    tv, ok := pass.TypesInfo.Types[expr]
-    // ... check against actual type info
-}
+**Rationale:** Name-based checking (e.g., `if sel.Sel.Name == "Info"`) is error-prone and breaks with:
+- Package aliases
+- Type embedding
+- Interface satisfaction
 
-// Avoided: Name-based checking (error-prone)
-// if sel.Sel.Name == "Info" { ... }
-```
+Type-safe checking via `pass.TypesInfo` ensures accurate detection regardless of naming.
 
-### 3. Checker Interface Pattern
+### 3. Interface Segregation
 
-Each API (zerolog, slog, etc.) has its own checker implementation in a dedicated package. This provides:
-- Clear separation of concerns
-- Easy addition of new checkers
-- Testability
+**Decision:** Separate `CallChecker` and `GoStmtChecker` interfaces rather than a single `Checker` interface.
+
+**Rationale:** These are fundamentally different AST constructs:
+- `go` is a statement (`*ast.GoStmt`)
+- Function calls are expressions (`*ast.CallExpr`)
+
+Separating interfaces allows checkers to implement only what they need, avoiding no-op method implementations.
 
 ### 4. Package Structure and Method Design
 
-**In split packages (e.g., `errgroupchecker`, `slogchecker`):**
-- Methods MUST have meaningful receivers that are actually used
-- Receiver-less struct methods are NOT allowed
-- If a function doesn't need state, make it a package-level function
-- This keeps the API honest - struct methods imply state dependency
-
-**In non-split code (e.g., shared utilities in `checkers/`):**
-- Receiver-less struct methods ARE allowed when needed to avoid name collisions
-- Use judgment based on the specific situation
+**Decision:** Split checker implementations into separate packages under `internal/checkers/`.
 
 **Rationale:**
-When code is properly separated into packages, naming conflicts are naturally resolved by the package namespace. The package name itself provides context, so internal names can be simpler (e.g., `checker` instead of `errgroupChecker`). Struct methods without receivers in split packages would be a code smell - they indicate either:
-1. The function should be package-level, or
-2. The struct should hold some state
+- Package namespace resolves naming conflicts naturally
+- Internal names can be simpler (e.g., `Checker` instead of `errgroupChecker`)
+- Methods must have meaningful receivers - receiver-less struct methods are a code smell indicating either:
+  1. The function should be package-level, or
+  2. The struct should hold some state
+
+### 5. Multiple Context Parameter Support
+
+**Decision:** Track ALL context parameters in a function, not just the first one.
+
+**Rationale:** Functions may have multiple context parameters (e.g., `ctx1, ctx2 context.Context`). If any context variable is used, the check passes. Error messages report the first context name for consistency.
+
+### 6. Nested Closure Context Rule
+
+**Decision:** Context usage in nested closures does NOT satisfy the outer goroutine's requirement.
+
+**Rationale:** This ensures every goroutine level explicitly acknowledges context propagation. Without this rule:
+- Code readers can't tell if context propagation was intentional
+- Refactoring (e.g., removing the inner goroutine) could silently break context propagation
+
+The pattern `_ = ctx` serves as explicit acknowledgment.
+
+### 7. Zero False Positives Philosophy
+
+**Decision:** When uncertain, don't report.
+
+**Rationale:** False positives erode trust in the linter. Users ignore warnings when too many are incorrect. Better to miss some issues than to report incorrectly. Users can always suppress with `//goroutinectx:ignore`.
 
 ---
 
@@ -177,10 +105,11 @@ When code is properly separated into packages, naming conflicts are naturally re
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2024-12-15 | No config files for v1.0 | Keep it simple. Add later if needed |
-| 2024-12-15 | Checker interface | Extensibility and testability |
+| 2024-12-15 | Checker interface pattern | Extensibility and testability |
 | 2024-12-15 | Type info over names | Name-based matching is error-prone |
-| 2024-12-15 | Exclude zap | Low priority. Add if needed |
 | 2024-12-15 | Use `inspector.WithStack` | Accurate tracking of nested functions |
+| 2024-12-17 | Interface segregation | CallChecker vs GoStmtChecker separation |
+| 2024-12-17 | Nested closure rule | Explicit context acknowledgment at each level |
 
 ## References
 

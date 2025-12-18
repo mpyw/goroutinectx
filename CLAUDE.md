@@ -4,12 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**ctxrelay** is a Go linter that enforces context propagation best practices. It detects cases where a `context.Context` is available in function parameters but not properly passed to downstream calls that should receive it.
+**goroutinectx** is a Go linter that enforces context propagation best practices in goroutines. It detects cases where a `context.Context` is available in function parameters but not properly passed to goroutines and related APIs.
 
 ### Supported Checkers
 
-- **zerolog**: Detect missing `.Ctx(ctx)` in zerolog chains
-- **slog**: Detect non-context variants (`Info` vs `InfoContext`)
 - **goroutine**: Detect `go func()` that doesn't capture/use context
 - **errgroup**: Detect `errgroup.Group.Go()` closures without context
 - **waitgroup**: Detect `sync.WaitGroup.Go()` closures without context (Go 1.25+)
@@ -31,48 +29,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture
 
 ```
-ctxrelay/
-├── cmd/
-│   └── ctxrelay/              # CLI entry point (singlechecker)
-│       └── main.go
-├── pkg/
-│   └── analyzer/
-│       ├── analyzer.go        # Main analyzer (orchestration)
-│       ├── analyzer_test.go   # Integration tests
-│       ├── checkers/          # Individual checker implementations
-│       │   ├── checker.go     # CheckContext, ContextScope, CallChecker, GoStmtChecker
-│       │   ├── typeutil.go    # Type checking utilities
-│       │   ├── ignore.go      # IgnoreMap for //goroutinectx:ignore
-│       │   ├── directive.go   # GoroutineCreatorMap for //goroutinectx:goroutine_creator
-│       │   ├── deriver.go     # DeriveMatcher for OR/AND deriver function matching
-│       │   ├── slogchecker/           # slog checker
-│       │   ├── errgroupchecker/       # errgroup checker
-│       │   ├── waitgroupchecker/      # waitgroup checker
-│       │   ├── goroutinechecker/      # goroutine checker
-│       │   ├── goroutinecreatorchecker/ # goroutine_creator directive checker
-│       │   ├── goroutinederivechecker/  # goroutine_derive checker
-│       │   ├── gotaskchecker/         # gotask task function checker
-│       │   └── zerologchecker/        # SSA-based zerolog analysis
-│       │       ├── checker.go # Entry point
-│       │       ├── tracer.go  # Strategy Pattern tracers
-│       │       ├── trace.go   # Value tracing, Phi handling
-│       │       └── types.go   # Type checking, constants
-│       └── testdata/          # Test fixtures
-│           └── src/
-│               ├── zerolog/   # basic.go, edge_*.go
-│               ├── slog/
-│               ├── goroutine/
-│               ├── errgroup/
-│               ├── waitgroup/
-│               ├── goroutinecreator/     # goroutine_creator directive tests
-│               ├── goroutinederive/      # Single deriver tests
-│               ├── goroutinederiveand/   # AND (all must be called) tests
-│               ├── goroutinederivemixed/ # Mixed AND/OR tests
-│               └── gotask/               # gotask checker tests
-├── scripts/
-│   └── verify-test-patterns.pl  # Test naming consistency checker
-├── docs/
-│   └── ARCHITECTURE.md        # Architecture overview
+goroutinectx/
+├── analyzer.go                # Main analyzer (orchestration, flags, run function)
+├── analyzer_test.go           # Integration tests using analysistest
+├── waitgroup_test.go          # Waitgroup-specific tests (Go 1.25+ build tag)
+├── internal/
+│   ├── checkers/              # Individual checker implementations
+│   │   ├── checker.go         # CallChecker, GoStmtChecker interfaces
+│   │   ├── errgroup/          # errgroup.Group.Go() checker
+│   │   ├── waitgroup/         # sync.WaitGroup.Go() checker (Go 1.25+)
+│   │   ├── goroutine/         # go statement checker
+│   │   ├── goroutinecreator/  # goroutine_creator directive checker
+│   │   ├── goroutinederive/   # goroutine_derive checker
+│   │   └── gotask/            # gotask library checker
+│   ├── context/               # Context scope detection
+│   ├── directives/            # Directive parsing
+│   │   ├── ignore/            # //goroutinectx:ignore
+│   │   ├── creator/           # //goroutinectx:goroutine_creator
+│   │   ├── carrier/           # Context carrier types
+│   │   └── deriver/           # DeriveMatcher for OR/AND deriver matching
+│   └── typeutil/              # Type checking utilities
+├── testdata/
+│   ├── metatest/              # Test metadata validation (structure.json)
+│   └── src/                   # Test fixtures
+│       ├── goroutine/         # goroutine checker tests
+│       ├── errgroup/          # errgroup checker tests
+│       ├── waitgroup/         # waitgroup checker tests
+│       ├── goroutinecreator/  # goroutine_creator directive tests
+│       ├── goroutinederive/   # Single deriver tests
+│       ├── goroutinederiveand/    # AND (all must be called) tests
+│       ├── goroutinederivemixed/  # Mixed AND/OR tests
+│       ├── gotask/            # gotask checker tests
+│       └── carrier/           # Context carrier tests
+├── docs/                      # Documentation
+├── .github/workflows/         # CI configuration
 ├── .golangci.yaml             # golangci-lint configuration
 └── README.md
 ```
@@ -85,8 +75,7 @@ ctxrelay/
 4. **Interface segregation**: `CallChecker` and `GoStmtChecker` interfaces (no BaseChecker)
 5. **Minimal exports**: Only necessary types/functions are exported from `checkers` package
 6. **Zero false positives**: Prefer missing issues over false alarms
-7. **SSA for zerolog**: Uses SSA form to track Event values through assignments
-8. **Multiple context tracking**: Tracks ALL context parameters, not just the first one. If ANY context variable is used, the check passes. Error messages report the first context name for consistency.
+7. **Multiple context tracking**: Tracks ALL context parameters, not just the first one. If ANY context variable is used, the check passes. Error messages report the first context name for consistency.
 
 ### Checker Interface Design
 
@@ -96,25 +85,14 @@ type CallChecker interface { CheckCall(cctx *CheckContext, call *ast.CallExpr) }
 type GoStmtChecker interface { CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) }
 
 type Checkers struct {
-    Call   []CallChecker   // slog, errgroup, waitgroup
+    Call   []CallChecker   // errgroup, waitgroup, goroutinecreator, gotask
     GoStmt []GoStmtChecker // goroutine, goroutine_derive
 }
-
-// Functional Option Pattern for flexible checker composition
-type Option func(*Checkers)
-
-// Usage:
-cs := NewCheckers(
-    WithSlog(),
-    WithGoroutine(),
-    WithErrgroup(),
-    WithGoroutineDerive("pkg.NewGoroutine"),
-)
 ```
 
 **Why two interfaces?**
 - `GoStmtChecker`: For `go` keyword statements (`go func() {}()`)
-- `CallChecker`: For function calls (`g.Go()`, `wg.Go()`, `log.Info()`)
+- `CallChecker`: For function calls (`g.Go()`, `wg.Go()`)
 
 These are AST-level distinctions: `go` is a statement, function calls are expressions.
 
@@ -151,16 +129,16 @@ func caller(ctx context.Context) {
 }
 ```
 
-**Known LIMITATIONs:**
+**Known Limitations:**
 - Channel receives - can't trace func from channel
 - Nested closure ctx (e.g., `defer func() { _ = ctx }()`) - intentionally not counted
 - `interface{}` type assertion - can't trace func through type assertion
 
 ### Derive Function Matching (DeriveMatcher)
 
-`checkers/deriver.go` provides shared OR/AND logic for matching derive functions. Used by:
-- `goroutinederivechecker`: checks `go func()` calls
-- `gotaskchecker`: checks gotask task functions and DoAsync calls
+`internal/directives/deriver/` provides shared OR/AND logic for matching derive functions. Used by:
+- `goroutinederive`: checks `go func()` calls
+- `gotask`: checks gotask task functions and DoAsync calls
 
 ```go
 // DeriveMatcher supports OR (comma) and AND (plus) operators
@@ -190,53 +168,19 @@ The gotask checker handles `github.com/siketyan/gotask` library:
 
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 
-**Known LIMITATIONs:**
+**Known Limitations:**
 - Variable references can't be traced (e.g., `task := NewTask(fn); DoAll(ctx, task)`)
 - Nested function literals aren't traversed (e.g., deriver in `defer func(){}()` inside task)
 - Higher-order function returns can't be traced (e.g., `DoAll(ctx, makeTask())`)
 
-### Zerolog SSA Strategy Pattern
-
-The zerolog checker uses SSA analysis with Strategy Pattern for tracing:
-
-```
-┌─────────────┐     ┌─────────────┐     ┌───────────────┐
-│ eventTracer │────▶│loggerTracer │────▶│ contextTracer │
-│  (Event)    │◀────│  (Logger)   │◀────│   (Context)   │
-└─────────────┘     └─────────────┘     └───────────────┘
-        │                   │                    │
-        └───────────────────┴────────────────────┘
-                            │
-                     ┌──────▼──────┐
-                     │ traceCommon │  (Phi, UnOp, FreeVar, etc.)
-                     └─────────────┘
-```
-
-- `ssaTracer` interface: `hasContext()`, `continueOnReceiverType()`
-- Each tracer knows its context sources and delegates across type boundaries
-- Handles: variable assignments, conditionals (Phi), closures, struct fields, defer
-
-**Why zerologchecker can't be split into subpackages:**
-The tracing logic (trace.go) defines methods on the `checker` struct, which is defined in checker.go.
-Go requires methods to be in the same package as the type, creating a bidirectional dependency:
-- checker.go uses `tracer` interface and `newTracers()` from tracer.go
-- trace.go defines methods on `checker` struct and uses `tracer` interface
-This tight coupling is intentional for performance and simplicity.
-
 ## Development Commands
 
 ```bash
-# Run tests
+# Run all tests
 go test ./...
 
 # Run tests with verbose output
-go test ./pkg/analyzer/... -v
-
-# Build CLI
-go build -o bin/ctxrelay ./cmd/ctxrelay
-
-# Run linter on itself
-go vet -vettool=./bin/ctxrelay ./...
+go test -v ./...
 
 # Run golangci-lint
 golangci-lint run ./...
@@ -244,72 +188,74 @@ golangci-lint run ./...
 # Format code
 go fmt ./...
 
-# Verify test pattern naming consistency
-./scripts/verify-test-patterns.pl        # Check for inconsistencies
-./scripts/verify-test-patterns.pl -v     # Verbose: show all patterns
-./scripts/verify-test-patterns.pl -q     # Quiet: exit code only (for CI)
+# Validate test metadata (structure.json)
+cd testdata/metatest && go test -v ./...
 
-# Run test metadata validation (IMPORTANT: Must specify file path)
-go test ./testdata/metatest/validation_test.go           # Run validation
-go test -v ./testdata/metatest/validation_test.go        # Verbose output
-go test -v -run TestStructureValidation/AllFunctionsAccountedFor ./testdata/metatest/validation_test.go
+# Validate JSON schema
+cd testdata/metatest && go run github.com/santhosh-tekuri/jsonschema/cmd/jv@29cbed9 structure.schema.json structure.json
 ```
-
-**IMPORTANT:** The validation test MUST be run with the file path `./testdata/metatest/validation_test.go`. Running `go test ./testdata/metatest` or `cd testdata/metatest && go test` will NOT execute the test due to its special structure.
 
 ## Adding a New Checker
 
-1. Create `pkg/analyzer/checkers/<name>.go`:
+1. Create `internal/checkers/<name>/checker.go`:
 ```go
-package checkers
+package myname
 
-type myChecker struct{}  // unexported, no base needed
+import (
+    "go/ast"
+    "github.com/mpyw/goroutinectx/internal/context"
+)
+
+type Checker struct{}
+
+func New() *Checker { return &Checker{} }
 
 // Implement CallChecker for call expression checks
-func (c *myChecker) CheckCall(cctx *CheckContext, call *ast.CallExpr) {
+func (c *Checker) CheckCall(cctx *context.CheckContext, call *ast.CallExpr) {
     // Implementation using cctx.Pass, cctx.Scope, cctx.IgnoreMap
 }
 
 // OR implement GoStmtChecker for go statement checks
-func (c *myChecker) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) {
+func (c *Checker) CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt) {
     // Implementation
 }
 ```
 
-2. Register in `pkg/analyzer/checkers/registry.go` under `NewCheckers()`
+2. Register in `analyzer.go` under `runASTChecks()`
 
-3. Add test fixtures in `pkg/analyzer/testdata/src/<name>/`
+3. Add test fixtures in `testdata/src/<name>/`
 
-4. Add test case in `pkg/analyzer/analyzer_test.go`
+4. Add test case in `analyzer_test.go`
+
+5. Add test metadata in `testdata/metatest/structure.json`
 
 ## Testing Strategy
 
 - Use `analysistest` for all analyzer tests
 - Test fixtures use `// want` comments for expected diagnostics
+- Test metadata is managed in `testdata/metatest/structure.json` (JSON-based)
 - Test structure per checker:
-  - `===== SHOULD REPORT =====` - Cases that should trigger warnings
-  - `===== NESTED FUNCTIONS - SHOULD REPORT =====` - Nested cases
-  - `===== SHOULD NOT REPORT =====` - Negative cases
-  - `===== SHADOWING TESTS =====` - Variable shadowing cases
-  - `===== EDGE CASES =====` - Corner cases
+  - `basic.go` - Simple good/bad cases
+  - `advanced.go` - Complex patterns (defer, loops, channels)
+  - `evil.go` - Adversarial patterns (nesting, IIFE, limitations)
 
 ## Code Style
 
 - Follow standard Go conventions
 - Use `go/analysis` framework
 - Prefer `inspector.WithStack` over `ast.Inspect` for traversal
-- Type utilities go in `checkers/typeutil.go` (unexported)
+- Type utilities go in `internal/typeutil/` (unexported)
 - Checker types are unexported; only interface and registry are public
-- Prefix file-specific variables with checker name (e.g., `slogNonContextFuncs`)
+- Prefix file-specific variables with checker name (e.g., `errgroupGoMethod`)
 
 ### Comment Guidelines
 
 **Comments should inform newcomers, not document history.**
 
-- ❌ Bad: `// moved from evil.go - this is higher-order function`
-- ❌ Bad: `// refactored in session 5`
-- ✓ Good: `// tests basic go fn()() pattern`
-- ✓ Good: `// LIMITATION: cross-function tracking not supported`
+- Bad: `// moved from evil.go - this is higher-order function`
+- Bad: `// refactored in session 5`
+- Good: `// tests basic go fn()() pattern`
+- Good: `// cross-function tracking not supported`
 
 **When NOT to comment:**
 - Refactoring moves (where something came from)
@@ -318,10 +264,23 @@ func (c *myChecker) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) {
 
 **When to comment:**
 - WHY something exists (design rationale)
-- LIMITATION markers for known gaps
+- `[LIMITATION]` markers for known gaps
 - Non-obvious behavior that would confuse readers
 
 **Exception:** Major architectural changes that affect understanding may warrant brief explanation, but prefer updating documentation (CLAUDE.md, ARCHITECTURE.md) over inline comments.
+
+### LIMITATION Comment Format
+
+Test cases that document known analyzer limitations use the `[LIMITATION]:` format:
+
+```go
+// [LIMITATION]: Variable reassignment not tracked - uses first assignment only
+func limitationReassignedFn(ctx context.Context) {
+    fn := func() { doSomething(ctx) }
+    fn = func() { doNothing() }  // Reassigned!
+    go fn()()  // Currently passes - should fail
+}
+```
 
 ## Documentation Strategy
 
@@ -347,22 +306,10 @@ func (c *myChecker) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) {
 Test files are organized by complexity and purpose:
 
 ```
-pkg/analyzer/testdata/src/<checker>/
+testdata/src/<checker>/
 ├── basic.go           # Core functionality - simple good/bad cases
 ├── advanced.go        # Complex patterns - higher-order functions, deep nesting
-├── evil.go            # Evil edge cases - adversarial/unusual patterns
-├── evil_<aspect>.go   # Evil cases for specific aspects (e.g., evil_ssa.go, evil_logger.go)
-└── <feature>.go       # Feature-specific tests (e.g., with_logger.go)
-```
-
-**Example: zerolog testdata structure**
-```
-pkg/analyzer/testdata/src/zerolog/
-├── basic.go           # Simple good/bad cases
-├── evil.go            # General edge cases (nesting, closures, conditionals)
-├── evil_ssa.go        # SSA-specific limitations (IIFE, Phi, channels)
-├── evil_logger.go     # Logger transformation patterns (Level, Output, With)
-└── with_logger.go     # WithLogger-specific tests
+└── evil.go            # Evil edge cases - adversarial/unusual patterns
 ```
 
 **File Classification Principle:**
@@ -398,7 +345,7 @@ Classification is based on **human intuition** - "would a developer write this d
    - Higher-order functions (`go fn()()`, `go fn()()()`)
    - IIFE (Immediately Invoked Function Expression)
    - Interface method calls
-   - LIMITATION cases documenting analyzer boundaries
+   - `[LIMITATION]` cases documenting analyzer boundaries
    - Goroutines in expressions, deferred functions
 
 **Decision Tree:**
@@ -408,26 +355,26 @@ Is it 1-level goroutine with straightforward code?
 ├─ Yes → basic.go
 └─ No → Is it a production pattern (defer, loops, channels, WaitGroup)?
          ├─ Yes → advanced.go
-         └─ No → evil.go (nesting 2+, go fn()(), IIFE, LIMITATION)
-```
-
-**LIMITATION Comments:**
-Test cases that document known analyzer limitations should be prefixed with `limitation` in their function name and include a `// LIMITATION:` comment explaining the gap:
-
-```go
-// LIMITATION: Variable reassignment not tracked - uses first assignment only
-func limitationReassignedFn(ctx context.Context) {
-    fn := func() { doSomething(ctx) }
-    fn = func() { doNothing() }  // Reassigned!
-    go fn()()  // Currently passes - should fail
-}
+         └─ No → evil.go (nesting 2+, go fn()(), IIFE, [LIMITATION])
 ```
 
 ### Trigger Points for Reorganization
 - **New file creation**: Consider if existing file should be renamed/split
 - **Symbol addition**: Check if file is growing beyond single responsibility
 - **Test addition**: Verify test file naming matches pattern
-- **Phase 3 review**: Always include file organization in code style review
+
+## Test Metadata Management
+
+Test cases are documented in `testdata/metatest/structure.json`:
+
+- JSON Schema validation ensures structure consistency (`structure.schema.json`)
+- `validation_test.go` verifies function comments match metadata
+- Supports good/bad/limitation/notChecked variants per target
+
+**Adding a new test case:**
+1. Add the test function to the appropriate testdata file
+2. Add metadata entry in `structure.json` with title, targets, variants
+3. Run `go test ./testdata/metatest/...` to validate
 
 ## Quality Improvement Cycle
 
@@ -436,14 +383,14 @@ When improving code quality, follow this iterative cycle:
 ### Phase 1: QA Engineer - Evil Edge Case Testing
 - Add thorough, adversarial test cases that push the analyzer to its limits
 - Cover edge cases: deep nesting, closures, loops, conditionals, type conversions
-- Mark failing cases with `// LIMITATION:` comments explaining the gap
+- Mark failing cases with `[LIMITATION]:` comments explaining the gap
 - Document what the ideal behavior should be vs current behavior
 
 ### Phase 2: Implementation Engineer - Address Limitations
-- Review all `LIMITATION` comments and attempt to resolve them
+- Review all `[LIMITATION]` comments and attempt to resolve them
 - Prioritize fixes that improve real-world detection accuracy
 - When a limitation is resolved, remove the comment and update the test expectation
-- Document truly unfixable limitations (e.g., SSA optimization in test stubs)
+- Document truly unfixable limitations
 
 ### Phase 3: Code Style Engineer - Refactoring Review
 - Review code for clarity, maintainability, and consistency
@@ -457,11 +404,11 @@ When improving code quality, follow this iterative cycle:
 **Code Style Engineer Principles:**
 
 1. **Namespace Pollution Intolerance**: The code style engineer strongly opposes "ad-hoc namespace pollution" common in Go's conventional compromises. When a package handles multiple concerns, generic names that only reflect one concern risk collisions. Solutions:
-   - Use prefixes to disambiguate (e.g., `ssaTraceEvent`, `astVisitNode`)
+   - Use prefixes to disambiguate
    - Split into separate packages when concerns are distinct enough
 
 2. **Design Pattern Advocate**: The code style engineer loves design patterns and actively proposes their application when encountering ad-hoc code. Particularly favors:
-   - **Strategy Pattern** for AST/SSA traversal with pluggable behaviors
+   - **Strategy Pattern** for AST traversal with pluggable behaviors
    - **Visitor Pattern** for tree-structured data processing
    - **Factory Pattern** for creating checker instances
 
@@ -490,10 +437,9 @@ When improving code quality, follow this iterative cycle:
 
 ### Phase 4: Newbie - Naive Questions
 Become a complete beginner who has never seen the code. Ask genuinely confused questions:
-- "What is SSA? Why do we need it?"
-- "Why are there three tracers? Can't we just use one?"
-- "What does 'Phi node' mean? Why does it matter?"
-- "I don't understand why this function exists"
+- "Why are there two checker interfaces? Can't we just use one?"
+- "What does 'higher-order function support' mean?"
+- "I don't understand why nested closure context doesn't count"
 - "What's the flow when I call the analyzer?"
 
 The goal is to identify knowledge gaps and unclear abstractions. Don't pretend to understand - if something is confusing, it needs better documentation.
@@ -522,151 +468,6 @@ Continue the cycle until:
 - Code style meets quality standards
 - Newbie questions are answered in documentation
 - Both reference and tutorial docs are current
-
-## Test Pattern Coverage Matrix
-
-Test cases use 2-letter prefixes to identify checker groups:
-
-**Goroutine Group** (context usage check):
-- `GO` - goroutine checker (`go func(){}()`)
-- `GE` - errgroup checker (`g.Go(func(){})`)
-- `GW` - waitgroup checker (`wg.Go(func(){})`)
-
-**Creator Group** (goroutine_creator directive):
-- `GC` - goroutinecreator (`//goroutinectx:goroutine_creator` marked functions)
-
-**Derive Group** (deriver function call check):
-- `DD` - goroutinederive (single deriver)
-- `DA` - goroutinederiveand (AND - all must be called)
-- `DM` - goroutinederivemixed (Mixed AND/OR)
-
-**Gotask Group** (gotask library deriver check):
-- `GT` - gotask checker (basic.go patterns)
-- `EV` - gotask evil patterns (evil.go patterns)
-
-Goroutine group patterns should be consistent across GO/GE/GW.
-Creator group (GC) patterns are directive-specific and standalone.
-Derive group patterns intentionally diverge (DD/DA/DM test different semantics).
-
-### Goroutine Group - Basic Patterns (01-19)
-
-| # | Pattern | GO | GE | GW | Description |
-|---|---------|----|----|----|----|
-| 01 | Literal without ctx | GO01 | GE01 | GW01 | Basic bad case |
-| 02 | Literal with ctx | GO02 | GE02 | GW02 | Basic good case |
-| 03 | No ctx param | GO03 | GE03 | GW03 | Not checked |
-| 04 | Shadow with non-ctx type | GO04 | GE04 | GW04 | Shadows ctx with different type |
-| 05 | Uses ctx before shadow | GO05 | GE05 | GW05 | Valid usage before shadowing |
-| 06 | Ignore directive (same line) | GO06 | GE06 | GW06 | `//goroutinectx:ignore` |
-| 07 | Ignore directive (prev line) | GO07 | GE07 | GW07 | `//goroutinectx:ignore` |
-| 08 | Multiple ctx params (bad) | GO08 | GE08 | GW08 | Reports first ctx when none used |
-| 09 | Multiple ctx params (good) | GO09 | GE09 | GW09 | Uses one of multiple ctx params |
-| 10 | Inner func has own ctx param | GO10 | GE10 | GW10 | Closure has own ctx param |
-| 11 | Direct function call | GO11 | - | - | `go doSomething(ctx)` |
-| 12 | Variable func | - | GE12 | GW12 | `g.Go(fn)` patterns |
-| 13 | Higher-order func | - | GE13 | GW13 | `g.Go(makeWorker())` patterns |
-| 14 | Ctx as non-first param | GO14 | GE14 | GW14 | Context not first param |
-| 15 | Slice index | - | GE15 | GW15 | `g.Go(tasks[0])` |
-| 16 | Map key | - | GE16 | GW16 | `g.Go(tasks["key"])` |
-| 17 | Traditional WaitGroup | - | - | GW17 | Add/Done pattern (not checked) |
-| 18 | Struct field | - | GE18 | GW18 | `g.Go(holder.task)` |
-
-### Goroutine Group - Advanced Patterns (20-39)
-
-| # | Pattern | GO | GE | GW | Description |
-|---|---------|----|----|----|----|
-| 20 | Defer without ctx | GO20 | - | - | Closure has defer but no ctx |
-| 21 | Deferred nested closure (LIMIT) | GO21 | GE21 | GW21 | Ctx only in deferred closure |
-| 22 | For loop | GO22 | GE22 | GW22 | Go in for loop |
-| 23 | Range loop | GO23 | GE23 | GW23 | Go in range loop |
-| 24 | Conditional | GO24 | GE24 | GW24 | Go in if/else branches |
-| 25-32 | GO-specific patterns | GO25-32 | - | - | Channel, select, method call, etc. |
-| 35 | Go call inside inner func | - | GE35 | GW35 | Nested IIFE patterns |
-
-### Goroutine Group - Evil Patterns (40-90)
-
-| # | Pattern | GO | GE | GW | Description |
-|---|---------|----|----|----|----|
-| 40-65 | Nesting & higher-order | GO40-65 | - | - | Nested goroutines, `go fn()()`, IIFE |
-| 70-78 | Multiple context | GO70-78 | GE70-74 | GW70-74 | Multiple ctx params |
-| 85-86 | Higher-order multiple ctx | - | GE85-86 | GW85-86 | Factory with multiple ctx |
-| 90-92 | GO-specific LIMITATIONs | GO90-92 | - | - | Closure levels, deferred spawn |
-| 100-108 | GE/GW LIMITATIONs | - | GE100-108 | GW100-108 | Interface, channel, chaotic |
-
-### Creator Group Patterns (GC)
-
-GC patterns test the `//goroutinectx:goroutine_creator` directive:
-
-| # | Pattern | GC | Description |
-|---|---------|----|----|
-| 01 | Errgroup func without ctx | GC01 | Basic bad case with errgroup creator |
-| 02 | WaitGroup func without ctx | GC02 | Basic bad case with waitgroup creator |
-| 03 | Inline literal without ctx | GC03 | Direct func literal in call |
-| 04 | Multiple func args - both bad | GC04 | Multiple func params, none use ctx |
-| 05 | Multiple func args - first bad | GC05 | First doesn't use ctx, second does |
-| 06 | Multiple func args - second bad | GC06 | First uses ctx, second doesn't |
-| 10 | Errgroup func with ctx | GC10 | Basic good case with errgroup creator |
-| 11 | WaitGroup func with ctx | GC11 | Basic good case with waitgroup creator |
-| 12 | Inline literal with ctx | GC12 | Direct func literal uses ctx |
-| 13 | Multiple func args - both good | GC13 | Both func params use ctx |
-| 14 | No ctx param | GC14 | Function has no ctx param - not checked |
-| 15 | Func has own ctx param | GC15 | Closure declares own ctx param |
-| 20 | Non-creator function | GC20 | Call without directive - not checked |
-
-### Derive Group Patterns
-
-DD, DA, DM patterns intentionally diverge because they test different deriver logic:
-- **DD** (single): Tests single deriver function call
-- **DA** (AND): Tests that ALL specified derivers are called
-- **DM** (Mixed): Tests AND groups with OR alternatives
-
-### Gotask Group Patterns (GT)
-
-GT patterns test gotask library checker (requires `-goroutine-deriver`):
-- Prefix `GT` in basic.go and `EV` in evil.go
-
-| # | Pattern | GT | Description |
-|---|---------|----|----|
-| 01 | DoAllFnsSettled without deriver | GT01 | Basic bad case |
-| 02 | Multiple args - some without | GT02 | Partial deriver coverage |
-| 03 | Deriver on parent ctx | GT03 | Bad - deriver must be in task body |
-| 10-11 | DoAllSettled with NewTask | GT10-11 | NewTask wrapper patterns |
-| 20-22 | DoAsync without deriver | GT20-22 | Task/CancelableTask.DoAsync |
-| 30-32 | DoAllFnsSettled with deriver | GT30-32 | Good cases |
-| 40 | DoAllSettled NewTask with deriver | GT40 | Good case |
-| 50-51 | DoAsync with deriver | GT50-51 | Good Task/CancelableTask |
-| 60-63 | Other Do* without deriver | GT60-63 | DoAll, DoAllFns, DoRace, DoRaceFns |
-| 70-73 | Other Do* with deriver | GT70-73 | Good other Do* |
-| 80-81 | Ignore directive | GT80-81 | `//goroutinectx:ignore` |
-| 90 | No ctx param | GT90 | Not checked |
-
-Evil patterns (EV01-EV110):
-- Variable/variadic tasks (EV01, EV10-11)
-- Nested closure (EV20)
-- Method chaining (EV40-51)
-- LIMITATIONs (EV100+)
-
-Use `./scripts/verify-test-patterns.pl -v` to see all patterns by group.
-
-### Maintaining This Matrix
-
-**Numbering Rules:**
-- Use `b`, `c`, `d` suffixes for variants (e.g., GO01b, GE02c)
-- Basic patterns (01-19): Common across checkers
-- Advanced patterns (20-39): Real-world complex patterns
-- Evil patterns (40-99): Adversarial, checker-specific
-- LIMITATIONs (90-99 for GO, 100+ for GE/GW): Known analyzer boundaries
-- GC patterns (01-20): Creator directive-specific tests
-
-**Verification:**
-```bash
-./scripts/verify-test-patterns.pl        # Check for inconsistencies
-./scripts/verify-test-patterns.pl -v     # Show all patterns by group
-```
-
-Goroutine group (GO/GE/GW) patterns should be consistent.
-Creator group (GC) patterns are standalone (directive-specific).
-Derive group (DD/DA/DM) patterns are expected to diverge.
 
 ## Serena MCP Server Usage Guidelines
 
