@@ -231,6 +231,12 @@ This is useful for wrapper functions that abstract away goroutine spawning patte
 
 ## Flags
 
+> [!TIP]
+> When using `go vet -vettool`, pass flags directly:
+> ```bash
+> go vet -vettool=$(which goroutinectx) -goroutine-deriver='pkg.Func' ./...
+> ```
+
 ### `-goroutine-deriver`
 
 Require goroutines to call a specific function to derive context. Useful for APM libraries like New Relic.
