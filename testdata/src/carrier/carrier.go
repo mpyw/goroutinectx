@@ -8,7 +8,7 @@ import (
 
 // Test that echo.Context is treated as context carrier when configured.
 
-// [BAD]: Basic echo handler without context usage
+// [BAD]: Basic echo handler context usage
 //
 // HTTP handler does not use context from request.
 func badEchoHandler(c echo.Context) {
@@ -17,7 +17,7 @@ func badEchoHandler(c echo.Context) {
 	slog.Info("missing context")
 }
 
-// [GOOD]: Basic echo handler with context usage
+// [GOOD]: Basic echo handler context usage
 //
 // HTTP handler properly uses context from request.
 func goodEchoHandler(c echo.Context) {
@@ -26,7 +26,7 @@ func goodEchoHandler(c echo.Context) {
 	_ = c // use context carrier
 }
 
-// [BAD]: Goroutine in echo handler without context
+// [BAD]: Goroutine in echo handler
 //
 // Goroutine in Echo handler ignores request context.
 func badGoroutineInEchoHandler(c echo.Context) {
@@ -36,7 +36,7 @@ func badGoroutineInEchoHandler(c echo.Context) {
 	}()
 }
 
-// [GOOD]: Goroutine in echo handler with context
+// [GOOD]: Goroutine in echo handler
 //
 // Goroutine in Echo handler properly uses request context.
 func goodGoroutineInEchoHandler(c echo.Context) {

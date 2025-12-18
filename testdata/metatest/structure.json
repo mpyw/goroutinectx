@@ -695,38 +695,6 @@
       },
       "level": "goroutinederive"
     },
-    "basicEchoHandlerWithContextUsage": {
-      "title": "Basic echo handler with context usage",
-      "targets": [
-        "carrier"
-      ],
-      "variants": {
-        "good": {
-          "description": "HTTP handler properly uses context from request.",
-          "functions": {
-            "carrier": "goodEchoHandler"
-          }
-        },
-        "bad": null
-      },
-      "level": "carrier"
-    },
-    "basicEchoHandlerWithoutContextUsage": {
-      "title": "Basic echo handler without context usage",
-      "targets": [
-        "carrier"
-      ],
-      "variants": {
-        "bad": {
-          "description": "HTTP handler does not use context from request.",
-          "functions": {
-            "carrier": "badEchoHandler"
-          }
-        },
-        "good": null
-      },
-      "level": "carrier"
-    },
     "bothContextsUsed": {
       "title": "Both contexts used",
       "targets": [
@@ -1668,38 +1636,6 @@
         "good": null
       },
       "level": "advanced"
-    },
-    "goroutineInEchoHandlerWithContext": {
-      "title": "Goroutine in echo handler with context",
-      "targets": [
-        "carrier"
-      ],
-      "variants": {
-        "good": {
-          "description": "Goroutine in Echo handler properly uses request context.",
-          "functions": {
-            "carrier": "goodGoroutineInEchoHandler"
-          }
-        },
-        "bad": null
-      },
-      "level": "carrier"
-    },
-    "goroutineInEchoHandlerWithoutContext": {
-      "title": "Goroutine in echo handler without context",
-      "targets": [
-        "carrier"
-      ],
-      "variants": {
-        "bad": {
-          "description": "Goroutine in Echo handler ignores request context.",
-          "functions": {
-            "carrier": "badGoroutineInEchoHandler"
-          }
-        },
-        "good": null
-      },
-      "level": "carrier"
     },
     "goroutineInExpression": {
       "title": "Goroutine in expression (not immediately invoked)",
@@ -4099,6 +4035,48 @@
           "functions": {
             "errgroup": "badInterfaceMethodWithoutCtxArg",
             "waitgroup": "badInterfaceMethodWithoutCtxArg"
+          }
+        }
+      }
+    },
+    "basicEchoHandler": {
+      "title": "Basic echo handler context usage",
+      "targets": [
+        "carrier"
+      ],
+      "level": "carrier",
+      "variants": {
+        "good": {
+          "description": "HTTP handler properly uses context from request.",
+          "functions": {
+            "carrier": "goodEchoHandler"
+          }
+        },
+        "bad": {
+          "description": "HTTP handler does not use context from request.",
+          "functions": {
+            "carrier": "badEchoHandler"
+          }
+        }
+      }
+    },
+    "goroutineInEchoHandler": {
+      "title": "Goroutine in echo handler",
+      "targets": [
+        "carrier"
+      ],
+      "level": "carrier",
+      "variants": {
+        "good": {
+          "description": "Goroutine in Echo handler properly uses request context.",
+          "functions": {
+            "carrier": "goodGoroutineInEchoHandler"
+          }
+        },
+        "bad": {
+          "description": "Goroutine in Echo handler ignores request context.",
+          "functions": {
+            "carrier": "badGoroutineInEchoHandler"
           }
         }
       }
