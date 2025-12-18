@@ -27,7 +27,7 @@ type spawnCallInfo struct {
 
 // isSpawnCall checks if a call expression is a spawn call that takes func arguments.
 // Returns the spawn info if it's a spawn call with func arguments, nil otherwise.
-func isSpawnCall(pass *analysis.Pass, call *ast.CallExpr, spawners spawner.Map) *spawnCallInfo {
+func isSpawnCall(pass *analysis.Pass, call *ast.CallExpr, spawners *spawner.Map) *spawnCallInfo {
 	// Check known spawn methods first
 	if info := isKnownSpawnMethod(pass, call); info != nil {
 		return info
@@ -193,8 +193,8 @@ func isGotaskTaskType(pass *analysis.Pass, expr ast.Expr) bool {
 }
 
 // isSpawnerMarkedCall checks if the call is to a spawner-marked function with func args.
-func isSpawnerMarkedCall(pass *analysis.Pass, call *ast.CallExpr, spawners spawner.Map) *spawnCallInfo {
-	if len(spawners) == 0 {
+func isSpawnerMarkedCall(pass *analysis.Pass, call *ast.CallExpr, spawners *spawner.Map) *spawnCallInfo {
+	if spawners.Len() == 0 {
 		return nil
 	}
 

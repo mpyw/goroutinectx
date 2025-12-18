@@ -28,6 +28,7 @@ import (
 // Flags for the analyzer.
 var (
 	goroutineDeriver string
+	externalSpawner  string
 	contextCarriers  string
 
 	// Checker enable/disable flags (all enabled by default).
@@ -42,6 +43,8 @@ var (
 func init() {
 	Analyzer.Flags.StringVar(&goroutineDeriver, "goroutine-deriver", "",
 		"require goroutines to call this function to derive context (e.g., pkg.Func or pkg.Type.Method)")
+	Analyzer.Flags.StringVar(&externalSpawner, "external-spawner", "",
+		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
 	Analyzer.Flags.StringVar(&contextCarriers, "context-carriers", "",
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 
@@ -77,8 +80,8 @@ func run(pass *analysis.Pass) (any, error) {
 	// Build ignore maps for each file
 	ignoreMaps := buildIgnoreMaps(pass)
 
-	// Build spawner map from //goroutinectx:spawner directives
-	spawners := spawnerdir.Build(pass)
+	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
+	spawners := spawnerdir.Build(pass, externalSpawner)
 
 	// Run AST-based checks (goroutine, errgroup, waitgroup)
 	runASTChecks(pass, insp, ignoreMaps, carriers, spawners)
@@ -110,7 +113,7 @@ func runASTChecks(
 	insp *inspector.Inspector,
 	ignoreMaps map[string]ignore.Map,
 	carriers []carrier.Carrier,
-	spawners spawnerdir.Map,
+	spawners *spawnerdir.Map,
 ) {
 	// Build context scopes for functions with context parameters
 	funcScopes := buildFuncScopes(pass, insp, carriers)
@@ -138,7 +141,7 @@ func runASTChecks(
 	}
 
 	// Add spawner checker if enabled and any functions are marked
-	if enableSpawner && len(spawners) > 0 {
+	if enableSpawner && spawners.Len() > 0 {
 		callCheckers = append(callCheckers, spawner.New(spawners))
 	}
 

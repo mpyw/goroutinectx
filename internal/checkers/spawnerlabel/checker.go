@@ -12,11 +12,11 @@ import (
 
 // Checker validates that functions are properly labeled with //goroutinectx:spawner.
 type Checker struct {
-	spawners spawner.Map
+	spawners *spawner.Map
 }
 
 // New creates a new spawnerlabel checker.
-func New(spawners spawner.Map) *Checker {
+func New(spawners *spawner.Map) *Checker {
 	return &Checker{spawners: spawners}
 }
 

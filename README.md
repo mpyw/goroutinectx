@@ -303,6 +303,24 @@ goroutinectx -context-carriers=github.com/labstack/echo/v4.Context,github.com/ur
 
 When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs.
 
+### `-external-spawner`
+
+Mark external package functions as spawners. This is the flag-based alternative to `//goroutinectx:spawner` directive for functions you don't control.
+
+```bash
+# Single external spawner
+goroutinectx -external-spawner='github.com/example/workerpool.Pool.Submit' ./...
+
+# Multiple external spawners (comma-separated)
+goroutinectx -external-spawner='github.com/example/workerpool.Pool.Submit,github.com/example/workerpool.Run' ./...
+```
+
+**Format:**
+- `pkg/path.Func` for package-level functions
+- `pkg/path.Type.Method` for methods
+
+When an external spawner is called, goroutinectx checks that func arguments properly use context.
+
 ### Checker Enable/Disable Flags
 
 Most checkers are enabled by default. Use these flags to enable or disable specific checkers:

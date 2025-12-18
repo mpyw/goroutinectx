@@ -86,6 +86,23 @@ func TestSpawner(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawner")
 }
 
+func TestExternalSpawner(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	// Set external spawner flag for workerpool package
+	externalSpawners := "github.com/example/workerpool.Pool.Submit," +
+		"github.com/example/workerpool.Run"
+	if err := goroutinectx.Analyzer.Flags.Set("external-spawner", externalSpawners); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("external-spawner", "")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "externalspawner")
+}
+
 func TestSpawnerlabel(t *testing.T) {
 	testdata := analysistest.TestData()
 

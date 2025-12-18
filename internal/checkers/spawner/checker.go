@@ -11,17 +11,17 @@ import (
 
 // Checker checks calls to spawner functions.
 type Checker struct {
-	spawners spawner.Map
+	spawners *spawner.Map
 }
 
 // New creates a new spawner checker.
-func New(spawners spawner.Map) *Checker {
+func New(spawners *spawner.Map) *Checker {
 	return &Checker{spawners: spawners}
 }
 
 // CheckCall implements checkers.CallChecker.
 func (c *Checker) CheckCall(cctx *context.CheckContext, call *ast.CallExpr) {
-	if len(c.spawners) == 0 {
+	if c.spawners.Len() == 0 {
 		return
 	}
 
