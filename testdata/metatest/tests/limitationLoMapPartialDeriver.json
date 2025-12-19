@@ -1,0 +1,15 @@
+{
+  "title": "Deriver only in one return path",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "limitation": {
+      "description": "Only one return path has deriver, but we detect ANY return with deriver as OK.",
+      "functions": {
+        "gotask": "limitationLoMapPartialDeriver"
+      }
+    }
+  },
+  "level": "advanced"
+}

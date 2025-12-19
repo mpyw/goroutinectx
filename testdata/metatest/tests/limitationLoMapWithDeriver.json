@@ -1,0 +1,15 @@
+{
+  "title": "lo.Map callback returning func with deriver in inner func",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Higher-order function callback returning FuncLit with deriver is detected.",
+      "functions": {
+        "gotask": "goodLoMapWithDeriver"
+      }
+    }
+  },
+  "level": "advanced"
+}

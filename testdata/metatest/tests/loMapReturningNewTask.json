@@ -1,0 +1,21 @@
+{
+  "title": "lo.Map callback returning gotask.NewTask",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Callback returning NewTask wrapping a FuncLit with deriver is detected.",
+      "functions": {
+        "gotask": "goodLoMapReturningNewTask"
+      }
+    },
+    "bad": {
+      "description": "Callback returning NewTask wrapping a FuncLit without deriver is detected.",
+      "functions": {
+        "gotask": "badLoMapReturningNewTask"
+      }
+    }
+  },
+  "level": "advanced"
+}

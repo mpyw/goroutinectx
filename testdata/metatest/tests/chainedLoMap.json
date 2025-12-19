@@ -1,0 +1,15 @@
+{
+  "title": "Multiple lo.Map chained (first is the task source)",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Chained lo.Map where outer one provides tasks with deriver.",
+      "functions": {
+        "gotask": "goodChainedLoMap"
+      }
+    }
+  },
+  "level": "advanced"
+}

@@ -1,0 +1,15 @@
+{
+  "title": "Filter then Map pattern",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "lo.Filter followed by lo.Map with deriver is detected.",
+      "functions": {
+        "gotask": "goodFilterThenMap"
+      }
+    }
+  },
+  "level": "advanced"
+}

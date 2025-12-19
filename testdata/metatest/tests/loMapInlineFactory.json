@@ -1,0 +1,15 @@
+{
+  "title": "Inline factory function with deriver in return",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Inline factory returning FuncLit with deriver is detected.",
+      "functions": {
+        "gotask": "goodLoMapInlineFactory"
+      }
+    }
+  },
+  "level": "advanced"
+}
