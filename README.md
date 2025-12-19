@@ -33,6 +33,15 @@ go get -tool github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
 go tool goroutinectx ./...
 ```
 
+### Using [`go run`](https://pkg.go.dev/cmd/go#hdr-Compile_and_run_Go_program)
+
+```bash
+go run github.com/mpyw/goroutinectx/cmd/goroutinectx@latest ./...
+```
+
+> [!CAUTION]
+> To prevent supply chain attacks, pin to a specific version tag instead of `@latest` in CI/CD pipelines (e.g., `@v0.5.0`).
+
 ### As a Library
 
 ```go
