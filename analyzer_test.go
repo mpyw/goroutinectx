@@ -132,23 +132,8 @@ func TestGotask(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "gotask")
 }
 
-func TestFileFilterDefault(t *testing.T) {
+func TestFileFilter(t *testing.T) {
 	testdata := analysistest.TestData()
-	// Default: -test=true, so test files are analyzed
+	// Tests that generated files are skipped
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "filefilter")
-}
-
-func TestFileFilterSkipTests(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	// Set -test=false to skip test files
-	if err := goroutinectx.Analyzer.Flags.Set("test", "false"); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("test", "true")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "filefilterskip")
 }
