@@ -1,0 +1,15 @@
+{
+  "title": "Variable func go fn() - missing deriver.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "bad": {
+      "description": "Function stored in variable does not call the deriver.",
+      "functions": {
+        "goroutinederive": "badVariableFuncMissingDeriver"
+      }
+    }
+  }
+}

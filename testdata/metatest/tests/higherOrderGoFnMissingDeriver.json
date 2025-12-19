@@ -1,0 +1,15 @@
+{
+  "title": "Higher-order go fn()() - returned func missing deriver.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "bad": {
+      "description": "Factory function returns a func that does not call the deriver.",
+      "functions": {
+        "goroutinederive": "badHigherOrderMissingDeriver"
+      }
+    }
+  }
+}

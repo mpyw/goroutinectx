@@ -1,0 +1,15 @@
+{
+  "title": "Higher-order returns variable - missing deriver.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "bad": {
+      "description": "Factory function returns a variable that does not call the deriver.",
+      "functions": {
+        "goroutinederive": "badHigherOrderReturnsVariableMissingDeriver"
+      }
+    }
+  }
+}

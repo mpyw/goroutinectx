@@ -596,3 +596,76 @@ func badInterleavedLayersIgnored(outerCtx context.Context) {
 		}(outerCtx)
 	}()
 }
+
+// ===== HIGHER-ORDER WITH VARIABLE RETURN =====
+// These patterns test ReturnedValueUsesContext with Ident (variable) returns.
+
+// [GOOD]: Higher-order returns variable - with ctx
+//
+// Factory function returns a variable that captures context.
+//
+// See also:
+//   errgroup: goodHigherOrderReturnsVariableWithCtx
+//   waitgroup: goodHigherOrderReturnsVariableWithCtx
+func goodHigherOrderReturnsVariableWithCtx(ctx context.Context) {
+	makeWorker := func() func() {
+		worker := func() {
+			_ = ctx // worker uses ctx
+		}
+		return worker // Returns variable, not literal
+	}
+	go makeWorker()()
+}
+
+// [BAD]: Higher-order returns variable - without ctx
+//
+// Factory function returns a variable that does not capture context.
+//
+// See also:
+//   errgroup: badHigherOrderReturnsVariableWithoutCtx
+//   waitgroup: badHigherOrderReturnsVariableWithoutCtx
+func badHigherOrderReturnsVariableWithoutCtx(ctx context.Context) {
+	makeWorker := func() func() {
+		worker := func() {
+			fmt.Println("no ctx")
+		}
+		return worker // Returns variable, not literal
+	}
+	go makeWorker()() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Higher-order returns reassigned variable - with ctx
+//
+// Factory function returns a reassigned variable that captures context.
+//
+// See also:
+//   errgroup: goodHigherOrderReturnsReassignedVariableWithCtx
+//   waitgroup: goodHigherOrderReturnsReassignedVariableWithCtx
+func goodHigherOrderReturnsReassignedVariableWithCtx(ctx context.Context) {
+	makeWorker := func() func() {
+		worker := func() {
+			fmt.Println("first assignment")
+		}
+		worker = func() {
+			_ = ctx // Last assignment uses ctx
+		}
+		return worker
+	}
+	go makeWorker()()
+}
+
+// [GOOD]: Triple higher-order returns variable - with ctx
+//
+// Triple higher-order with variable returns at each level.
+func goodTripleHigherOrderVariableWithCtx(ctx context.Context) {
+	makeMaker := func() func() func() {
+		maker := func() func() {
+			worker := func() {
+				_ = ctx
+			}
+			return worker
+		}
+		return maker
+	}
+	go makeMaker()()()
+}

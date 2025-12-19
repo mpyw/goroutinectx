@@ -1,0 +1,15 @@
+{
+  "title": "Variable func go fn() - calls deriver.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "good": {
+      "description": "Function stored in variable calls the deriver.",
+      "functions": {
+        "goroutinederive": "goodVariableFuncCallsDeriver"
+      }
+    }
+  }
+}

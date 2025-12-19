@@ -1,0 +1,15 @@
+{
+  "title": "Higher-order go fn()() - returned func calls deriver.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "good": {
+      "description": "Factory function returns a func that calls the required deriver.",
+      "functions": {
+        "goroutinederive": "goodHigherOrderCallsDeriver"
+      }
+    }
+  }
+}

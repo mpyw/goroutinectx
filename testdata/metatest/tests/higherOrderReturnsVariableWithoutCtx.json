@@ -1,0 +1,19 @@
+{
+  "title": "Higher-order returns variable - without ctx",
+  "targets": [
+    "errgroup",
+    "goroutine",
+    "waitgroup"
+  ],
+  "level": "evil",
+  "variants": {
+    "bad": {
+      "description": "Factory function returns a variable that does not capture context.",
+      "functions": {
+        "errgroup": "badHigherOrderReturnsVariableWithoutCtx",
+        "goroutine": "badHigherOrderReturnsVariableWithoutCtx",
+        "waitgroup": "badHigherOrderReturnsVariableWithoutCtx"
+      }
+    }
+  }
+}

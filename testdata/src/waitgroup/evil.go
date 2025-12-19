@@ -588,3 +588,66 @@ func evilInterleavedLayersGood(outerCtx context.Context) {
 		}(outerCtx)
 	}()
 }
+
+// ===== HIGHER-ORDER WITH VARIABLE RETURN =====
+// These patterns test FuncLitReturnUsesContext/ReturnedValueUsesContext with Ident (variable) returns.
+
+// [GOOD]: Higher-order returns variable - with ctx
+//
+// Factory function returns a variable that captures context.
+//
+// See also:
+//   errgroup: goodHigherOrderReturnsVariableWithCtx
+//   goroutine: goodHigherOrderReturnsVariableWithCtx
+func goodHigherOrderReturnsVariableWithCtx(ctx context.Context) {
+	var wg sync.WaitGroup
+	makeWorker := func() func() {
+		worker := func() {
+			_ = ctx // worker uses ctx
+		}
+		return worker // Returns variable, not literal
+	}
+	wg.Go(makeWorker())
+	wg.Wait()
+}
+
+// [BAD]: Higher-order returns variable - without ctx
+//
+// Factory function returns a variable that does not capture context.
+//
+// See also:
+//   errgroup: badHigherOrderReturnsVariableWithoutCtx
+//   goroutine: badHigherOrderReturnsVariableWithoutCtx
+func badHigherOrderReturnsVariableWithoutCtx(ctx context.Context) {
+	var wg sync.WaitGroup
+	makeWorker := func() func() {
+		worker := func() {
+			fmt.Println("no ctx")
+		}
+		return worker // Returns variable, not literal
+	}
+	wg.Go(makeWorker()) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [GOOD]: Higher-order returns reassigned variable - with ctx
+//
+// Factory function returns a reassigned variable that captures context.
+//
+// See also:
+//   errgroup: goodHigherOrderReturnsReassignedVariableWithCtx
+//   goroutine: goodHigherOrderReturnsReassignedVariableWithCtx
+func goodHigherOrderReturnsReassignedVariableWithCtx(ctx context.Context) {
+	var wg sync.WaitGroup
+	makeWorker := func() func() {
+		worker := func() {
+			fmt.Println("first assignment")
+		}
+		worker = func() {
+			_ = ctx // Last assignment uses ctx
+		}
+		return worker
+	}
+	wg.Go(makeWorker())
+	wg.Wait()
+}

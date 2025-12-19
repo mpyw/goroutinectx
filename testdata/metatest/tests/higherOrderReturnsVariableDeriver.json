@@ -1,0 +1,15 @@
+{
+  "title": "Higher-order returns variable - with deriver.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "good": {
+      "description": "Factory function returns a variable that calls the deriver.",
+      "functions": {
+        "goroutinederive": "goodHigherOrderReturnsVariableWithDeriver"
+      }
+    }
+  }
+}

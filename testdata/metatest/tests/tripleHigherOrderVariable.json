@@ -1,0 +1,15 @@
+{
+  "title": "Triple higher-order returns variable - with ctx",
+  "targets": [
+    "goroutine"
+  ],
+  "level": "evil",
+  "variants": {
+    "good": {
+      "description": "Triple higher-order with variable returns at each level.",
+      "functions": {
+        "goroutine": "goodTripleHigherOrderVariableWithCtx"
+      }
+    }
+  }
+}
