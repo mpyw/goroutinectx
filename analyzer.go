@@ -39,6 +39,9 @@ var (
 	enableSpawner      bool
 	enableSpawnerlabel bool
 	enableGotask       bool
+
+	// File filtering flags.
+	analyzeTests bool
 )
 
 func init() {
@@ -56,6 +59,9 @@ func init() {
 	Analyzer.Flags.BoolVar(&enableSpawner, "spawner", true, "enable spawner checker")
 	Analyzer.Flags.BoolVar(&enableSpawnerlabel, "spawnerlabel", false, "enable spawnerlabel checker")
 	Analyzer.Flags.BoolVar(&enableGotask, "gotask", true, "enable gotask checker (requires -goroutine-deriver)")
+
+	// File filtering flags
+	Analyzer.Flags.BoolVar(&analyzeTests, "test", true, "analyze test files (*_test.go)")
 }
 
 // Analyzer is the main analyzer for goroutinectx.
@@ -75,11 +81,14 @@ func run(pass *analysis.Pass) (any, error) {
 		return nil, ErrNoInspector
 	}
 
+	// Build set of files to skip
+	skipFiles := buildSkipFiles(pass)
+
 	// Parse configuration
 	carriers := carrier.Parse(contextCarriers)
 
-	// Build ignore maps for each file
-	ignoreMaps := buildIgnoreMaps(pass)
+	// Build ignore maps for each file (excluding skipped files)
+	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
 	spawners := spawnerdir.Build(pass, externalSpawner)
@@ -88,12 +97,12 @@ func run(pass *analysis.Pass) (any, error) {
 	enabled := buildEnabledCheckers(spawners)
 
 	// Run AST-based checks (goroutine, errgroup, waitgroup)
-	runASTChecks(pass, insp, ignoreMaps, carriers, spawners)
+	runASTChecks(pass, insp, ignoreMaps, carriers, spawners, skipFiles)
 
 	// Run spawnerlabel checker if enabled
 	if enableSpawnerlabel {
 		spawnerlabelChecker := spawnerlabel.New(spawners)
-		spawnerlabelChecker.Check(pass, ignoreMaps)
+		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)
 	}
 
 	// Report unused ignore directives
@@ -102,12 +111,39 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
+// buildSkipFiles creates a set of filenames to skip based on flags.
+// Generated files are always skipped.
+// Test files are skipped when analyzeTests is false.
+func buildSkipFiles(pass *analysis.Pass) map[string]bool {
+	skipFiles := make(map[string]bool)
+
+	for _, file := range pass.Files {
+		filename := pass.Fset.Position(file.Pos()).Filename
+
+		// Always skip generated files
+		if ast.IsGenerated(file) {
+			skipFiles[filename] = true
+			continue
+		}
+
+		// Skip test files if -test=false
+		if !analyzeTests && strings.HasSuffix(filename, "_test.go") {
+			skipFiles[filename] = true
+		}
+	}
+
+	return skipFiles
+}
+
 // buildIgnoreMaps creates ignore maps for each file in the pass.
-func buildIgnoreMaps(pass *analysis.Pass) map[string]ignore.Map {
+func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]ignore.Map {
 	ignoreMaps := make(map[string]ignore.Map)
 
 	for _, file := range pass.Files {
 		filename := pass.Fset.Position(file.Pos()).Filename
+		if skipFiles[filename] {
+			continue
+		}
 		ignoreMaps[filename] = ignore.Build(pass.Fset, file)
 	}
 
@@ -121,6 +157,7 @@ func runASTChecks(
 	ignoreMaps map[string]ignore.Map,
 	carriers []carrier.Carrier,
 	spawners *spawnerdir.Map,
+	skipFiles map[string]bool,
 ) {
 	// Build context scopes for functions with context parameters
 	funcScopes := buildFuncScopes(pass, insp, carriers)
@@ -171,12 +208,16 @@ func runASTChecks(
 			return true
 		}
 
+		filename := pass.Fset.Position(n.Pos()).Filename
+		if skipFiles[filename] {
+			return true
+		}
+
 		scope := findEnclosingScope(funcScopes, stack)
 		if scope == nil {
 			return true // No context in scope
 		}
 
-		filename := pass.Fset.Position(n.Pos()).Filename
 		cctx := &context.CheckContext{
 			Pass:      pass,
 			Scope:     scope,

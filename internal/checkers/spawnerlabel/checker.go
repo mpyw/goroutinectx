@@ -23,9 +23,12 @@ func New(spawners *spawner.Map) *Checker {
 }
 
 // Check runs the spawnerlabel analysis on the given pass.
-func (c *Checker) Check(pass *analysis.Pass, ignoreMaps map[string]ignore.Map) {
+func (c *Checker) Check(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, skipFiles map[string]bool) {
 	for _, file := range pass.Files {
 		filename := pass.Fset.Position(file.Pos()).Filename
+		if skipFiles[filename] {
+			continue
+		}
 		ignoreMap := ignoreMaps[filename]
 
 		for _, decl := range file.Decls {

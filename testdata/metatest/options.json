@@ -1,6 +1,8 @@
 {
   "excludeDirs": [
     "github.com",
-    "golang.org"
+    "golang.org",
+    "filefilter",
+    "filefilterskip"
   ]
 }

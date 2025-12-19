@@ -364,6 +364,22 @@ Available flags:
 - `-spawnerlabel` (default: false) - Check that spawner functions are properly labeled
 - `-gotask` (default: true, requires `-goroutine-deriver`)
 
+### File Filtering
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-test` | `true` | Analyze test files (`*_test.go`) |
+
+Generated files (containing `// Code generated ... DO NOT EDIT.`) are always excluded and cannot be opted in.
+
+```bash
+# Exclude test files from analysis
+goroutinectx -test=false ./...
+
+# With go vet
+go vet -vettool=$(which goroutinectx) -goroutinectx.test=false ./...
+```
+
 ### `-spawnerlabel`
 
 When enabled, checks that functions calling spawn methods with func arguments have the `//goroutinectx:spawner` directive:
