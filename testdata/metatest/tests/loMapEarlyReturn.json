@@ -1,0 +1,15 @@
+{
+  "title": "Callback with early return containing deriver",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Early return path with deriver is detected.",
+      "functions": {
+        "gotask": "goodLoMapEarlyReturn"
+      }
+    }
+  },
+  "level": "advanced"
+}

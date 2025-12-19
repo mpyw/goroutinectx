@@ -1,0 +1,15 @@
+{
+  "title": "Callback with variable assignment before return",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "limitation": {
+      "description": "Variable assignment in callback is not traced (would need SSA).",
+      "functions": {
+        "gotask": "limitationLoMapVariableAssignment"
+      }
+    }
+  },
+  "level": "advanced"
+}

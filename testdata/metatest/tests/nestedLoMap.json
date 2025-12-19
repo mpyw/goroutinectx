@@ -1,0 +1,15 @@
+{
+  "title": "Nested lo.Map (inner returns func with deriver)",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Nested higher-order function pattern with deriver in innermost FuncLit.",
+      "functions": {
+        "gotask": "goodNestedLoMap"
+      }
+    }
+  },
+  "level": "advanced"
+}

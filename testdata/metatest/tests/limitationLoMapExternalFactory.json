@@ -1,0 +1,15 @@
+{
+  "title": "lo.Map callback calling external factory function",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "limitation": {
+      "description": "Factory function calls in callback return cannot be traced.",
+      "functions": {
+        "gotask": "limitationLoMapExternalFactory"
+      }
+    }
+  },
+  "level": "advanced"
+}

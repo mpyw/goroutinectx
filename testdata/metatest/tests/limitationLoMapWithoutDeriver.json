@@ -1,0 +1,15 @@
+{
+  "title": "lo.Map callback returning func without deriver",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "bad": {
+      "description": "Higher-order function callback returning FuncLit without deriver is detected.",
+      "functions": {
+        "gotask": "badLoMapWithoutDeriver"
+      }
+    }
+  },
+  "level": "advanced"
+}

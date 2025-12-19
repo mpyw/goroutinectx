@@ -238,6 +238,12 @@ func (c *Checker) callExprContainsDeriver(cctx *context.CheckContext, call *ast.
 		return true
 	}
 
+	// Case 3: higherOrderFn(callback)... - check if callback returns a FuncLit with deriver
+	// This handles patterns like lo.Map(items, func(p T, _ int) func(ctx) R { return func(ctx) R { deriver() } })
+	if c.callbackReturnsDeriver(cctx, call) {
+		return true
+	}
+
 	return c.derives.SatisfiesAnyGroup(cctx.Pass, call)
 }
 
@@ -267,8 +273,31 @@ func (c *Checker) traceCallToFuncLitReturn(cctx *context.CheckContext, call *ast
 	return c.funcLitReturnContainsDeriver(cctx, funcLit)
 }
 
+// callbackReturnsDeriver checks if any FuncLit argument to the call returns
+// a FuncLit that contains a deriver. This handles patterns like:
+//
+//	lo.Map(items, func(p T, _ int) func(ctx) R {
+//	    return func(ctx context.Context) R { deriver(); ... }
+//	})
+func (c *Checker) callbackReturnsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
+	for _, arg := range call.Args {
+		funcLit, ok := arg.(*ast.FuncLit)
+		if !ok {
+			continue
+		}
+
+		if c.funcLitReturnContainsDeriver(cctx, funcLit) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // funcLitReturnContainsDeriver checks if any return statement in the func literal
-// returns a gotask.NewTask call that contains a deriver.
+// returns an expression that contains a deriver. This handles:
+//   - return gotask.NewTask(func() { deriver() })
+//   - return func(ctx) T { deriver(); ... }
 func (c *Checker) funcLitReturnContainsDeriver(cctx *context.CheckContext, funcLit *ast.FuncLit) bool {
 	var found bool
 
@@ -287,8 +316,16 @@ func (c *Checker) funcLitReturnContainsDeriver(cctx *context.CheckContext, funcL
 		}
 
 		for _, result := range ret.Results {
-			if call, ok := result.(*ast.CallExpr); ok {
-				if c.callExprContainsDeriver(cctx, call) {
+			switch r := result.(type) {
+			case *ast.CallExpr:
+				if c.callExprContainsDeriver(cctx, r) {
+					found = true
+
+					return false
+				}
+			case *ast.FuncLit:
+				// return func(ctx) T { deriver(); ... }
+				if c.derives.SatisfiesAnyGroup(cctx.Pass, r.Body) {
 					found = true
 
 					return false
