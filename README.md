@@ -16,6 +16,13 @@ A Go linter that checks goroutine context propagation.
 
 ## Installation & Usage
 
+### Using [`go install`](https://pkg.go.dev/cmd/go#hdr-Compile_and_install_packages_and_dependencies)
+
+```bash
+go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
+goroutinectx ./...
+```
+
 ### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool) (Go 1.24+)
 
 ```bash
