@@ -1,0 +1,16 @@
+{
+  "title": "Ignore directive - unused checker-specific",
+  "targets": [
+    "goroutine"
+  ],
+  "variants": {
+    "good": null,
+    "bad": {
+      "description": "Specifying an unrelated checker doesn't suppress warnings from other checkers.",
+      "functions": {
+        "goroutine": "badIgnoredWrongChecker"
+      }
+    }
+  },
+  "level": "basic"
+}

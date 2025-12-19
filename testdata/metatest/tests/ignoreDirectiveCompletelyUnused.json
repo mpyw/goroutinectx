@@ -1,0 +1,16 @@
+{
+  "title": "Ignore directive - completely unused",
+  "targets": [
+    "goroutine"
+  ],
+  "variants": {
+    "good": null,
+    "bad": {
+      "description": "An ignore directive that doesn't suppress any warning is reported as unused.",
+      "functions": {
+        "goroutine": "badUnusedIgnore"
+      }
+    }
+  },
+  "level": "basic"
+}

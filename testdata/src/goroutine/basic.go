@@ -304,3 +304,41 @@ func goodIgnoredWithReason(ctx context.Context) {
 		fmt.Println("background task")
 	}()
 }
+
+// [GOOD]: Ignore directive - checker-specific (goroutine)
+//
+// The //goroutinectx:ignore directive can specify which checker to ignore.
+func goodIgnoredCheckerSpecific(ctx context.Context) {
+	go func() { //goroutinectx:ignore goroutine
+		fmt.Println("background task")
+	}()
+}
+
+// [GOOD]: Ignore directive - checker-specific with comment
+//
+// Checker-specific ignore can also have a comment.
+func goodIgnoredCheckerSpecificWithComment(ctx context.Context) {
+	go func() { //goroutinectx:ignore goroutine - fire-and-forget
+		fmt.Println("background task")
+	}()
+}
+
+// [BAD]: Ignore directive - unused checker-specific
+//
+// Specifying an unrelated checker doesn't suppress warnings from other checkers.
+func badIgnoredWrongChecker(ctx context.Context) {
+	//goroutinectx:ignore errgroup // want `unused goroutinectx:ignore directive for checker\(s\): errgroup`
+	go func() { // want `goroutine does not propagate context "ctx"`
+		fmt.Println("background task")
+	}()
+}
+
+// [BAD]: Ignore directive - completely unused
+//
+// An ignore directive that doesn't suppress any warning is reported as unused.
+func badUnusedIgnore(ctx context.Context) {
+	//goroutinectx:ignore // want `unused goroutinectx:ignore directive`
+	go func() {
+		_ = ctx // Context is used, no warning generated
+	}()
+}

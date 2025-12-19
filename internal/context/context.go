@@ -18,10 +18,10 @@ type CheckContext struct {
 	Carriers  []carrier.Carrier
 }
 
-// Reportf reports a diagnostic if the position is not ignored.
-func (c *CheckContext) Reportf(pos token.Pos, format string, args ...any) {
+// Reportf reports a diagnostic if the position is not ignored for the given checker.
+func (c *CheckContext) Reportf(checker ignore.CheckerName, pos token.Pos, format string, args ...any) {
 	line := c.Pass.Fset.Position(pos).Line
-	if c.IgnoreMap.ShouldIgnore(line) {
+	if c.IgnoreMap.ShouldIgnore(line, checker) {
 		return
 	}
 

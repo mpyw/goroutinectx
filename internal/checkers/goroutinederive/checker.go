@@ -8,6 +8,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 )
 
 // Checker checks that goroutines call specified functions to derive context.
@@ -35,7 +36,7 @@ func (c *Checker) CheckGoStmt(cctx *context.CheckContext, goStmt *ast.GoStmt) {
 
 	// Check if ANY OR group is satisfied in the goroutine
 	if !c.callSatisfiesDerive(cctx, call) {
-		cctx.Reportf(goStmt.Pos(), "goroutine should call %s to derive context", c.derives.Original)
+		cctx.Reportf(ignore.GoroutineDerive, goStmt.Pos(), "goroutine should call %s to derive context", c.derives.Original)
 	}
 }
 

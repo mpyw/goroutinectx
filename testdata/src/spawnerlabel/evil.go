@@ -60,7 +60,6 @@ func evilElseOnlySpawn(cond bool) { // want `function "evilElseOnlySpawn" should
 func goodDeferSpawnNestedScope() {
 	g := new(errgroup.Group)
 	defer func() {
-		//goroutinectx:ignore
 		g.Go(func() error {
 			return nil
 		})
@@ -326,7 +325,6 @@ func onlyCreateGroup() {
 func limitationIIFEWithSpawn() {
 	g := new(errgroup.Group)
 	func() {
-		//goroutinectx:ignore
 		g.Go(func() error {
 			return nil
 		})

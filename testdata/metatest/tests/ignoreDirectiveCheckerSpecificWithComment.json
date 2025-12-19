@@ -1,0 +1,16 @@
+{
+  "title": "Ignore directive - checker-specific with comment",
+  "targets": [
+    "goroutine"
+  ],
+  "variants": {
+    "good": {
+      "description": "Checker-specific ignore can also have a comment.",
+      "functions": {
+        "goroutine": "goodIgnoredCheckerSpecificWithComment"
+      }
+    },
+    "bad": null
+  },
+  "level": "basic"
+}

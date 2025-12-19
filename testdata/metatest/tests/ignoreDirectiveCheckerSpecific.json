@@ -1,0 +1,16 @@
+{
+  "title": "Ignore directive - checker-specific (goroutine)",
+  "targets": [
+    "goroutine"
+  ],
+  "variants": {
+    "good": {
+      "description": "The //goroutinectx:ignore directive can specify which checker to ignore.",
+      "functions": {
+        "goroutine": "goodIgnoredCheckerSpecific"
+      }
+    },
+    "bad": null
+  },
+  "level": "basic"
+}

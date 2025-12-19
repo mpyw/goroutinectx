@@ -10,6 +10,8 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directives/spawner"
 )
 
+const checkerName = ignore.Spawnerlabel
+
 // Checker validates that functions are properly labeled with //goroutinectx:spawner.
 type Checker struct {
 	spawners *spawner.Map
@@ -55,7 +57,7 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 	// Check for missing label
 	if !isMarked && spawnInfo != nil {
 		line := pass.Fset.Position(fnDecl.Pos()).Line
-		if !ignoreMap.ShouldIgnore(line) {
+		if !ignoreMap.ShouldIgnore(line, checkerName) {
 			pass.Reportf(
 				fnDecl.Name.Pos(),
 				"function %q should have //goroutinectx:spawner directive (calls %s with func argument)",
@@ -68,7 +70,7 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 	// Check for unnecessary label
 	if isMarked && spawnInfo == nil && !hasFuncParams(fn) {
 		line := pass.Fset.Position(fnDecl.Pos()).Line
-		if !ignoreMap.ShouldIgnore(line) {
+		if !ignoreMap.ShouldIgnore(line, checkerName) {
 			pass.Reportf(
 				fnDecl.Name.Pos(),
 				"function %q has unnecessary //goroutinectx:spawner directive",

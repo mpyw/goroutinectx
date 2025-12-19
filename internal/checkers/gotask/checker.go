@@ -17,6 +17,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 )
 
 const pkgPath = "github.com/siketyan/gotask"
@@ -79,6 +80,7 @@ func (c *Checker) checkDoFamilyCalls(cctx *context.CheckContext, call *ast.CallE
 	if call.Ellipsis != token.NoPos {
 		if !c.exprContainsDeriver(cctx, call.Args[taskArgStartIndex]) {
 			cctx.Reportf(
+				ignore.Gotask,
 				call.Pos(),
 				"gotask.%s() variadic argument should call goroutine deriver (%s)",
 				methodName,
@@ -89,6 +91,7 @@ func (c *Checker) checkDoFamilyCalls(cctx *context.CheckContext, call *ast.CallE
 		for i, arg := range call.Args[taskArgStartIndex:] {
 			if !c.exprContainsDeriver(cctx, arg) {
 				cctx.Reportf(
+					ignore.Gotask,
 					call.Pos(),
 					"gotask.%s() %s argument should call goroutine deriver (%s)",
 					methodName,
@@ -146,6 +149,7 @@ func (c *Checker) checkDoAsyncCall(cctx *context.CheckContext, call *ast.CallExp
 
 	if !c.exprContainsDeriver(cctx, call.Args[0]) {
 		cctx.Reportf(
+			ignore.Gotask,
 			call.Args[0].Pos(),
 			"(*gotask.%s).DoAsync() 1st argument should call goroutine deriver (%s)",
 			typeName,

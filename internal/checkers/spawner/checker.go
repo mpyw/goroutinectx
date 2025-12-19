@@ -6,6 +6,7 @@ import (
 	"go/ast"
 
 	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/directives/spawner"
 )
 
@@ -40,7 +41,7 @@ func (c *Checker) CheckCall(cctx *context.CheckContext, call *ast.CallExpr) {
 	funcArgs := spawner.FindFuncArgs(cctx.Pass, call)
 	for _, arg := range funcArgs {
 		if !cctx.CheckFuncArgUsesContext(arg) {
-			cctx.Reportf(arg.Pos(), "%s() func argument should use context %q", fn.Name(), cctx.Scope.Name)
+			cctx.Reportf(ignore.Spawner, arg.Pos(), "%s() func argument should use context %q", fn.Name(), cctx.Scope.Name)
 		}
 	}
 }

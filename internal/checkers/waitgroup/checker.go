@@ -6,6 +6,7 @@ import (
 	"go/ast"
 
 	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -42,6 +43,6 @@ func (c *Checker) CheckCall(cctx *context.CheckContext, call *ast.CallExpr) {
 	}
 
 	if !cctx.CheckFuncArgUsesContext(call.Args[0]) {
-		cctx.Reportf(call.Pos(), "sync.WaitGroup.Go() closure should use context %q", cctx.Scope.Name)
+		cctx.Reportf(ignore.Waitgroup, call.Pos(), "sync.WaitGroup.Go() closure should use context %q", cctx.Scope.Name)
 	}
 }

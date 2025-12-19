@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"go/ast"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -83,6 +84,9 @@ func run(pass *analysis.Pass) (any, error) {
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
 	spawners := spawnerdir.Build(pass, externalSpawner)
 
+	// Build enabled checkers map
+	enabled := buildEnabledCheckers(spawners)
+
 	// Run AST-based checks (goroutine, errgroup, waitgroup)
 	runASTChecks(pass, insp, ignoreMaps, carriers, spawners)
 
@@ -91,6 +95,9 @@ func run(pass *analysis.Pass) (any, error) {
 		spawnerlabelChecker := spawnerlabel.New(spawners)
 		spawnerlabelChecker.Check(pass, ignoreMaps)
 	}
+
+	// Report unused ignore directives
+	reportUnusedIgnores(pass, ignoreMaps, enabled)
 
 	return nil, nil
 }
@@ -227,4 +234,56 @@ func findEnclosingScope(funcScopes map[ast.Node]*context.Scope, stack []ast.Node
 	}
 
 	return nil
+}
+
+// buildEnabledCheckers creates a map of which checkers are enabled.
+func buildEnabledCheckers(spawners *spawnerdir.Map) ignore.EnabledCheckers {
+	enabled := make(ignore.EnabledCheckers)
+
+	if enableGoroutine {
+		enabled[ignore.Goroutine] = true
+	}
+
+	if goroutineDeriver != "" {
+		enabled[ignore.GoroutineDerive] = true
+	}
+
+	if enableWaitgroup {
+		enabled[ignore.Waitgroup] = true
+	}
+
+	if enableErrgroup {
+		enabled[ignore.Errgroup] = true
+	}
+
+	if enableSpawner && spawners.Len() > 0 {
+		enabled[ignore.Spawner] = true
+	}
+
+	if enableSpawnerlabel {
+		enabled[ignore.Spawnerlabel] = true
+	}
+
+	if goroutineDeriver != "" && enableGotask {
+		enabled[ignore.Gotask] = true
+	}
+
+	return enabled
+}
+
+// reportUnusedIgnores reports any ignore directives that were not used.
+func reportUnusedIgnores(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, enabled ignore.EnabledCheckers) {
+	for _, ignoreMap := range ignoreMaps {
+		for _, unused := range ignoreMap.GetUnusedIgnores(enabled) {
+			if len(unused.Checkers) == 0 {
+				pass.Reportf(unused.Pos, "unused goroutinectx:ignore directive")
+			} else {
+				checkerNames := make([]string, len(unused.Checkers))
+				for i, c := range unused.Checkers {
+					checkerNames[i] = string(c)
+				}
+				pass.Reportf(unused.Pos, "unused goroutinectx:ignore directive for checker(s): %s", strings.Join(checkerNames, ", "))
+			}
+		}
+	}
 }

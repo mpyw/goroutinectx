@@ -6,6 +6,7 @@ import (
 	"go/types"
 
 	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -23,7 +24,7 @@ func (c *Checker) CheckGoStmt(cctx *context.CheckContext, goStmt *ast.GoStmt) {
 
 	// Check if context is used in the goroutine call chain
 	if !callUsesContext(cctx, call) {
-		cctx.Reportf(goStmt.Pos(), "goroutine does not propagate context %q", cctx.Scope.Name)
+		cctx.Reportf(ignore.Goroutine, goStmt.Pos(), "goroutine does not propagate context %q", cctx.Scope.Name)
 	}
 }
 
