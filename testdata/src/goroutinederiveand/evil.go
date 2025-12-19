@@ -67,7 +67,7 @@ func badAndNested2LevelInnerMissingOneDeriver(ctx context.Context, txn *newrelic
 //
 // AND - both derivers in nested IIFE (not at outer level).
 func goodAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context"
+	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
 		func() {
 			txn = txn.NewGoroutine()
 			ctx = newrelic.NewContext(ctx, txn)
@@ -80,7 +80,7 @@ func goodAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transacti
 //
 // AND - split derivers across levels (outer has first, IIFE has second).
 func goodAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context"
+	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
 		txn = txn.NewGoroutine() // First deriver at outer level
 		func() {
 			ctx = newrelic.NewContext(ctx, txn) // Second deriver in IIFE - not counted for outer
@@ -94,7 +94,7 @@ func goodAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transac
 //
 // AND - nested 3-level, outer only has first deriver.
 func badAndNested3LevelOuterPartial(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context"
+	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
 		txn = txn.NewGoroutine() // Only first deriver
 		go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context"
 			ctx = newrelic.NewContext(ctx, txn) // Only second deriver

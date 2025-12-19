@@ -124,12 +124,12 @@ func runASTChecks(
 		goStmtCheckers []checkers.GoStmtChecker
 	)
 
-	// When goroutine-deriver is set, it replaces the base goroutine checker.
-	// The derive checker is a more specific version that checks for deriver function calls.
+	if enableGoroutine {
+		goStmtCheckers = append(goStmtCheckers, goroutine.New())
+	}
+
 	if goroutineDeriver != "" {
 		goStmtCheckers = append(goStmtCheckers, goroutinederive.New(goroutineDeriver))
-	} else if enableGoroutine {
-		goStmtCheckers = append(goStmtCheckers, goroutine.New())
 	}
 
 	if enableWaitgroup {

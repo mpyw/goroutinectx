@@ -64,7 +64,7 @@ func goodMixedNested2LevelInnerSatisfiesNeither(ctx context.Context, txn *newrel
 //
 // IIFE pattern with AND group deriver requirements.
 func goodMixedSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context`
 		txn = txn.NewGoroutine() // Only first of AND
 		func() {
 			ctx = newrelic.NewContext(ctx, txn) // Second of AND in IIFE - doesn't count
@@ -78,7 +78,7 @@ func goodMixedSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Trans
 //
 // Satisfies the mixed requirement via OR alternative path.
 func goodMixedOrAlternativeInNestedIIFE(ctx context.Context) {
-	go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context`
 		func() {
 			ctx = apm.NewGoroutineContext(ctx)
 			_ = ctx
@@ -90,7 +90,7 @@ func goodMixedOrAlternativeInNestedIIFE(ctx context.Context) {
 //
 // Nested pattern where outer only calls first deriver of AND group.
 func badMixedNested3LevelOuterPartial(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context`
 		txn = txn.NewGoroutine() // Only first of AND
 		go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
 			ctx = newrelic.NewContext(ctx, txn) // Only second of AND
