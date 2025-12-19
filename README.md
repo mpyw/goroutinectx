@@ -16,16 +16,6 @@ A Go linter that checks goroutine context propagation.
 
 ## Installation & Usage
 
-### Using [`go vet`](https://pkg.go.dev/cmd/go#hdr-Report_likely_mistakes_in_packages) (Recommended)
-
-```bash
-# Install the analyzer
-go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
-
-# Run with go vet
-go vet -vettool=$(which goroutinectx) ./...
-```
-
 ### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool) (Go 1.24+)
 
 ```bash
@@ -267,12 +257,6 @@ This is useful for wrapper functions that abstract away goroutine spawning patte
 
 ## Flags
 
-> [!TIP]
-> When using `go vet -vettool`, pass flags directly:
-> ```bash
-> go vet -vettool=$(which goroutinectx) -goroutine-deriver='pkg.Func' ./...
-> ```
-
 ### `-goroutine-deriver`
 
 Require goroutines to call a specific function to derive context. Useful for APM libraries like New Relic.
@@ -368,16 +352,13 @@ Available flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-test` | `true` | Analyze test files (`*_test.go`) |
+| `-test` | `true` | Analyze test files (`*_test.go`) — built-in driver flag |
 
 Generated files (containing `// Code generated ... DO NOT EDIT.`) are always excluded and cannot be opted in.
 
 ```bash
 # Exclude test files from analysis
 goroutinectx -test=false ./...
-
-# With go vet
-go vet -vettool=$(which goroutinectx) -goroutinectx.test=false ./...
 ```
 
 ### `-spawnerlabel`

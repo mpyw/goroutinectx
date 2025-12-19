@@ -39,9 +39,6 @@ var (
 	enableSpawner      bool
 	enableSpawnerlabel bool
 	enableGotask       bool
-
-	// File filtering flags.
-	analyzeTests bool
 )
 
 func init() {
@@ -59,9 +56,6 @@ func init() {
 	Analyzer.Flags.BoolVar(&enableSpawner, "spawner", true, "enable spawner checker")
 	Analyzer.Flags.BoolVar(&enableSpawnerlabel, "spawnerlabel", false, "enable spawnerlabel checker")
 	Analyzer.Flags.BoolVar(&enableGotask, "gotask", true, "enable gotask checker (requires -goroutine-deriver)")
-
-	// File filtering flags
-	Analyzer.Flags.BoolVar(&analyzeTests, "test", true, "analyze test files (*_test.go)")
 }
 
 // Analyzer is the main analyzer for goroutinectx.
@@ -111,9 +105,9 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// buildSkipFiles creates a set of filenames to skip based on flags.
+// buildSkipFiles creates a set of filenames to skip.
 // Generated files are always skipped.
-// Test files are skipped when analyzeTests is false.
+// Test files can be skipped via the driver's built-in -test flag.
 func buildSkipFiles(pass *analysis.Pass) map[string]bool {
 	skipFiles := make(map[string]bool)
 
@@ -122,12 +116,6 @@ func buildSkipFiles(pass *analysis.Pass) map[string]bool {
 
 		// Always skip generated files
 		if ast.IsGenerated(file) {
-			skipFiles[filename] = true
-			continue
-		}
-
-		// Skip test files if -test=false
-		if !analyzeTests && strings.HasSuffix(filename, "_test.go") {
 			skipFiles[filename] = true
 		}
 	}
