@@ -414,8 +414,17 @@ func simpleHelper() {  // Warning: unnecessary //goroutinectx:spawner
 2. **Type-safe analysis** - Uses [`go/types`](https://pkg.go.dev/go/types) for accurate detection
 3. **Nested function support** - Correctly tracks context through closures
 
+## Documentation
+
+- [Architecture](./docs/ARCHITECTURE.md) - Technical specification and design decisions
+- [Tutorial](./docs/TUTORIAL.md) - Step-by-step learning guide
+- [CLAUDE.md](./CLAUDE.md) - AI assistant guidance for development
+
 ## Related Tools
 
+- [zerologlintctx](https://github.com/mpyw/zerologlintctx) - Zerolog context propagation linter
+- [ctxweaver](https://github.com/mpyw/ctxweaver) - Code generator for context-aware instrumentation
+- [gormreuse](https://github.com/mpyw/gormreuse) - GORM instance reuse linter
 - [contextcheck](https://github.com/kkHAIKE/contextcheck) - Detects [`context.Background`](https://pkg.go.dev/context#Background)/[`context.TODO`](https://pkg.go.dev/context#TODO) usage and missing context parameters
 
 `goroutinectx` is complementary to `contextcheck`:

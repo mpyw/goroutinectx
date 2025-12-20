@@ -498,3 +498,10 @@ When using Serena for code analysis, avoid excessive parallel searches to preven
 
 **Throughput vs Latency:**
 When search scope is large, prioritize reliability over speed by executing searches sequentially rather than in parallel.
+
+## Related Projects
+
+- [zerologlintctx](https://github.com/mpyw/zerologlintctx) - Zerolog context propagation linter
+- [ctxweaver](https://github.com/mpyw/ctxweaver) - Code generator for context-aware instrumentation
+- [gormreuse](https://github.com/mpyw/gormreuse) - GORM instance reuse linter
+- [contextcheck](https://github.com/kkHAIKE/contextcheck) - Detects [`context.Background()`](https://pkg.go.dev/context#Background)/[`context.TODO()`](https://pkg.go.dev/context#TODO) misuse
