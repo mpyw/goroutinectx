@@ -1,13 +1,13 @@
 {
-  "title": "AND - Both derivers in nested IIFE (not at outer level).",
+  "title": "AND - Both derivers in nested IIFE - SSA detects",
   "targets": [
     "goroutinederiveand"
   ],
   "variants": {
-    "partial": {
-      "description": "SSA correctly detects ctx capture, but deriver calls in nested IIFE not counted.",
+    "good": {
+      "description": "SSA traverses into IIFE and correctly detects both deriver calls.",
       "functions": {
-        "goroutinederiveand": "partialAndBothDeriverInNestedIIFE"
+        "goroutinederiveand": "goodAndBothDeriverInNestedIIFE"
       }
     }
   },

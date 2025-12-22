@@ -7,17 +7,29 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 )
 
+// GoStmtResult represents the result of a go statement pattern check.
+type GoStmtResult struct {
+	// OK indicates the pattern is satisfied (no error).
+	OK bool
+	// DeferOnly indicates the deriver was found but only in defer statements.
+	// This is only relevant for deriver patterns.
+	DeferOnly bool
+}
+
 // GoStmtPattern defines the interface for go statement patterns.
 type GoStmtPattern interface {
 	// Name returns a human-readable name for the pattern.
 	Name() string
 
 	// CheckGoStmt checks if the pattern is satisfied for the given go statement.
-	// Returns true if the pattern is satisfied (no error).
-	CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) bool
+	CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoStmtResult
 
 	// Message returns the diagnostic message when the pattern is violated.
 	Message(ctxName string) string
+
+	// DeferMessage returns the diagnostic message when deriver is only in defer.
+	// Returns empty string if not applicable.
+	DeferMessage(ctxName string) string
 }
 
 // GoStmtCapturesCtx checks that a go statement's closure captures the outer context.
@@ -27,19 +39,19 @@ func (*GoStmtCapturesCtx) Name() string {
 	return "GoStmtCapturesCtx"
 }
 
-func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) bool {
+func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoStmtResult {
 	// If no context names in scope (from AST), nothing to check
 	if len(cctx.CtxNames) == 0 {
-		return true
+		return GoStmtResult{OK: true}
 	}
 
 	// Try SSA-based check first (more accurate, includes nested closures)
 	if result, ok := checkGoStmtFromSSA(cctx, stmt); ok {
-		return result
+		return GoStmtResult{OK: result}
 	}
 
 	// Fall back to AST-based check when SSA fails
-	return checkGoStmtFromAST(cctx, stmt)
+	return GoStmtResult{OK: checkGoStmtFromAST(cctx, stmt)}
 }
 
 // checkGoStmtFromSSA uses SSA analysis to check if a goroutine captures context.
@@ -72,6 +84,10 @@ func checkGoStmtFromSSA(cctx *CheckContext, stmt *ast.GoStmt) (bool, bool) {
 
 func (*GoStmtCapturesCtx) Message(ctxName string) string {
 	return "goroutine does not propagate context \"" + ctxName + "\""
+}
+
+func (*GoStmtCapturesCtx) DeferMessage(_ string) string {
+	return "" // Not applicable for context capture pattern
 }
 
 // checkGoStmtFromAST falls back to AST-based analysis for go statements.
@@ -263,9 +279,9 @@ func (*GoStmtCallsDeriver) Name() string {
 	return "GoStmtCallsDeriver"
 }
 
-func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) bool {
+func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoStmtResult {
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
-		return true // No deriver configured
+		return GoStmtResult{OK: true} // No deriver configured
 	}
 
 	call := stmt.Call
@@ -274,22 +290,54 @@ func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) b
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
 		if funcLitHasContextParam(cctx, lit) {
-			return true
+			return GoStmtResult{OK: true}
 		}
-		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, lit.Body)
+
+		// Try SSA-based check first (detects IIFE, distinguishes defer)
+		if result, ok := p.checkDeriverFromSSA(cctx, lit); ok {
+			return result
+		}
+
+		// Fall back to AST-based check
+		return GoStmtResult{OK: p.Matcher.SatisfiesAnyGroup(cctx.Pass, lit.Body)}
 	}
 
 	// For go fn()() (higher-order), check the factory function
 	if innerCall, ok := call.Fun.(*ast.CallExpr); ok {
-		return p.checkHigherOrderDeriver(cctx, innerCall)
+		return GoStmtResult{OK: p.checkHigherOrderDeriver(cctx, innerCall)}
 	}
 
 	// For go fn() where fn is an identifier, trace the variable
 	if ident, ok := call.Fun.(*ast.Ident); ok {
-		return p.checkIdentDeriver(cctx, ident)
+		return GoStmtResult{OK: p.checkIdentDeriver(cctx, ident)}
 	}
 
-	return true // Can't analyze, assume OK
+	return GoStmtResult{OK: true} // Can't analyze, assume OK
+}
+
+// checkDeriverFromSSA uses SSA analysis to check deriver calls.
+// Returns (result, true) if SSA analysis succeeded, or (GoStmtResult{}, false) if it failed.
+func (p *GoStmtCallsDeriver) checkDeriverFromSSA(cctx *CheckContext, lit *ast.FuncLit) (GoStmtResult, bool) {
+	if cctx.SSAProg == nil || cctx.Tracer == nil {
+		return GoStmtResult{}, false
+	}
+
+	ssaFn := cctx.SSAProg.FindFuncLit(lit)
+	if ssaFn == nil {
+		return GoStmtResult{}, false
+	}
+
+	result := cctx.Tracer.CheckDeriverCalls(ssaFn, p.Matcher)
+
+	if result.FoundAtStart {
+		return GoStmtResult{OK: true}, true
+	}
+
+	if result.FoundOnlyInDefer {
+		return GoStmtResult{OK: false, DeferOnly: true}, true
+	}
+
+	return GoStmtResult{OK: false}, true
 }
 
 // checkIdentDeriver checks go fn() patterns where fn is a variable.
@@ -424,4 +472,8 @@ func (p *GoStmtCallsDeriver) returnedValueCallsDeriver(cctx *CheckContext, resul
 
 func (p *GoStmtCallsDeriver) Message(_ string) string {
 	return "goroutine should call " + p.Matcher.Original + " to derive context"
+}
+
+func (p *GoStmtCallsDeriver) DeferMessage(_ string) string {
+	return "goroutine calls " + p.Matcher.Original + " in defer, but it should be called at goroutine start"
 }

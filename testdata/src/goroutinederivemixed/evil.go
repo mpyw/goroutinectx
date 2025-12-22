@@ -60,26 +60,25 @@ func goodMixedNested2LevelInnerSatisfiesNeither(ctx context.Context, txn *newrel
 	}()
 }
 
-// [PARTIAL]: Mixed - AND group split between outer and IIFE.
+// [GOOD]: Mixed - AND group split between outer and IIFE - SSA detects
 //
-// IIFE pattern with AND group deriver requirements.
-// SSA correctly detects ctx capture, but second deriver in nested IIFE not counted.
-func partialMixedSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context`
-		txn = txn.NewGoroutine() // Only first of AND
+// SSA traverses into IIFE and correctly detects deriver calls.
+func goodMixedSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
+	go func() { // SSA detects deriver calls
+		txn = txn.NewGoroutine() // First of AND
 		func() {
-			ctx = newrelic.NewContext(ctx, txn) // Second of AND in IIFE - doesn't count
+			ctx = newrelic.NewContext(ctx, txn) // Second of AND in IIFE - SSA detects
 			_ = ctx
 		}()
 		_ = txn
 	}()
 }
 
-// [PARTIAL]: Mixed - OR alternative only in nested IIFE.
+// [GOOD]: Mixed - OR alternative in nested IIFE - SSA detects
 //
-// SSA correctly detects ctx capture, but OR alternative in nested IIFE not counted.
-func partialMixedOrAlternativeInNestedIIFE(ctx context.Context) {
-	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context`
+// SSA traverses into IIFE and correctly detects OR alternative.
+func goodMixedOrAlternativeInNestedIIFE(ctx context.Context) {
+	go func() { // SSA detects deriver call in IIFE
 		func() {
 			ctx = apm.NewGoroutineContext(ctx)
 			_ = ctx

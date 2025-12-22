@@ -1,13 +1,13 @@
 {
-  "title": "Mixed - OR alternative only in nested IIFE.",
+  "title": "Mixed - OR alternative in nested IIFE - SSA detects",
   "targets": [
     "goroutinederivemixed"
   ],
   "variants": {
-    "partial": {
-      "description": "SSA correctly detects ctx capture, but OR alternative in nested IIFE not counted.",
+    "good": {
+      "description": "SSA traverses into IIFE and correctly detects OR alternative.",
       "functions": {
-        "goroutinederivemixed": "partialMixedOrAlternativeInNestedIIFE"
+        "goroutinederivemixed": "goodMixedOrAlternativeInNestedIIFE"
       }
     }
   },

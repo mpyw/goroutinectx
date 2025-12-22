@@ -1,13 +1,13 @@
 {
-  "title": "Mixed - AND group split between outer and IIFE.",
+  "title": "Mixed - AND group split between outer and IIFE - SSA detects",
   "targets": [
     "goroutinederivemixed"
   ],
   "variants": {
-    "partial": {
-      "description": "SSA correctly detects ctx capture, but second deriver in nested IIFE not counted.",
+    "good": {
+      "description": "SSA traverses into IIFE and correctly detects deriver calls.",
       "functions": {
-        "goroutinederivemixed": "partialMixedSplitDeriversAcrossLevels"
+        "goroutinederivemixed": "goodMixedSplitDeriversAcrossLevels"
       }
     }
   },

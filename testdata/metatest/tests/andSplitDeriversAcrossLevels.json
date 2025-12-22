@@ -1,13 +1,13 @@
 {
-  "title": "AND - Split derivers across levels (outer has first, IIFE has second).",
+  "title": "AND - Split derivers across levels - SSA detects",
   "targets": [
     "goroutinederiveand"
   ],
   "variants": {
-    "partial": {
-      "description": "SSA correctly detects ctx capture, but second deriver in nested IIFE not counted.",
+    "good": {
+      "description": "SSA traverses into IIFE and correctly detects deriver calls.",
       "functions": {
-        "goroutinederiveand": "partialAndSplitDeriversAcrossLevels"
+        "goroutinederiveand": "goodAndSplitDeriversAcrossLevels"
       }
     }
   },

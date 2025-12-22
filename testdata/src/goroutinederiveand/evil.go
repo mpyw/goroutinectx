@@ -63,12 +63,11 @@ func badAndNested2LevelInnerMissingOneDeriver(ctx context.Context, txn *newrelic
 	}()
 }
 
-// [PARTIAL]: AND - Both derivers in nested IIFE (not at outer level).
+// [GOOD]: AND - Both derivers in nested IIFE - SSA detects
 //
-// AND - both derivers in nested IIFE (not at outer level).
-// SSA correctly detects ctx capture, but deriver calls in nested IIFE not counted.
-func partialAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
+// SSA traverses into IIFE and correctly detects both deriver calls.
+func goodAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transaction) {
+	go func() { // SSA detects deriver calls in IIFE
 		func() {
 			txn = txn.NewGoroutine()
 			ctx = newrelic.NewContext(ctx, txn)
@@ -77,15 +76,14 @@ func partialAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transa
 	}()
 }
 
-// [PARTIAL]: AND - Split derivers across levels (outer has first, IIFE has second).
+// [GOOD]: AND - Split derivers across levels - SSA detects
 //
-// AND - split derivers across levels (outer has first, IIFE has second).
-// SSA correctly detects ctx capture, but second deriver in nested IIFE not counted.
-func partialAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
+// SSA traverses into IIFE and correctly detects deriver calls.
+func goodAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
+	go func() { // SSA detects deriver calls
 		txn = txn.NewGoroutine() // First deriver at outer level
 		func() {
-			ctx = newrelic.NewContext(ctx, txn) // Second deriver in IIFE - not counted for outer
+			ctx = newrelic.NewContext(ctx, txn) // Second deriver in IIFE - SSA detects
 			_ = ctx
 		}()
 		_ = txn

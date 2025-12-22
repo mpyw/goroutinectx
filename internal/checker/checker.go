@@ -106,8 +106,20 @@ func (c *Checker) checkGoStmt(cctx *patterns.CheckContext, stmt *ast.GoStmt, sco
 			continue
 		}
 
-		if !pattern.CheckGoStmt(cctx, stmt) {
-			msg := pattern.Message(scope.ctxName())
+		result := pattern.CheckGoStmt(cctx, stmt)
+		if result.OK {
+			continue
+		}
+
+		var msg string
+		if result.DeferOnly {
+			// Deriver found but only in defer - use special message
+			msg = pattern.DeferMessage(scope.ctxName())
+		} else {
+			msg = pattern.Message(scope.ctxName())
+		}
+
+		if msg != "" {
 			cctx.Pass.Reportf(stmt.Pos(), "%s", msg)
 		}
 	}
