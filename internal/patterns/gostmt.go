@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"go/types"
 
+	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 )
 
@@ -15,7 +16,7 @@ func (*GoStmtCapturesCtx) Name() string {
 	return "GoStmtCapturesCtx"
 }
 
-func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoStmtResult {
+func (*GoStmtCapturesCtx) CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt) GoStmtResult {
 	// If no context names in scope (from AST), nothing to check
 	if len(cctx.CtxNames) == 0 {
 		return GoStmtResult{OK: true}
@@ -32,7 +33,7 @@ func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoSt
 
 // goStmtCheckFromSSA uses SSA analysis to check if a goroutine captures context.
 // Returns (result, true) if SSA analysis succeeded, or (false, false) if it failed.
-func goStmtCheckFromSSA(cctx *CheckContext, stmt *ast.GoStmt) (bool, bool) {
+func goStmtCheckFromSSA(cctx *context.CheckContext, stmt *ast.GoStmt) (bool, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return false, false
 	}
@@ -67,7 +68,7 @@ func (*GoStmtCapturesCtx) DeferMessage(_ string) string {
 }
 
 // goStmtCheckFromAST falls back to AST-based analysis for go statements.
-func goStmtCheckFromAST(cctx *CheckContext, stmt *ast.GoStmt) bool {
+func goStmtCheckFromAST(cctx *context.CheckContext, stmt *ast.GoStmt) bool {
 	call := stmt.Call
 
 	// For go func(){}(), check the function literal
@@ -97,7 +98,7 @@ func goStmtCheckFromAST(cctx *CheckContext, stmt *ast.GoStmt) bool {
 // For these patterns, we need to check if ctx is passed to the factory,
 // or if the factory function returns a closure that uses ctx.
 // Handles arbitrary depth: go fn()(), go fn()()(), etc.
-func goStmtCheckHigherOrder(cctx *CheckContext, innerCall *ast.CallExpr) bool {
+func goStmtCheckHigherOrder(cctx *context.CheckContext, innerCall *ast.CallExpr) bool {
 	// Check if ctx is passed as an argument to the inner call
 	for _, arg := range innerCall.Args {
 		if cctx.ArgUsesContext(arg) {
@@ -129,7 +130,7 @@ func goStmtCheckHigherOrder(cctx *CheckContext, innerCall *ast.CallExpr) bool {
 }
 
 // goStmtCheckIdentFactory checks if an identifier refers to a factory that returns ctx-using func.
-func goStmtCheckIdentFactory(cctx *CheckContext, ident *ast.Ident) bool {
+func goStmtCheckIdentFactory(cctx *context.CheckContext, ident *ast.Ident) bool {
 	obj := cctx.Pass.TypesInfo.ObjectOf(ident)
 	if obj == nil {
 		return true // Can't trace
@@ -167,7 +168,7 @@ func goStmtCheckIdentFactory(cctx *CheckContext, ident *ast.Ident) bool {
 }
 
 // goStmtFindFuncDecl finds the FuncDecl for a types.Func.
-func goStmtFindFuncDecl(cctx *CheckContext, fn *types.Func) *ast.FuncDecl {
+func goStmtFindFuncDecl(cctx *context.CheckContext, fn *types.Func) *ast.FuncDecl {
 	pos := fn.Pos()
 	for _, f := range cctx.Pass.Files {
 		if f.Pos() > pos || pos >= f.End() {
@@ -185,12 +186,12 @@ func goStmtFindFuncDecl(cctx *CheckContext, fn *types.Func) *ast.FuncDecl {
 }
 
 // goStmtFuncDeclHasContextParam checks if a function declaration has a context.Context parameter.
-func goStmtFuncDeclHasContextParam(cctx *CheckContext, decl *ast.FuncDecl) bool {
+func goStmtFuncDeclHasContextParam(cctx *context.CheckContext, decl *ast.FuncDecl) bool {
 	return cctx.FuncTypeHasContextParam(decl.Type)
 }
 
 // goStmtFactoryDeclReturnsCtxFunc checks if a function declaration returns funcs that use context.
-func goStmtFactoryDeclReturnsCtxFunc(cctx *CheckContext, decl *ast.FuncDecl) bool {
+func goStmtFactoryDeclReturnsCtxFunc(cctx *context.CheckContext, decl *ast.FuncDecl) bool {
 	return cctx.BlockReturnsContextUsingFunc(decl.Body, nil)
 }
 
@@ -204,7 +205,7 @@ func (*GoStmtCallsDeriver) Name() string {
 	return "GoStmtCallsDeriver"
 }
 
-func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoStmtResult {
+func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt) GoStmtResult {
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
 		return GoStmtResult{OK: true} // No deriver configured
 	}
@@ -242,7 +243,7 @@ func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) G
 
 // checkDeriverFromSSA uses SSA analysis to check deriver calls.
 // Returns (result, true) if SSA analysis succeeded, or (GoStmtResult{}, false) if it failed.
-func (p *GoStmtCallsDeriver) checkDeriverFromSSA(cctx *CheckContext, lit *ast.FuncLit) (GoStmtResult, bool) {
+func (p *GoStmtCallsDeriver) checkDeriverFromSSA(cctx *context.CheckContext, lit *ast.FuncLit) (GoStmtResult, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return GoStmtResult{}, false
 	}
@@ -266,7 +267,7 @@ func (p *GoStmtCallsDeriver) checkDeriverFromSSA(cctx *CheckContext, lit *ast.Fu
 }
 
 // checkIdentDeriver checks go fn() patterns where fn is a variable.
-func (p *GoStmtCallsDeriver) checkIdentDeriver(cctx *CheckContext, ident *ast.Ident) bool {
+func (p *GoStmtCallsDeriver) checkIdentDeriver(cctx *context.CheckContext, ident *ast.Ident) bool {
 	obj := cctx.Pass.TypesInfo.ObjectOf(ident)
 	if obj == nil {
 		return true // Can't trace
@@ -292,7 +293,7 @@ func (p *GoStmtCallsDeriver) checkIdentDeriver(cctx *CheckContext, ident *ast.Id
 
 // checkHigherOrderDeriver checks go fn()() patterns for deriver calls.
 // The deriver must be called in the returned function, not in the factory.
-func (p *GoStmtCallsDeriver) checkHigherOrderDeriver(cctx *CheckContext, innerCall *ast.CallExpr) bool {
+func (p *GoStmtCallsDeriver) checkHigherOrderDeriver(cctx *context.CheckContext, innerCall *ast.CallExpr) bool {
 	// Check if the inner call's function is a func literal
 	if lit, ok := innerCall.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
@@ -330,7 +331,7 @@ func (p *GoStmtCallsDeriver) checkHigherOrderDeriver(cctx *CheckContext, innerCa
 
 // factoryReturnsDeriverCallingFunc checks if a factory function's return statements
 // return functions that call the deriver.
-func (p *GoStmtCallsDeriver) factoryReturnsDeriverCallingFunc(cctx *CheckContext, factory *ast.FuncLit) bool {
+func (p *GoStmtCallsDeriver) factoryReturnsDeriverCallingFunc(cctx *context.CheckContext, factory *ast.FuncLit) bool {
 	callsDeriver := false
 
 	ast.Inspect(factory.Body, func(n ast.Node) bool {
@@ -365,7 +366,7 @@ func (p *GoStmtCallsDeriver) factoryReturnsDeriverCallingFunc(cctx *CheckContext
 }
 
 // returnedValueCallsDeriver checks if a returned value is a func that calls the deriver.
-func (p *GoStmtCallsDeriver) returnedValueCallsDeriver(cctx *CheckContext, result ast.Expr) bool {
+func (p *GoStmtCallsDeriver) returnedValueCallsDeriver(cctx *context.CheckContext, result ast.Expr) bool {
 	// If it's a func literal, check directly
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)

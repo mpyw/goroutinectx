@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 )
 
@@ -20,7 +21,7 @@ func (*ShouldCallDeriver) Name() string {
 	return "ShouldCallDeriver"
 }
 
-func (p *ShouldCallDeriver) Check(cctx *CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
+func (p *ShouldCallDeriver) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
 		return true // No deriver configured
 	}
@@ -29,7 +30,7 @@ func (p *ShouldCallDeriver) Check(cctx *CheckContext, call *ast.CallExpr, callba
 
 // exprCallsDeriver checks if an expression contains a call to the deriver function.
 // Handles: FuncLit, Ident (variable), CallExpr (NewTask, factory functions).
-func (p *ShouldCallDeriver) exprCallsDeriver(cctx *CheckContext, expr ast.Expr) bool {
+func (p *ShouldCallDeriver) exprCallsDeriver(cctx *context.CheckContext, expr ast.Expr) bool {
 	switch e := expr.(type) {
 	case *ast.FuncLit:
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, e.Body)
@@ -47,7 +48,7 @@ func (p *ShouldCallDeriver) exprCallsDeriver(cctx *CheckContext, expr ast.Expr) 
 }
 
 // identCallsDeriver checks if a variable contains a deriver by tracing its assignment.
-func (p *ShouldCallDeriver) identCallsDeriver(cctx *CheckContext, ident *ast.Ident) bool {
+func (p *ShouldCallDeriver) identCallsDeriver(cctx *context.CheckContext, ident *ast.Ident) bool {
 	obj := cctx.Pass.TypesInfo.ObjectOf(ident)
 	if obj == nil {
 		return true // Can't trace
@@ -80,7 +81,7 @@ func (p *ShouldCallDeriver) identCallsDeriver(cctx *CheckContext, ident *ast.Ide
 }
 
 // callExprCallsDeriver checks if a call expression contains a deriver.
-func (p *ShouldCallDeriver) callExprCallsDeriver(cctx *CheckContext, call *ast.CallExpr) bool {
+func (p *ShouldCallDeriver) callExprCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	// Case 1: gotask.NewTask(fn) - check fn
 	if p.isGotaskConstructor(cctx, call) && len(call.Args) > 0 {
 		return p.exprCallsDeriver(cctx, call.Args[0])
@@ -101,7 +102,7 @@ func (p *ShouldCallDeriver) callExprCallsDeriver(cctx *CheckContext, call *ast.C
 }
 
 // isGotaskConstructor checks if call is gotask.NewTask or similar.
-func (p *ShouldCallDeriver) isGotaskConstructor(cctx *CheckContext, call *ast.CallExpr) bool {
+func (p *ShouldCallDeriver) isGotaskConstructor(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
@@ -130,7 +131,7 @@ func (p *ShouldCallDeriver) isGotaskConstructor(cctx *CheckContext, call *ast.Ca
 }
 
 // factoryReturnCallsDeriver traces a factory call to its FuncLit and checks returns.
-func (p *ShouldCallDeriver) factoryReturnCallsDeriver(cctx *CheckContext, call *ast.CallExpr) bool {
+func (p *ShouldCallDeriver) factoryReturnCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	ident, ok := call.Fun.(*ast.Ident)
 	if !ok {
 		return false
@@ -155,7 +156,7 @@ func (p *ShouldCallDeriver) factoryReturnCallsDeriver(cctx *CheckContext, call *
 }
 
 // callbackReturnCallsDeriver checks if any FuncLit argument returns a deriver-calling func.
-func (p *ShouldCallDeriver) callbackReturnCallsDeriver(cctx *CheckContext, call *ast.CallExpr) bool {
+func (p *ShouldCallDeriver) callbackReturnCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	for _, arg := range call.Args {
 		funcLit, ok := arg.(*ast.FuncLit)
 		if !ok {
@@ -169,7 +170,7 @@ func (p *ShouldCallDeriver) callbackReturnCallsDeriver(cctx *CheckContext, call 
 }
 
 // funcLitReturnCallsDeriver checks if any return statement returns a deriver-calling expr.
-func (p *ShouldCallDeriver) funcLitReturnCallsDeriver(cctx *CheckContext, funcLit *ast.FuncLit) bool {
+func (p *ShouldCallDeriver) funcLitReturnCallsDeriver(cctx *context.CheckContext, funcLit *ast.FuncLit) bool {
 	var found bool
 
 	ast.Inspect(funcLit.Body, func(n ast.Node) bool {
@@ -211,7 +212,7 @@ func (p *ShouldCallDeriver) Message(apiName string, _ string) string {
 }
 
 // deriverFindCallExprAssignmentBefore finds the last CallExpr assigned to variable before pos.
-func deriverFindCallExprAssignmentBefore(cctx *CheckContext, v *types.Var, beforePos token.Pos) *ast.CallExpr {
+func deriverFindCallExprAssignmentBefore(cctx *context.CheckContext, v *types.Var, beforePos token.Pos) *ast.CallExpr {
 	var result *ast.CallExpr
 	declPos := v.Pos()
 

@@ -6,6 +6,8 @@ import (
 	"go/token"
 	"go/types"
 	"strings"
+
+	"github.com/mpyw/goroutinectx/internal/context"
 )
 
 // ClosureCapturesCtx checks that a closure captures the outer context.
@@ -16,7 +18,7 @@ func (*ClosureCapturesCtx) Name() string {
 	return "ClosureCapturesCtx"
 }
 
-func (*ClosureCapturesCtx) Check(cctx *CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
+func (*ClosureCapturesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
 	// If no context names in scope (from AST), nothing to check
 	if len(cctx.CtxNames) == 0 {
 		return true
@@ -37,7 +39,7 @@ func (*ClosureCapturesCtx) Message(apiName string, ctxName string) string {
 
 // closureCheckFromSSA uses SSA analysis to check if a closure captures context.
 // Returns (result, true) if SSA analysis succeeded, or (false, false) if it failed.
-func closureCheckFromSSA(cctx *CheckContext, callbackArg ast.Expr) (bool, bool) {
+func closureCheckFromSSA(cctx *context.CheckContext, callbackArg ast.Expr) (bool, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return false, false
 	}
@@ -63,7 +65,7 @@ func closureCheckFromSSA(cctx *CheckContext, callbackArg ast.Expr) (bool, bool) 
 
 // closureCheckFromAST falls back to AST-based analysis when SSA tracing fails.
 // Design principle: "prove safety" - if we can't prove ctx is used, report error.
-func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
+func closureCheckFromAST(cctx *context.CheckContext, callbackArg ast.Expr) bool {
 	// For function literals, check if they reference context
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
@@ -113,7 +115,7 @@ func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
 }
 
 // closureCheckSelectorFunc checks if a struct field func uses context.
-func closureCheckSelectorFunc(cctx *CheckContext, sel *ast.SelectorExpr) bool {
+func closureCheckSelectorFunc(cctx *context.CheckContext, sel *ast.SelectorExpr) bool {
 	ident, ok := sel.X.(*ast.Ident)
 	if !ok {
 		return false
@@ -139,7 +141,7 @@ func closureCheckSelectorFunc(cctx *CheckContext, sel *ast.SelectorExpr) bool {
 }
 
 // closureFindStructFieldFuncLit finds a func literal assigned to a struct field.
-func closureFindStructFieldFuncLit(cctx *CheckContext, v *types.Var, fieldName string) *ast.FuncLit {
+func closureFindStructFieldFuncLit(cctx *context.CheckContext, v *types.Var, fieldName string) *ast.FuncLit {
 	var result *ast.FuncLit
 	pos := v.Pos()
 
@@ -166,7 +168,7 @@ func closureFindStructFieldFuncLit(cctx *CheckContext, v *types.Var, fieldName s
 }
 
 // closureFindFieldInAssignment looks for a func literal in a struct field assignment.
-func closureFindFieldInAssignment(cctx *CheckContext, assign *ast.AssignStmt, v *types.Var, fieldName string) *ast.FuncLit {
+func closureFindFieldInAssignment(cctx *context.CheckContext, assign *ast.AssignStmt, v *types.Var, fieldName string) *ast.FuncLit {
 	for i, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
@@ -200,7 +202,7 @@ func closureFindFieldInAssignment(cctx *CheckContext, assign *ast.AssignStmt, v 
 }
 
 // closureCheckIndexFunc checks if a slice/map indexed func uses context.
-func closureCheckIndexFunc(cctx *CheckContext, idx *ast.IndexExpr) bool {
+func closureCheckIndexFunc(cctx *context.CheckContext, idx *ast.IndexExpr) bool {
 	ident, ok := idx.X.(*ast.Ident)
 	if !ok {
 		return false
@@ -225,7 +227,7 @@ func closureCheckIndexFunc(cctx *CheckContext, idx *ast.IndexExpr) bool {
 }
 
 // closureFindIndexedFuncLit finds a func literal at a specific index in a composite literal.
-func closureFindIndexedFuncLit(cctx *CheckContext, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
+func closureFindIndexedFuncLit(cctx *context.CheckContext, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
 	var result *ast.FuncLit
 	pos := v.Pos()
 
@@ -252,7 +254,7 @@ func closureFindIndexedFuncLit(cctx *CheckContext, v *types.Var, indexExpr ast.E
 }
 
 // closureFindFuncLitAtIndex looks for a func literal at a specific index.
-func closureFindFuncLitAtIndex(cctx *CheckContext, assign *ast.AssignStmt, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
+func closureFindFuncLitAtIndex(cctx *context.CheckContext, assign *ast.AssignStmt, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
 	for i, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
@@ -316,7 +318,7 @@ func closureFindFuncLitByLiteral(compLit *ast.CompositeLit, lit *ast.BasicLit) *
 // Handles patterns like:
 //   - g.Go(makeWorkerWithCtx(ctx)) - ctx passed as argument
 //   - g.Go(makeWorker()) where makeWorker is a closure that captures ctx
-func closureCheckFactoryCall(cctx *CheckContext, call *ast.CallExpr) bool {
+func closureCheckFactoryCall(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	// Check if ctx is passed as an argument to the call
 	for _, arg := range call.Args {
 		if cctx.ArgUsesContext(arg) {

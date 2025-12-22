@@ -9,6 +9,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 
+	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/directives/spawner"
@@ -84,7 +85,7 @@ func (c *Checker) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 			return true // No context in scope
 		}
 
-		cctx := &patterns.CheckContext{
+		cctx := &context.CheckContext{
 			Pass:     pass,
 			Tracer:   c.tracer,
 			SSAProg:  c.ssaProg,
@@ -104,7 +105,7 @@ func (c *Checker) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 }
 
 // checkGoStmt checks a go statement against all registered go patterns.
-func (c *Checker) checkGoStmt(cctx *patterns.CheckContext, stmt *ast.GoStmt, scope *contextScope) {
+func (c *Checker) checkGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt, scope *contextScope) {
 	for _, pattern := range c.goPatterns {
 		checkerName := c.getCheckerName(pattern.Name())
 		if c.shouldIgnore(cctx.Pass, stmt.Pos(), checkerName) {
@@ -131,7 +132,7 @@ func (c *Checker) checkGoStmt(cctx *patterns.CheckContext, stmt *ast.GoStmt, sco
 }
 
 // checkCallExpr checks a call expression against registered API patterns and spawner directives.
-func (c *Checker) checkCallExpr(cctx *patterns.CheckContext, call *ast.CallExpr, scope *contextScope) {
+func (c *Checker) checkCallExpr(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	// Check against registered API patterns
 	c.checkRegistryCall(cctx, call, scope)
 
@@ -140,7 +141,7 @@ func (c *Checker) checkCallExpr(cctx *patterns.CheckContext, call *ast.CallExpr,
 }
 
 // checkRegistryCall checks a call expression against registered API patterns.
-func (c *Checker) checkRegistryCall(cctx *patterns.CheckContext, call *ast.CallExpr, scope *contextScope) {
+func (c *Checker) checkRegistryCall(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	entry, callbackArg := c.registry.Match(cctx.Pass, call)
 	if entry == nil {
 		return
@@ -166,7 +167,7 @@ func (c *Checker) checkRegistryCall(cctx *patterns.CheckContext, call *ast.CallE
 }
 
 // checkSpawnerCall checks if this is a call to a spawner-marked function.
-func (c *Checker) checkSpawnerCall(cctx *patterns.CheckContext, call *ast.CallExpr, scope *contextScope) {
+func (c *Checker) checkSpawnerCall(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	if c.spawners == nil || c.spawners.Len() == 0 {
 		return
 	}
@@ -203,7 +204,7 @@ func getCallReportPos(call *ast.CallExpr) token.Pos {
 
 // checkVariadicCallExpr checks each callback argument in a variadic API call.
 func (c *Checker) checkVariadicCallExpr(
-	cctx *patterns.CheckContext,
+	cctx *context.CheckContext,
 	call *ast.CallExpr,
 	entry *registry.Entry,
 	scope *contextScope,

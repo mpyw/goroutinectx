@@ -3,6 +3,7 @@ package patterns
 import (
 	"go/ast"
 
+	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 )
 
@@ -18,7 +19,7 @@ func (*ArgIsDeriverCall) Name() string {
 	return "ArgIsDeriverCall"
 }
 
-func (p *ArgIsDeriverCall) Check(cctx *CheckContext, _ *ast.CallExpr, arg ast.Expr) bool {
+func (p *ArgIsDeriverCall) Check(cctx *context.CheckContext, _ *ast.CallExpr, arg ast.Expr) bool {
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
 		return true // No deriver configured
 	}
@@ -27,7 +28,7 @@ func (p *ArgIsDeriverCall) Check(cctx *CheckContext, _ *ast.CallExpr, arg ast.Ex
 }
 
 // argIsDeriverCall checks if the argument expression IS a call to the deriver.
-func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *CheckContext, expr ast.Expr) bool {
+func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *context.CheckContext, expr ast.Expr) bool {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
 		// Not a call expression - check if it's a variable that was assigned a deriver call
@@ -49,7 +50,7 @@ func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *CheckContext, expr ast.Expr) b
 }
 
 // identIsDeriverCall checks if a variable holds a deriver call result.
-func (p *ArgIsDeriverCall) identIsDeriverCall(cctx *CheckContext, ident *ast.Ident) bool {
+func (p *ArgIsDeriverCall) identIsDeriverCall(cctx *context.CheckContext, ident *ast.Ident) bool {
 	// Try to trace the variable assignment
 	// This is a simplified check - just look for direct assignments
 	obj := cctx.Pass.TypesInfo.ObjectOf(ident)

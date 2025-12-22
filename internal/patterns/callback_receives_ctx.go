@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 
+	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -23,7 +24,7 @@ func (*CallbackReceivesCtx) Name() string {
 	return "CallbackReceivesCtx"
 }
 
-func (p *CallbackReceivesCtx) Check(cctx *CheckContext, call *ast.CallExpr, _ ast.Expr) bool {
+func (p *CallbackReceivesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr, _ ast.Expr) bool {
 	// Get the context argument from the API call
 	if p.CtxArgIdx < 0 || p.CtxArgIdx >= len(call.Args) {
 		return true // Invalid index, assume OK
@@ -37,7 +38,7 @@ func (p *CallbackReceivesCtx) Check(cctx *CheckContext, call *ast.CallExpr, _ as
 }
 
 // contextArgUsesVar checks if the context argument references a valid context variable.
-func (*CallbackReceivesCtx) contextArgUsesVar(cctx *CheckContext, ctxArg ast.Expr) bool {
+func (*CallbackReceivesCtx) contextArgUsesVar(cctx *context.CheckContext, ctxArg ast.Expr) bool {
 	// For simple identifier, check if it's a context type from scope
 	if ident, ok := ctxArg.(*ast.Ident); ok {
 		obj := cctx.Pass.TypesInfo.ObjectOf(ident)

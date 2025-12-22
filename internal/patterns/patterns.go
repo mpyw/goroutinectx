@@ -7,9 +7,6 @@ import (
 	"github.com/mpyw/goroutinectx/internal/context"
 )
 
-// CheckContext is an alias for context.CheckContext.
-type CheckContext = context.CheckContext
-
 // Pattern defines the interface for context propagation patterns.
 type Pattern interface {
 	// Name returns a human-readable name for the pattern.
@@ -17,7 +14,7 @@ type Pattern interface {
 
 	// Check checks if the pattern is satisfied for the given call.
 	// Returns true if the pattern is satisfied (no error).
-	Check(cctx *CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool
+	Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool
 
 	// Message returns the diagnostic message when the pattern is violated.
 	Message(apiName string, ctxName string) string
@@ -38,7 +35,7 @@ type GoStmtPattern interface {
 	Name() string
 
 	// CheckGoStmt checks if the pattern is satisfied for the given go statement.
-	CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) GoStmtResult
+	CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt) GoStmtResult
 
 	// Message returns the diagnostic message when the pattern is violated.
 	Message(ctxName string) string
