@@ -9,6 +9,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -498,14 +499,14 @@ func (t *Tracer) extractIIFEFromCallCommon(call *ssa.CallCommon) *ssa.Function {
 // checkAndGroup checks if all specs in an AND group are satisfied.
 // If includeDefer is false, only non-defer calls are considered.
 // If includeDefer is true, all calls (including defer) are considered.
-func (t *Tracer) checkAndGroup(calls []deriverCall, andGroup []deriver.FuncSpec, includeDefer bool) bool {
+func (t *Tracer) checkAndGroup(calls []deriverCall, andGroup []funcspec.Spec, includeDefer bool) bool {
 	for _, spec := range andGroup {
 		found := false
 		for _, call := range calls {
 			if !includeDefer && call.inDefer {
 				continue
 			}
-			if t.matchesSpec(call.fn, spec) {
+			if call.fn != nil && spec.Matches(call.fn) {
 				found = true
 				break
 			}
@@ -515,50 +516,4 @@ func (t *Tracer) checkAndGroup(calls []deriverCall, andGroup []deriver.FuncSpec,
 		}
 	}
 	return true
-}
-
-// matchesSpec checks if a types.Func matches the given deriver function spec.
-func (t *Tracer) matchesSpec(fn *types.Func, spec deriver.FuncSpec) bool {
-	if fn == nil {
-		return false
-	}
-
-	if fn.Name() != spec.FuncName {
-		return false
-	}
-
-	if fn.Pkg() == nil || fn.Pkg().Path() != spec.PkgPath {
-		return false
-	}
-
-	if spec.TypeName != "" {
-		return t.matchesMethod(fn, spec.TypeName)
-	}
-
-	return true
-}
-
-// matchesMethod checks if a types.Func is a method on the expected type.
-func (t *Tracer) matchesMethod(fn *types.Func, typeName string) bool {
-	sig, ok := fn.Type().(*types.Signature)
-	if !ok {
-		return false
-	}
-
-	recv := sig.Recv()
-	if recv == nil {
-		return false
-	}
-
-	recvType := recv.Type()
-	if ptr, ok := recvType.(*types.Pointer); ok {
-		recvType = ptr.Elem()
-	}
-
-	named, ok := recvType.(*types.Named)
-	if !ok {
-		return false
-	}
-
-	return named.Obj().Name() == typeName
 }

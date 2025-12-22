@@ -9,6 +9,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	"github.com/mpyw/goroutinectx/internal/funcspec"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
@@ -84,26 +85,7 @@ func (c *CheckContext) FuncLitUsesContext(lit *ast.FuncLit) bool {
 
 // ExtractCallFunc extracts the types.Func from a call expression.
 func (c *CheckContext) ExtractCallFunc(call *ast.CallExpr) *types.Func {
-	switch fun := call.Fun.(type) {
-	case *ast.Ident:
-		if f, ok := c.Pass.TypesInfo.ObjectOf(fun).(*types.Func); ok {
-			return f
-		}
-
-	case *ast.SelectorExpr:
-		sel := c.Pass.TypesInfo.Selections[fun]
-		if sel != nil {
-			if f, ok := sel.Obj().(*types.Func); ok {
-				return f
-			}
-		} else {
-			if f, ok := c.Pass.TypesInfo.ObjectOf(fun.Sel).(*types.Func); ok {
-				return f
-			}
-		}
-	}
-
-	return nil
+	return funcspec.ExtractFunc(c.Pass, call)
 }
 
 // ArgUsesContext checks if an expression references a context variable.
