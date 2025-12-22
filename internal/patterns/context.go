@@ -7,16 +7,35 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
+	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
+// CheckContext provides context for pattern checking.
+type CheckContext struct {
+	Pass    *analysis.Pass
+	Tracer  *internalssa.Tracer
+	SSAProg *internalssa.Program
+	// CtxNames holds the context variable names from the enclosing scope (AST-based).
+	// This is used when SSA-based context detection fails.
+	CtxNames []string
+	// Carriers holds the configured context carrier types.
+	Carriers []carrier.Carrier
+}
+
+// Report reports a diagnostic at the given position.
+func (c *CheckContext) Report(pos token.Pos, msg string) {
+	c.Pass.Reportf(pos, "%s", msg)
+}
+
 // funcTypeHasContextParam checks if a function type has a context.Context parameter.
-func funcTypeHasContextParam(cctx *CheckContext, fnType *ast.FuncType) bool {
+func (c *CheckContext) funcTypeHasContextParam(fnType *ast.FuncType) bool {
 	if fnType == nil || fnType.Params == nil {
 		return false
 	}
 	for _, field := range fnType.Params.List {
-		typ := cctx.Pass.TypesInfo.TypeOf(field.Type)
+		typ := c.Pass.TypesInfo.TypeOf(field.Type)
 		if typ == nil {
 			continue
 		}
@@ -28,14 +47,14 @@ func funcTypeHasContextParam(cctx *CheckContext, fnType *ast.FuncType) bool {
 }
 
 // funcLitHasContextParam checks if a function literal has a context.Context parameter.
-func funcLitHasContextParam(cctx *CheckContext, lit *ast.FuncLit) bool {
-	return funcTypeHasContextParam(cctx, lit.Type)
+func (c *CheckContext) funcLitHasContextParam(lit *ast.FuncLit) bool {
+	return c.funcTypeHasContextParam(lit.Type)
 }
 
-// funcLitUsesContext checks if a function literal references any context variable.
+// FuncLitUsesContext checks if a function literal references any context variable.
 // It does NOT descend into nested func literals - they have their own scope and
 // will be checked separately.
-func funcLitUsesContext(cctx *CheckContext, lit *ast.FuncLit) bool {
+func (c *CheckContext) FuncLitUsesContext(lit *ast.FuncLit) bool {
 	usesCtx := false
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		if usesCtx {
@@ -49,11 +68,11 @@ func funcLitUsesContext(cctx *CheckContext, lit *ast.FuncLit) bool {
 		if !ok {
 			return true
 		}
-		obj := cctx.Pass.TypesInfo.ObjectOf(ident)
+		obj := c.Pass.TypesInfo.ObjectOf(ident)
 		if obj == nil {
 			return true
 		}
-		if typeutil.IsContextOrCarrierType(obj.Type(), cctx.Carriers) {
+		if typeutil.IsContextOrCarrierType(obj.Type(), c.Carriers) {
 			usesCtx = true
 			return false
 		}
@@ -63,21 +82,21 @@ func funcLitUsesContext(cctx *CheckContext, lit *ast.FuncLit) bool {
 }
 
 // extractCallFunc extracts the types.Func from a call expression.
-func extractCallFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
+func (c *CheckContext) extractCallFunc(call *ast.CallExpr) *types.Func {
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
-		if f, ok := pass.TypesInfo.ObjectOf(fun).(*types.Func); ok {
+		if f, ok := c.Pass.TypesInfo.ObjectOf(fun).(*types.Func); ok {
 			return f
 		}
 
 	case *ast.SelectorExpr:
-		sel := pass.TypesInfo.Selections[fun]
+		sel := c.Pass.TypesInfo.Selections[fun]
 		if sel != nil {
 			if f, ok := sel.Obj().(*types.Func); ok {
 				return f
 			}
 		} else {
-			if f, ok := pass.TypesInfo.ObjectOf(fun.Sel).(*types.Func); ok {
+			if f, ok := c.Pass.TypesInfo.ObjectOf(fun.Sel).(*types.Func); ok {
 				return f
 			}
 		}
@@ -87,7 +106,7 @@ func extractCallFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
 }
 
 // argUsesContext checks if an expression references a context variable.
-func argUsesContext(cctx *CheckContext, expr ast.Expr) bool {
+func (c *CheckContext) argUsesContext(expr ast.Expr) bool {
 	found := false
 	ast.Inspect(expr, func(n ast.Node) bool {
 		if found {
@@ -97,11 +116,11 @@ func argUsesContext(cctx *CheckContext, expr ast.Expr) bool {
 		if !ok {
 			return true
 		}
-		obj := cctx.Pass.TypesInfo.ObjectOf(ident)
+		obj := c.Pass.TypesInfo.ObjectOf(ident)
 		if obj == nil {
 			return true
 		}
-		if typeutil.IsContextOrCarrierType(obj.Type(), cctx.Carriers) {
+		if typeutil.IsContextOrCarrierType(obj.Type(), c.Carriers) {
 			found = true
 			return false
 		}
@@ -110,14 +129,14 @@ func argUsesContext(cctx *CheckContext, expr ast.Expr) bool {
 	return found
 }
 
-// findFuncLitAssignment searches for the func literal assigned to the variable.
+// FindFuncLitAssignment searches for the func literal assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
-func findFuncLitAssignment(cctx *CheckContext, v *types.Var, beforePos token.Pos) *ast.FuncLit {
+func (c *CheckContext) FindFuncLitAssignment(v *types.Var, beforePos token.Pos) *ast.FuncLit {
 	var result *ast.FuncLit
 	declPos := v.Pos()
 
-	for _, f := range cctx.Pass.Files {
+	for _, f := range c.Pass.Files {
 		if f.Pos() > declPos || declPos >= f.End() {
 			continue
 		}
@@ -131,7 +150,7 @@ func findFuncLitAssignment(cctx *CheckContext, v *types.Var, beforePos token.Pos
 			if beforePos != token.NoPos && assign.Pos() >= beforePos {
 				return true
 			}
-			if fl := findFuncLitInAssignment(cctx, assign, v); fl != nil {
+			if fl := c.findFuncLitInAssignment(assign, v); fl != nil {
 				result = fl // Keep updating - we want the LAST assignment
 			}
 			return true
@@ -143,13 +162,13 @@ func findFuncLitAssignment(cctx *CheckContext, v *types.Var, beforePos token.Pos
 }
 
 // findFuncLitInAssignment checks if the assignment assigns a func literal to v.
-func findFuncLitInAssignment(cctx *CheckContext, assign *ast.AssignStmt, v *types.Var) *ast.FuncLit {
+func (c *CheckContext) findFuncLitInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.FuncLit {
 	for i, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
 			continue
 		}
-		if cctx.Pass.TypesInfo.ObjectOf(ident) != v {
+		if c.Pass.TypesInfo.ObjectOf(ident) != v {
 			continue
 		}
 		if i >= len(assign.Rhs) {
@@ -165,7 +184,7 @@ func findFuncLitInAssignment(cctx *CheckContext, assign *ast.AssignStmt, v *type
 // blockReturnsContextUsingFunc checks if a block's return statements
 // return functions that use context. Recursively checks nested func literals.
 // excludeFuncLit can be set to exclude a specific FuncLit from being counted (e.g., the parent).
-func blockReturnsContextUsingFunc(cctx *CheckContext, body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
+func (c *CheckContext) blockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
 	if body == nil {
 		return true // No body to check
 	}
@@ -179,12 +198,12 @@ func blockReturnsContextUsingFunc(cctx *CheckContext, body *ast.BlockStmt, exclu
 		// For nested func literals, check both direct usage and returned values
 		if fl, ok := n.(*ast.FuncLit); ok && fl != excludeFuncLit {
 			// Check if this nested func lit uses context directly
-			if funcLitUsesContext(cctx, fl) {
+			if c.FuncLitUsesContext(fl) {
 				usesContext = true
 				return false
 			}
 			// Recursively check if it returns functions that use context
-			if blockReturnsContextUsingFunc(cctx, fl.Body, fl) {
+			if c.blockReturnsContextUsingFunc(fl.Body, fl) {
 				usesContext = true
 				return false
 			}
@@ -197,7 +216,7 @@ func blockReturnsContextUsingFunc(cctx *CheckContext, body *ast.BlockStmt, exclu
 		}
 
 		for _, result := range ret.Results {
-			if returnedValueUsesContext(cctx, result) {
+			if c.returnedValueUsesContext(result) {
 				usesContext = true
 				return false
 			}
@@ -210,15 +229,15 @@ func blockReturnsContextUsingFunc(cctx *CheckContext, body *ast.BlockStmt, exclu
 
 // factoryReturnsContextUsingFunc checks if a factory FuncLit's return statements
 // return functions that use context.
-func factoryReturnsContextUsingFunc(cctx *CheckContext, factory *ast.FuncLit) bool {
-	return blockReturnsContextUsingFunc(cctx, factory.Body, factory)
+func (c *CheckContext) factoryReturnsContextUsingFunc(factory *ast.FuncLit) bool {
+	return c.blockReturnsContextUsingFunc(factory.Body, factory)
 }
 
 // returnedValueUsesContext checks if a returned value is a func that uses context.
-func returnedValueUsesContext(cctx *CheckContext, result ast.Expr) bool {
+func (c *CheckContext) returnedValueUsesContext(result ast.Expr) bool {
 	// If it's a func literal, check directly
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
-		return funcLitUsesContext(cctx, innerFuncLit)
+		return c.FuncLitUsesContext(innerFuncLit)
 	}
 
 	// If it's an identifier (variable), find its assignment
@@ -227,7 +246,7 @@ func returnedValueUsesContext(cctx *CheckContext, result ast.Expr) bool {
 		return false
 	}
 
-	obj := cctx.Pass.TypesInfo.ObjectOf(ident)
+	obj := c.Pass.TypesInfo.ObjectOf(ident)
 	if obj == nil {
 		return false
 	}
@@ -237,10 +256,10 @@ func returnedValueUsesContext(cctx *CheckContext, result ast.Expr) bool {
 		return false
 	}
 
-	innerFuncLit := findFuncLitAssignment(cctx, v, token.NoPos)
+	innerFuncLit := c.FindFuncLitAssignment(v, token.NoPos)
 	if innerFuncLit == nil {
 		return false
 	}
 
-	return funcLitUsesContext(cctx, innerFuncLit)
+	return c.FuncLitUsesContext(innerFuncLit)
 }

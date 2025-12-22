@@ -45,7 +45,7 @@ func closureCheckFromSSA(cctx *CheckContext, callbackArg ast.Expr) (bool, bool) 
 	// For function literals, find the SSA function and check FreeVars
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if funcLitHasContextParam(cctx, lit) {
+		if cctx.funcLitHasContextParam(lit) {
 			return true, true
 		}
 
@@ -67,10 +67,10 @@ func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
 	// For function literals, check if they reference context
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if funcLitHasContextParam(cctx, lit) {
+		if cctx.funcLitHasContextParam(lit) {
 			return true
 		}
-		return funcLitUsesContext(cctx, lit)
+		return cctx.FuncLitUsesContext(lit)
 	}
 
 	// For identifiers, try to find the function literal assignment
@@ -83,15 +83,15 @@ func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
 		if !ok {
 			return false // Can't trace
 		}
-		funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
+		funcLit := cctx.FindFuncLitAssignment(v, token.NoPos)
 		if funcLit == nil {
 			return false // Can't trace (channel receive, type assertion, etc.)
 		}
 		// Skip if closure has its own context parameter
-		if funcLitHasContextParam(cctx, funcLit) {
+		if cctx.funcLitHasContextParam(funcLit) {
 			return true
 		}
-		return funcLitUsesContext(cctx, funcLit)
+		return cctx.FuncLitUsesContext(funcLit)
 	}
 
 	// For call expressions, check if ctx is passed as argument
@@ -135,7 +135,7 @@ func closureCheckSelectorFunc(cctx *CheckContext, sel *ast.SelectorExpr) bool {
 		return false
 	}
 
-	return funcLitUsesContext(cctx, funcLit)
+	return cctx.FuncLitUsesContext(funcLit)
 }
 
 // closureFindStructFieldFuncLit finds a func literal assigned to a struct field.
@@ -221,7 +221,7 @@ func closureCheckIndexFunc(cctx *CheckContext, idx *ast.IndexExpr) bool {
 		return false
 	}
 
-	return funcLitUsesContext(cctx, funcLit)
+	return cctx.FuncLitUsesContext(funcLit)
 }
 
 // closureFindIndexedFuncLit finds a func literal at a specific index in a composite literal.
@@ -319,7 +319,7 @@ func closureFindFuncLitByLiteral(compLit *ast.CompositeLit, lit *ast.BasicLit) *
 func closureCheckFactoryCall(cctx *CheckContext, call *ast.CallExpr) bool {
 	// Check if ctx is passed as an argument to the call
 	for _, arg := range call.Args {
-		if argUsesContext(cctx, arg) {
+		if cctx.argUsesContext(arg) {
 			return true
 		}
 	}
@@ -337,16 +337,16 @@ func closureCheckFactoryCall(cctx *CheckContext, call *ast.CallExpr) bool {
 		if !ok {
 			return false
 		}
-		funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
+		funcLit := cctx.FindFuncLitAssignment(v, token.NoPos)
 		if funcLit == nil {
 			return false
 		}
 		// Check if the factory's return statements return a func that uses ctx
-		return factoryReturnsContextUsingFunc(cctx, funcLit)
+		return cctx.factoryReturnsContextUsingFunc(funcLit)
 
 	case *ast.FuncLit:
 		// e.g., g.Go((func() func() error { return func() error { _ = ctx; return nil } })())
-		return factoryReturnsContextUsingFunc(cctx, fun)
+		return cctx.factoryReturnsContextUsingFunc(fun)
 	}
 
 	return false

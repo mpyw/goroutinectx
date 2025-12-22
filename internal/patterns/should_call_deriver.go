@@ -64,7 +64,7 @@ func (p *ShouldCallDeriver) identCallsDeriver(cctx *CheckContext, ident *ast.Ide
 	}
 
 	// Try to find a FuncLit assignment
-	funcLit := findFuncLitAssignment(cctx, v, ident.Pos())
+	funcLit := cctx.FindFuncLitAssignment(v, ident.Pos())
 	if funcLit != nil {
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 	}
@@ -146,7 +146,7 @@ func (p *ShouldCallDeriver) factoryReturnCallsDeriver(cctx *CheckContext, call *
 		return false
 	}
 
-	funcLit := findFuncLitAssignment(cctx, v, call.Pos())
+	funcLit := cctx.FindFuncLitAssignment(v, call.Pos())
 	if funcLit == nil {
 		return false
 	}
