@@ -24,7 +24,7 @@ func (*GoStmtCapturesCtx) CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoSt
 
 	// Try SSA-based check first (more accurate, includes nested closures)
 	if lit, ok := stmt.Call.Fun.(*ast.FuncLit); ok {
-		if result, ok := cctx.CheckFuncLitCapturesContextSSA(lit); ok {
+		if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {
 			return GoStmtResult{OK: result}
 		}
 	}
@@ -47,7 +47,7 @@ func goStmtCheckFromAST(cctx *context.CheckContext, stmt *ast.GoStmt) bool {
 
 	// For go func(){}(), check the function literal
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
-		return cctx.CheckFuncLitCapturesContext(lit)
+		return cctx.FuncLitCapturesContext(lit)
 	}
 
 	// For go fn()() (higher-order), check the factory function

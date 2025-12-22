@@ -74,9 +74,9 @@ func (c *CheckContext) FindFuncDecl(fn *types.Func) *ast.FuncDecl {
 	return nil
 }
 
-// CheckFuncLitCapturesContextSSA uses SSA analysis to check if a func literal captures context.
+// FuncLitCapturesContextSSA uses SSA analysis to check if a func literal captures context.
 // Returns (result, true) if SSA analysis succeeded, or (false, false) if it failed.
-func (c *CheckContext) CheckFuncLitCapturesContextSSA(lit *ast.FuncLit) (bool, bool) {
+func (c *CheckContext) FuncLitCapturesContextSSA(lit *ast.FuncLit) (bool, bool) {
 	if c.SSAProg == nil || c.Tracer == nil {
 		return false, false
 	}
@@ -116,9 +116,9 @@ func (c *CheckContext) FuncLitHasContextParam(lit *ast.FuncLit) bool {
 	return c.FuncTypeHasContextParam(lit.Type)
 }
 
-// CheckFuncLitCapturesContext checks if a func literal captures context (AST-based).
+// FuncLitCapturesContext checks if a func literal captures context (AST-based).
 // Returns true if the func has its own context param, or if it uses a context from outer scope.
-func (c *CheckContext) CheckFuncLitCapturesContext(lit *ast.FuncLit) bool {
+func (c *CheckContext) FuncLitCapturesContext(lit *ast.FuncLit) bool {
 	if c.FuncLitHasContextParam(lit) {
 		return true
 	}

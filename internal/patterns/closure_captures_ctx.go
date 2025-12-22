@@ -26,7 +26,7 @@ func (*ClosureCapturesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr,
 
 	// Try SSA-based check first (more accurate, includes nested closures)
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
-		if result, ok := cctx.CheckFuncLitCapturesContextSSA(lit); ok {
+		if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {
 			return result
 		}
 	}
@@ -44,7 +44,7 @@ func (*ClosureCapturesCtx) Message(apiName string, ctxName string) string {
 func closureCheckFromAST(cctx *context.CheckContext, callbackArg ast.Expr) bool {
 	// For function literals, check if they reference context
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
-		return cctx.CheckFuncLitCapturesContext(lit)
+		return cctx.FuncLitCapturesContext(lit)
 	}
 
 	// For identifiers, try to find the function literal assignment
@@ -53,7 +53,7 @@ func closureCheckFromAST(cctx *context.CheckContext, callbackArg ast.Expr) bool 
 		if funcLit == nil {
 			return false // Can't trace
 		}
-		return cctx.CheckFuncLitCapturesContext(funcLit)
+		return cctx.FuncLitCapturesContext(funcLit)
 	}
 
 	// For call expressions, check if ctx is passed as argument
