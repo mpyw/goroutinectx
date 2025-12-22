@@ -1,8 +1,9 @@
 {
   "title": "Context as non-first param",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodCtxAsSecondParam",
         "errgroup": "goodCtxAsSecondParam",
-        "waitgroup": "goodCtxAsSecondParam"
+        "waitgroup": "goodCtxAsSecondParam",
+        "conc": "goodCtxAsSecondParam"
       }
     },
     "bad": null

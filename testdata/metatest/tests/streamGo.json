@@ -1,0 +1,21 @@
+{
+  "title": "stream.Stream.Go task context usage",
+  "targets": [
+    "conc"
+  ],
+  "level": "stream",
+  "variants": {
+    "good": {
+      "description": "Stream.Go task uses context.",
+      "functions": {
+        "conc": "goodStreamGo"
+      }
+    },
+    "bad": {
+      "description": "Stream.Go task does not use context.",
+      "functions": {
+        "conc": "badStreamGo"
+      }
+    }
+  }
+}

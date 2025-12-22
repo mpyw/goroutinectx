@@ -1,8 +1,9 @@
 {
   "title": "Literal with ctx - basic good case",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodGoroutineCapturesCtx",
         "errgroup": "goodErrgroupGoWithCtx",
-        "waitgroup": "goodWaitGroupGoWithCtx"
+        "waitgroup": "goodWaitGroupGoWithCtx",
+        "conc": "goodConcWaitGroupGoWithCtx"
       }
     },
     "bad": null

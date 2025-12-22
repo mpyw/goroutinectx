@@ -1,6 +1,7 @@
 {
   "title": "Go call inside deeply nested IIFE without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Go call inside immediately invoked function expression without context.",
       "functions": {
         "errgroup": "badNestedDeep",
-        "waitgroup": "badNestedDeep"
+        "waitgroup": "badNestedDeep",
+        "conc": "badNestedDeep"
       }
     },
     "good": null

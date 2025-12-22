@@ -1,8 +1,9 @@
 {
   "title": "Uses ctx before shadow",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodUsesCtxBeforeShadowing",
         "errgroup": "goodUsesCtxBeforeShadowing",
-        "waitgroup": "goodUsesCtxBeforeShadowing"
+        "waitgroup": "goodUsesCtxBeforeShadowing",
+        "conc": "goodUsesCtxBeforeShadowing"
       }
     },
     "bad": null

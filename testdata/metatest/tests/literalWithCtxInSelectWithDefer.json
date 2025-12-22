@@ -1,13 +1,15 @@
 {
   "title": "Literal with ctx in select - with defer",
   "targets": [
+    "conc",
     "errgroup"
   ],
   "variants": {
     "good": {
       "description": "Closure with ctx and defer",
       "functions": {
-        "errgroup": "goodDeferWithCtxDirect"
+        "errgroup": "goodDeferWithCtxDirect",
+        "conc": "goodDeferWithCtxDirect"
       }
     },
     "bad": null

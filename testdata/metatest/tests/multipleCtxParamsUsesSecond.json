@@ -1,8 +1,9 @@
 {
   "title": "Multiple ctx params - uses second",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodUsesSecondOfTwoContexts",
         "errgroup": "goodUsesSecondOfTwoContexts",
-        "waitgroup": "goodUsesSecondOfTwoContexts"
+        "waitgroup": "goodUsesSecondOfTwoContexts",
+        "conc": "goodUsesSecondOfTwoContexts"
       }
     },
     "bad": null

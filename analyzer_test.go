@@ -18,6 +18,11 @@ func TestErrgroup(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroup")
 }
 
+func TestConc(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "conc")
+}
+
 func TestGoroutineDerive(t *testing.T) {
 	testdata := analysistest.TestData()
 

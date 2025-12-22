@@ -1,8 +1,9 @@
 {
   "title": "Shadow with non-ctx type - string",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "badShadowingNonContext",
         "errgroup": "badShadowingNonContext",
-        "waitgroup": "badShadowingNonContext"
+        "waitgroup": "badShadowingNonContext",
+        "conc": "badShadowingNonContext"
       }
     },
     "good": null

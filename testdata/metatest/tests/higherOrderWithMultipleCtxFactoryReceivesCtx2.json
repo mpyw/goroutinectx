@@ -1,8 +1,9 @@
 {
   "title": "Higher-order with multiple ctx - factory receives ctx2",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodHigherOrderMultipleCtxSecond",
         "errgroup": "goodHigherOrderMultipleCtxSecond",
-        "waitgroup": "goodHigherOrderMultipleCtxSecond"
+        "waitgroup": "goodHigherOrderMultipleCtxSecond",
+        "conc": "goodHigherOrderMultipleCtxSecond"
       }
     },
     "bad": null

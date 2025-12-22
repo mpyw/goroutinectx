@@ -1,8 +1,9 @@
 {
   "title": "Ignore directive - same line",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodIgnoredSameLine",
         "errgroup": "goodIgnoredSameLine",
-        "waitgroup": "goodIgnoredSameLine"
+        "waitgroup": "goodIgnoredSameLine",
+        "conc": "goodIgnoredSameLine"
       }
     },
     "bad": null

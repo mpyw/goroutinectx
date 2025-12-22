@@ -1,0 +1,21 @@
+{
+  "title": "pool.ContextPool.Go callback context usage",
+  "targets": [
+    "conc"
+  ],
+  "level": "basic",
+  "variants": {
+    "good": {
+      "description": "pool.ContextPool.Go callback uses provided context.",
+      "functions": {
+        "conc": "goodContextPoolGo"
+      }
+    },
+    "bad": {
+      "description": "pool.ContextPool.Go callback ignores provided context.",
+      "functions": {
+        "conc": "badContextPoolGoIgnoresCtx"
+      }
+    }
+  }
+}

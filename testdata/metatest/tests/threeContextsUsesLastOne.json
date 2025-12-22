@@ -1,8 +1,9 @@
 {
   "title": "Three contexts - uses last one",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodUsesLastOfThreeContexts",
         "errgroup": "goodUsesLastOfThreeContexts",
-        "waitgroup": "goodUsesLastOfThreeContexts"
+        "waitgroup": "goodUsesLastOfThreeContexts",
+        "conc": "goodUsesLastOfThreeContexts"
       }
     },
     "bad": null

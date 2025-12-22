@@ -1,6 +1,7 @@
 {
   "title": "Struct field with ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Function stored in struct field captures context.",
       "functions": {
         "errgroup": "goodStructFieldWithCtx",
-        "waitgroup": "goodStructFieldWithCtx"
+        "waitgroup": "goodStructFieldWithCtx",
+        "conc": "goodStructFieldWithCtx"
       }
     },
     "bad": null

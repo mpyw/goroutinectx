@@ -1,0 +1,21 @@
+{
+  "title": "iter.Map callback context usage",
+  "targets": [
+    "conc"
+  ],
+  "level": "iter",
+  "variants": {
+    "good": {
+      "description": "iter.Map callback uses context.",
+      "functions": {
+        "conc": "goodIterMap"
+      }
+    },
+    "bad": {
+      "description": "iter.Map callback does not use context.",
+      "functions": {
+        "conc": "badIterMap"
+      }
+    }
+  }
+}

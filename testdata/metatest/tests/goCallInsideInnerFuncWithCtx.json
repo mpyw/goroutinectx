@@ -1,6 +1,7 @@
 {
   "title": "Go call inside inner func with ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Nested function properly captures and uses the outer context.",
       "functions": {
         "errgroup": "goodNestedWithCtx",
-        "waitgroup": "goodNestedWithCtx"
+        "waitgroup": "goodNestedWithCtx",
+        "conc": "goodNestedWithCtx"
       }
     },
     "bad": null

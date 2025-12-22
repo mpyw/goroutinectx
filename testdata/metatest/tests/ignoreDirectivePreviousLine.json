@@ -1,8 +1,9 @@
 {
   "title": "Ignore directive - previous line",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodIgnoredPreviousLine",
         "errgroup": "goodIgnoredPreviousLine",
-        "waitgroup": "goodIgnoredPreviousLine"
+        "waitgroup": "goodIgnoredPreviousLine",
+        "conc": "goodIgnoredPreviousLine"
       }
     },
     "bad": null

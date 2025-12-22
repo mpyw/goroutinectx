@@ -1,6 +1,7 @@
 {
   "title": "Higher-order func",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -10,14 +11,16 @@
       "description": "Factory function is called with context, enabling propagation.",
       "functions": {
         "errgroup": "goodHigherOrderFuncWithCtx",
-        "waitgroup": "goodHigherOrderFuncWithCtx"
+        "waitgroup": "goodHigherOrderFuncWithCtx",
+        "conc": "goodHigherOrderFuncWithCtx"
       }
     },
     "bad": {
       "description": "Function returned by factory does not use context.",
       "functions": {
         "errgroup": "badHigherOrderFunc",
-        "waitgroup": "badHigherOrderFunc"
+        "waitgroup": "badHigherOrderFunc",
+        "conc": "badHigherOrderFunc"
       }
     }
   }

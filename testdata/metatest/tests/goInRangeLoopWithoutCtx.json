@@ -1,8 +1,9 @@
 {
   "title": "Go in range loop without ctx",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "badGoroutinesInRangeLoop",
         "errgroup": "badRangeLoopGo",
-        "waitgroup": "badRangeLoopGo"
+        "waitgroup": "badRangeLoopGo",
+        "conc": "badRangeLoopGo"
       }
     },
     "good": null

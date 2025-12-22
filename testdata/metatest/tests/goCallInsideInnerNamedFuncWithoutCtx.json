@@ -1,6 +1,7 @@
 {
   "title": "Go call inside inner named func without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Go call in nested function does not use the outer context.",
       "functions": {
         "errgroup": "badNestedInnerFunc",
-        "waitgroup": "badNestedInnerFunc"
+        "waitgroup": "badNestedInnerFunc",
+        "conc": "badNestedInnerFunc"
       }
     },
     "good": null

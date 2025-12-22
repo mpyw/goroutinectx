@@ -1,8 +1,9 @@
 {
   "title": "Multiple ctx in separate param groups",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodMultipleCtxSeparateGroups",
         "errgroup": "goodMultipleCtxSeparateGroups",
-        "waitgroup": "goodMultipleCtxSeparateGroups"
+        "waitgroup": "goodMultipleCtxSeparateGroups",
+        "conc": "goodMultipleCtxSeparateGroups"
       }
     },
     "bad": null

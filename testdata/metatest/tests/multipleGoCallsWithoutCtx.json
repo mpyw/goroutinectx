@@ -1,6 +1,7 @@
 {
   "title": "Multiple Go calls without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Multiple goroutine closures all fail to use the available context.",
       "functions": {
         "errgroup": "badErrgroupGoMultiple",
-        "waitgroup": "badWaitGroupGoMultiple"
+        "waitgroup": "badWaitGroupGoMultiple",
+        "conc": "badConcWaitGroupGoMultiple"
       }
     },
     "good": null

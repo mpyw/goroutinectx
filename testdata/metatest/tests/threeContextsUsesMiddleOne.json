@@ -1,8 +1,9 @@
 {
   "title": "Three contexts - uses middle one",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodUsesMiddleOfThreeContexts",
         "errgroup": "goodUsesMiddleOfThreeContexts",
-        "waitgroup": "goodUsesMiddleOfThreeContexts"
+        "waitgroup": "goodUsesMiddleOfThreeContexts",
+        "conc": "goodUsesMiddleOfThreeContexts"
       }
     },
     "bad": null

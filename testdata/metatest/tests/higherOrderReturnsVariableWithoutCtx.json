@@ -1,6 +1,7 @@
 {
   "title": "Higher-order returns variable - without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "goroutine",
     "waitgroup"
@@ -12,7 +13,8 @@
       "functions": {
         "errgroup": "badHigherOrderReturnsVariableWithoutCtx",
         "goroutine": "badHigherOrderReturnsVariableWithoutCtx",
-        "waitgroup": "badHigherOrderReturnsVariableWithoutCtx"
+        "waitgroup": "badHigherOrderReturnsVariableWithoutCtx",
+        "conc": "badHigherOrderReturnsVariableWithoutCtx"
       }
     }
   }

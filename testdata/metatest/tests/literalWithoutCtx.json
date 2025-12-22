@@ -1,8 +1,9 @@
 {
   "title": "Literal without ctx",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "badGoroutineNoCapture",
         "errgroup": "badErrgroupGo",
-        "waitgroup": "badWaitGroupGo"
+        "waitgroup": "badWaitGroupGo",
+        "conc": "badConcWaitGroupGo"
       }
     },
     "good": null

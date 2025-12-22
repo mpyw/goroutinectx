@@ -1,8 +1,9 @@
 {
   "title": "Ctx in deferred nested closure not detected",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "limitationDeferNestedClosure",
         "errgroup": "limitationDeferNestedClosure",
-        "waitgroup": "limitationDeferNestedClosure"
+        "waitgroup": "limitationDeferNestedClosure",
+        "conc": "limitationDeferNestedClosure"
       }
     },
     "good": null

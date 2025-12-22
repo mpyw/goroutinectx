@@ -1,8 +1,9 @@
 {
   "title": "Literal with ctx - via function call",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodGoroutineUsesCtxInCall",
         "errgroup": "goodErrgroupGoCallsWithCtx",
-        "waitgroup": "goodWaitGroupGoCallsWithCtx"
+        "waitgroup": "goodWaitGroupGoCallsWithCtx",
+        "conc": "goodConcWaitGroupGoCallsWithCtx"
       }
     },
     "bad": null

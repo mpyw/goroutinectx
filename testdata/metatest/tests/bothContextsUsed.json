@@ -1,8 +1,9 @@
 {
   "title": "Both contexts used",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodUsesBothContexts",
         "errgroup": "goodUsesBothContexts",
-        "waitgroup": "goodUsesBothContexts"
+        "waitgroup": "goodUsesBothContexts",
+        "conc": "goodUsesBothContexts"
       }
     },
     "bad": null

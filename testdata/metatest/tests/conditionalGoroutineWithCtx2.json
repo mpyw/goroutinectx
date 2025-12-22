@@ -1,13 +1,15 @@
 {
   "title": "Conditional goroutine with ctx",
   "targets": [
+    "conc",
     "errgroup"
   ],
   "variants": {
     "good": {
       "description": "All conditional branches properly use context in goroutines.",
       "functions": {
-        "errgroup": "goodConditionalGo"
+        "errgroup": "goodConditionalGo",
+        "conc": "goodConditionalGo"
       }
     },
     "bad": null

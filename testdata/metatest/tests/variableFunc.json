@@ -1,6 +1,7 @@
 {
   "title": "Variable func",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -10,14 +11,16 @@
       "description": "Function stored in variable captures and uses context.",
       "functions": {
         "errgroup": "goodVariableFuncWithCtx",
-        "waitgroup": "goodVariableFuncWithCtx"
+        "waitgroup": "goodVariableFuncWithCtx",
+        "conc": "goodVariableFuncWithCtx"
       }
     },
     "bad": {
       "description": "Function stored in variable does not capture context.",
       "functions": {
         "errgroup": "badVariableFunc",
-        "waitgroup": "badVariableFunc"
+        "waitgroup": "badVariableFunc",
+        "conc": "badVariableFunc"
       }
     }
   }

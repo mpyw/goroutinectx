@@ -1,8 +1,9 @@
 {
   "title": "Inner func has own ctx param",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodShadowingInnerCtxParam",
         "errgroup": "goodNestedInnerHasOwnCtx",
-        "waitgroup": "goodNestedInnerHasOwnCtx"
+        "waitgroup": "goodNestedInnerHasOwnCtx",
+        "conc": "goodNestedInnerHasOwnCtx"
       }
     },
     "bad": null

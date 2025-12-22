@@ -1,6 +1,7 @@
 {
   "title": "Interface method with argument",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -10,14 +11,16 @@
       "description": "Context is passed as argument to interface method.",
       "functions": {
         "errgroup": "goodInterfaceMethodWithCtxArg",
-        "waitgroup": "goodInterfaceMethodWithCtxArg"
+        "waitgroup": "goodInterfaceMethodWithCtxArg",
+        "conc": "goodInterfaceMethodWithCtxArg"
       }
     },
     "bad": {
       "description": "Interface method call without context argument.",
       "functions": {
         "errgroup": "badInterfaceMethodWithoutCtxArg",
-        "waitgroup": "badInterfaceMethodWithoutCtxArg"
+        "waitgroup": "badInterfaceMethodWithoutCtxArg",
+        "conc": "badInterfaceMethodWithoutCtxArg"
       }
     }
   }

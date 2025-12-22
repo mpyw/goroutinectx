@@ -1,8 +1,9 @@
 {
   "title": "Go in for loop without ctx",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "badGoroutinesInLoop",
         "errgroup": "badLoopGo",
-        "waitgroup": "badLoopGo"
+        "waitgroup": "badLoopGo",
+        "conc": "badLoopGo"
       }
     },
     "good": null

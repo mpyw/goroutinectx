@@ -1,8 +1,9 @@
 {
   "title": "Conditional Go without ctx",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "badConditionalGoroutine",
         "errgroup": "badConditionalGo",
-        "waitgroup": "badConditionalGo"
+        "waitgroup": "badConditionalGo",
+        "conc": "badConditionalGo"
       }
     },
     "good": null

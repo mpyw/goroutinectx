@@ -1,0 +1,21 @@
+{
+  "title": "iter.ForEachIdx callback context usage",
+  "targets": [
+    "conc"
+  ],
+  "level": "iter",
+  "variants": {
+    "good": {
+      "description": "iter.ForEachIdx callback uses context.",
+      "functions": {
+        "conc": "goodIterForEachIdx"
+      }
+    },
+    "bad": {
+      "description": "iter.ForEachIdx callback does not use context.",
+      "functions": {
+        "conc": "badIterForEachIdx"
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 {
   "title": "Function through interface without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Interface method call without context argument.",
       "functions": {
         "errgroup": "badFuncThroughInterfaceWithoutCtx",
-        "waitgroup": "badFuncThroughInterfaceWithoutCtx"
+        "waitgroup": "badFuncThroughInterfaceWithoutCtx",
+        "conc": "badFuncThroughInterfaceWithoutCtx"
       }
     },
     "good": null

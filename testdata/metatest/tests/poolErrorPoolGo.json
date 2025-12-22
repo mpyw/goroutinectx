@@ -1,0 +1,21 @@
+{
+  "title": "pool.ErrorPool.Go closure context usage",
+  "targets": [
+    "conc"
+  ],
+  "level": "basic",
+  "variants": {
+    "good": {
+      "description": "pool.ErrorPool.Go closure uses context.",
+      "functions": {
+        "conc": "goodErrorPoolGoWithCtx"
+      }
+    },
+    "bad": {
+      "description": "pool.ErrorPool.Go closure does not use context.",
+      "functions": {
+        "conc": "badErrorPoolGo"
+      }
+    }
+  }
+}

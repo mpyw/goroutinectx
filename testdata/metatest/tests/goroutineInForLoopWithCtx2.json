@@ -1,13 +1,15 @@
 {
   "title": "Goroutine in for loop with ctx",
   "targets": [
+    "conc",
     "errgroup"
   ],
   "variants": {
     "good": {
       "description": "Goroutines in loop properly capture and use context.",
       "functions": {
-        "errgroup": "goodLoopGo"
+        "errgroup": "goodLoopGo",
+        "conc": "goodLoopGo"
       }
     },
     "bad": null

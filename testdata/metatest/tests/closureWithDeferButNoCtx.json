@@ -1,6 +1,7 @@
 {
   "title": "Closure with defer but no ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Closure with defer statement does not use context.",
       "functions": {
         "errgroup": "badDeferInClosure",
-        "waitgroup": "badDeferInClosure"
+        "waitgroup": "badDeferInClosure",
+        "conc": "badDeferInClosure"
       }
     },
     "good": null

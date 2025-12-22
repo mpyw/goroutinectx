@@ -1,8 +1,9 @@
 {
   "title": "No ctx param",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodNoContextParam",
         "errgroup": "goodNoContextParam",
-        "waitgroup": "goodNoContextParam"
+        "waitgroup": "goodNoContextParam",
+        "conc": "goodNoContextParam"
       }
     },
     "bad": null

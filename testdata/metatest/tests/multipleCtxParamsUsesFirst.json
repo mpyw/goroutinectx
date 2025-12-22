@@ -1,8 +1,9 @@
 {
   "title": "Multiple ctx params - uses first",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "goodUsesOneOfTwoContexts",
         "errgroup": "goodUsesOneOfTwoContexts",
-        "waitgroup": "goodUsesOneOfTwoContexts"
+        "waitgroup": "goodUsesOneOfTwoContexts",
+        "conc": "goodUsesOneOfTwoContexts"
       }
     },
     "bad": null

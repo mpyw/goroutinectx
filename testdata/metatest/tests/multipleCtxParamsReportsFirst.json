@@ -1,8 +1,9 @@
 {
   "title": "Multiple ctx params - reports first",
   "targets": [
-    "goroutine",
+    "conc",
     "errgroup",
+    "goroutine",
     "waitgroup"
   ],
   "variants": {
@@ -11,7 +12,8 @@
       "functions": {
         "goroutine": "twoContextParams",
         "errgroup": "twoContextParams",
-        "waitgroup": "twoContextParams"
+        "waitgroup": "twoContextParams",
+        "conc": "twoContextParams"
       }
     },
     "good": null

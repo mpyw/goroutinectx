@@ -1,6 +1,7 @@
 {
   "title": "Function from slice without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Function from slice without ctx - NOW TRACKED",
       "functions": {
         "errgroup": "badSliceValueWithoutCtx",
-        "waitgroup": "badSliceValueWithoutCtx"
+        "waitgroup": "badSliceValueWithoutCtx",
+        "conc": "badSliceValueWithoutCtx"
       }
     },
     "good": null

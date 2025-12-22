@@ -1,6 +1,7 @@
 {
   "title": "Function from struct field without ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Function stored in struct field does not capture context.",
       "functions": {
         "errgroup": "badStructFieldWithoutCtx",
-        "waitgroup": "badStructFieldWithoutCtx"
+        "waitgroup": "badStructFieldWithoutCtx",
+        "conc": "badStructFieldWithoutCtx"
       }
     },
     "good": null

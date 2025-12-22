@@ -1,6 +1,7 @@
 {
   "title": "Slice index with ctx",
   "targets": [
+    "conc",
     "errgroup",
     "waitgroup"
   ],
@@ -9,7 +10,8 @@
       "description": "Function in slice element captures context.",
       "functions": {
         "errgroup": "goodSliceIndexWithCtx",
-        "waitgroup": "goodSliceIndexWithCtx"
+        "waitgroup": "goodSliceIndexWithCtx",
+        "conc": "goodSliceIndexWithCtx"
       }
     },
     "bad": null
