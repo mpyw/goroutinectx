@@ -45,7 +45,7 @@ func closureCheckFromSSA(cctx *CheckContext, callbackArg ast.Expr) (bool, bool) 
 	// For function literals, find the SSA function and check FreeVars
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return true, true
 		}
 
@@ -67,7 +67,7 @@ func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
 	// For function literals, check if they reference context
 	if lit, ok := callbackArg.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return true
 		}
 		return cctx.FuncLitUsesContext(lit)
@@ -88,7 +88,7 @@ func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
 			return false // Can't trace (channel receive, type assertion, etc.)
 		}
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(funcLit) {
+		if cctx.FuncLitHasContextParam(funcLit) {
 			return true
 		}
 		return cctx.FuncLitUsesContext(funcLit)
@@ -319,7 +319,7 @@ func closureFindFuncLitByLiteral(compLit *ast.CompositeLit, lit *ast.BasicLit) *
 func closureCheckFactoryCall(cctx *CheckContext, call *ast.CallExpr) bool {
 	// Check if ctx is passed as an argument to the call
 	for _, arg := range call.Args {
-		if cctx.argUsesContext(arg) {
+		if cctx.ArgUsesContext(arg) {
 			return true
 		}
 	}
@@ -342,11 +342,11 @@ func closureCheckFactoryCall(cctx *CheckContext, call *ast.CallExpr) bool {
 			return false
 		}
 		// Check if the factory's return statements return a func that uses ctx
-		return cctx.factoryReturnsContextUsingFunc(funcLit)
+		return cctx.FactoryReturnsContextUsingFunc(funcLit)
 
 	case *ast.FuncLit:
 		// e.g., g.Go((func() func() error { return func() error { _ = ctx; return nil } })())
-		return cctx.factoryReturnsContextUsingFunc(fun)
+		return cctx.FactoryReturnsContextUsingFunc(fun)
 	}
 
 	return false

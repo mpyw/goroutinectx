@@ -1,4 +1,5 @@
-package patterns
+// Package context provides CheckContext for pattern checking.
+package context
 
 import (
 	"go/ast"
@@ -29,8 +30,8 @@ func (c *CheckContext) Report(pos token.Pos, msg string) {
 	c.Pass.Reportf(pos, "%s", msg)
 }
 
-// funcTypeHasContextParam checks if a function type has a context.Context parameter.
-func (c *CheckContext) funcTypeHasContextParam(fnType *ast.FuncType) bool {
+// FuncTypeHasContextParam checks if a function type has a context.Context parameter.
+func (c *CheckContext) FuncTypeHasContextParam(fnType *ast.FuncType) bool {
 	if fnType == nil || fnType.Params == nil {
 		return false
 	}
@@ -46,9 +47,9 @@ func (c *CheckContext) funcTypeHasContextParam(fnType *ast.FuncType) bool {
 	return false
 }
 
-// funcLitHasContextParam checks if a function literal has a context.Context parameter.
-func (c *CheckContext) funcLitHasContextParam(lit *ast.FuncLit) bool {
-	return c.funcTypeHasContextParam(lit.Type)
+// FuncLitHasContextParam checks if a function literal has a context.Context parameter.
+func (c *CheckContext) FuncLitHasContextParam(lit *ast.FuncLit) bool {
+	return c.FuncTypeHasContextParam(lit.Type)
 }
 
 // FuncLitUsesContext checks if a function literal references any context variable.
@@ -81,8 +82,8 @@ func (c *CheckContext) FuncLitUsesContext(lit *ast.FuncLit) bool {
 	return usesCtx
 }
 
-// extractCallFunc extracts the types.Func from a call expression.
-func (c *CheckContext) extractCallFunc(call *ast.CallExpr) *types.Func {
+// ExtractCallFunc extracts the types.Func from a call expression.
+func (c *CheckContext) ExtractCallFunc(call *ast.CallExpr) *types.Func {
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
 		if f, ok := c.Pass.TypesInfo.ObjectOf(fun).(*types.Func); ok {
@@ -105,8 +106,8 @@ func (c *CheckContext) extractCallFunc(call *ast.CallExpr) *types.Func {
 	return nil
 }
 
-// argUsesContext checks if an expression references a context variable.
-func (c *CheckContext) argUsesContext(expr ast.Expr) bool {
+// ArgUsesContext checks if an expression references a context variable.
+func (c *CheckContext) ArgUsesContext(expr ast.Expr) bool {
 	found := false
 	ast.Inspect(expr, func(n ast.Node) bool {
 		if found {
@@ -181,10 +182,10 @@ func (c *CheckContext) findFuncLitInAssignment(assign *ast.AssignStmt, v *types.
 	return nil
 }
 
-// blockReturnsContextUsingFunc checks if a block's return statements
+// BlockReturnsContextUsingFunc checks if a block's return statements
 // return functions that use context. Recursively checks nested func literals.
 // excludeFuncLit can be set to exclude a specific FuncLit from being counted (e.g., the parent).
-func (c *CheckContext) blockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
+func (c *CheckContext) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
 	if body == nil {
 		return true // No body to check
 	}
@@ -203,7 +204,7 @@ func (c *CheckContext) blockReturnsContextUsingFunc(body *ast.BlockStmt, exclude
 				return false
 			}
 			// Recursively check if it returns functions that use context
-			if c.blockReturnsContextUsingFunc(fl.Body, fl) {
+			if c.BlockReturnsContextUsingFunc(fl.Body, fl) {
 				usesContext = true
 				return false
 			}
@@ -227,10 +228,10 @@ func (c *CheckContext) blockReturnsContextUsingFunc(body *ast.BlockStmt, exclude
 	return usesContext
 }
 
-// factoryReturnsContextUsingFunc checks if a factory FuncLit's return statements
+// FactoryReturnsContextUsingFunc checks if a factory FuncLit's return statements
 // return functions that use context.
-func (c *CheckContext) factoryReturnsContextUsingFunc(factory *ast.FuncLit) bool {
-	return c.blockReturnsContextUsingFunc(factory.Body, factory)
+func (c *CheckContext) FactoryReturnsContextUsingFunc(factory *ast.FuncLit) bool {
+	return c.BlockReturnsContextUsingFunc(factory.Body, factory)
 }
 
 // returnedValueUsesContext checks if a returned value is a func that uses context.

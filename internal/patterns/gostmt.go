@@ -42,7 +42,7 @@ func goStmtCheckFromSSA(cctx *CheckContext, stmt *ast.GoStmt) (bool, bool) {
 	// For go func(){}(), find the SSA function and check FreeVars
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return true, true
 		}
 
@@ -73,7 +73,7 @@ func goStmtCheckFromAST(cctx *CheckContext, stmt *ast.GoStmt) bool {
 	// For go func(){}(), check the function literal
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return true
 		}
 		return cctx.FuncLitUsesContext(lit)
@@ -100,7 +100,7 @@ func goStmtCheckFromAST(cctx *CheckContext, stmt *ast.GoStmt) bool {
 func goStmtCheckHigherOrder(cctx *CheckContext, innerCall *ast.CallExpr) bool {
 	// Check if ctx is passed as an argument to the inner call
 	for _, arg := range innerCall.Args {
-		if cctx.argUsesContext(arg) {
+		if cctx.ArgUsesContext(arg) {
 			return true
 		}
 	}
@@ -108,11 +108,11 @@ func goStmtCheckHigherOrder(cctx *CheckContext, innerCall *ast.CallExpr) bool {
 	// Check if the inner call's function is a func literal
 	if lit, ok := innerCall.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return true
 		}
 		// Check if the factory returns a context-using func
-		return cctx.factoryReturnsContextUsingFunc(lit)
+		return cctx.FactoryReturnsContextUsingFunc(lit)
 	}
 
 	// Check if the inner call's function is an identifier
@@ -142,11 +142,11 @@ func goStmtCheckIdentFactory(cctx *CheckContext, ident *ast.Ident) bool {
 			return true // Can't trace
 		}
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(funcLit) {
+		if cctx.FuncLitHasContextParam(funcLit) {
 			return true
 		}
 		// Check if the factory returns a context-using func
-		return cctx.factoryReturnsContextUsingFunc(funcLit)
+		return cctx.FactoryReturnsContextUsingFunc(funcLit)
 	}
 
 	// Handle package-level function declaration
@@ -186,12 +186,12 @@ func goStmtFindFuncDecl(cctx *CheckContext, fn *types.Func) *ast.FuncDecl {
 
 // goStmtFuncDeclHasContextParam checks if a function declaration has a context.Context parameter.
 func goStmtFuncDeclHasContextParam(cctx *CheckContext, decl *ast.FuncDecl) bool {
-	return cctx.funcTypeHasContextParam(decl.Type)
+	return cctx.FuncTypeHasContextParam(decl.Type)
 }
 
 // goStmtFactoryDeclReturnsCtxFunc checks if a function declaration returns funcs that use context.
 func goStmtFactoryDeclReturnsCtxFunc(cctx *CheckContext, decl *ast.FuncDecl) bool {
-	return cctx.blockReturnsContextUsingFunc(decl.Body, nil)
+	return cctx.BlockReturnsContextUsingFunc(decl.Body, nil)
 }
 
 // GoStmtCallsDeriver checks that a go statement's closure calls a deriver function.
@@ -214,7 +214,7 @@ func (p *GoStmtCallsDeriver) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) G
 	// For go func(){}(), check the function body
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return GoStmtResult{OK: true}
 		}
 
@@ -283,7 +283,7 @@ func (p *GoStmtCallsDeriver) checkIdentDeriver(cctx *CheckContext, ident *ast.Id
 	}
 
 	// Skip if closure has its own context parameter
-	if cctx.funcLitHasContextParam(funcLit) {
+	if cctx.FuncLitHasContextParam(funcLit) {
 		return true
 	}
 
@@ -296,7 +296,7 @@ func (p *GoStmtCallsDeriver) checkHigherOrderDeriver(cctx *CheckContext, innerCa
 	// Check if the inner call's function is a func literal
 	if lit, ok := innerCall.Fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(lit) {
+		if cctx.FuncLitHasContextParam(lit) {
 			return true
 		}
 		// Check if the factory's returns call the deriver
@@ -318,7 +318,7 @@ func (p *GoStmtCallsDeriver) checkHigherOrderDeriver(cctx *CheckContext, innerCa
 			return true // Can't trace
 		}
 		// Skip if closure has its own context parameter
-		if cctx.funcLitHasContextParam(funcLit) {
+		if cctx.FuncLitHasContextParam(funcLit) {
 			return true
 		}
 		// Check if the factory's returns call the deriver

@@ -38,7 +38,7 @@ func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *CheckContext, expr ast.Expr) b
 	}
 
 	// Check if this call IS a deriver call
-	fn := cctx.extractCallFunc(call)
+	fn := cctx.ExtractCallFunc(call)
 	if fn != nil && p.Matcher.MatchesFunc(fn) {
 		return true
 	}
@@ -84,7 +84,7 @@ func (p *ArgIsDeriverCall) identIsDeriverCall(cctx *CheckContext, ident *ast.Ide
 
 				// Check if RHS is a deriver call
 				if call, ok := assign.Rhs[i].(*ast.CallExpr); ok {
-					fn := cctx.extractCallFunc(call)
+					fn := cctx.ExtractCallFunc(call)
 					if fn != nil && p.Matcher.MatchesFunc(fn) {
 						found = true
 						return false

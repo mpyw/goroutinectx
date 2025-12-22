@@ -3,7 +3,12 @@ package patterns
 
 import (
 	"go/ast"
+
+	"github.com/mpyw/goroutinectx/internal/context"
 )
+
+// CheckContext is an alias for context.CheckContext.
+type CheckContext = context.CheckContext
 
 // Pattern defines the interface for context propagation patterns.
 type Pattern interface {
