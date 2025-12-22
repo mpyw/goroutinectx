@@ -31,12 +31,7 @@ func badConcWaitGroupGo(ctx context.Context) {
 
 // [BAD]: pool.Pool.Go closure context usage
 //
-// Literal without ctx - basic bad case
-//
-// See also:
-//   errgroup: badErrgroupGo
-//   goroutine: badGoroutineNoCapture
-//   waitgroup: badWaitGroupGo
+// pool.Pool.Go closure does not use context.
 func badPoolGo(ctx context.Context) {
 	p := pool.New()
 	p.Go(func() { // want `pool.Pool.Go\(\) closure should use context "ctx"`
