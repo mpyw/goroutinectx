@@ -3,8 +3,6 @@ package patterns
 import (
 	"fmt"
 	"go/ast"
-
-	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // CallbackReceivesCtx checks APIs where the callback receives context as its first parameter.
@@ -31,19 +29,8 @@ func (p *CallbackReceivesCtx) Check(cctx *CheckContext, call *ast.CallExpr, _ as
 
 	ctxArg := call.Args[p.CtxArgIdx]
 
-	// Get SSA function containing this call
-	ssaFn := cctx.SSAProg.EnclosingFunc(call)
-	if ssaFn == nil {
-		return true // Can't analyze, assume OK
-	}
-
-	// Get context variables from the enclosing function
-	ctxVars := internalssa.GetContextVars(ssaFn)
-	if len(ctxVars) == 0 {
-		return true // No context in scope, nothing to check
-	}
-
-	// Check if the context argument references one of our context variables
+	// Check if the context argument is a valid context.Context value
+	// This is AST-based and doesn't need SSA
 	return p.contextArgUsesVar(cctx, ctxArg)
 }
 

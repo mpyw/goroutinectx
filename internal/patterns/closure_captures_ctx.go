@@ -18,10 +18,15 @@ func (*ClosureCapturesCtx) Name() string {
 }
 
 func (*ClosureCapturesCtx) Check(cctx *CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
+	// Always try AST fallback first if SSA is not available
+	if cctx.SSAProg == nil {
+		return checkClosureFromAST(cctx, callbackArg)
+	}
+
 	// Get SSA function containing this call
 	ssaFn := cctx.SSAProg.EnclosingFunc(call)
 	if ssaFn == nil {
-		return true // Can't analyze, assume OK
+		return checkClosureFromAST(cctx, callbackArg)
 	}
 
 	// Get context variables from the enclosing function
@@ -44,11 +49,18 @@ func (*ClosureCapturesCtx) Check(cctx *CheckContext, call *ast.CallExpr, callbac
 		if ssaCall, ok := ssaValue.(*ssa.Call); ok {
 			return cctx.Tracer.CallUsesContext(ssaCall, ctxVars)
 		}
-		return true // Can't trace, assume OK
+		// Fall back to AST check
+		return checkClosureFromAST(cctx, callbackArg)
 	}
 
-	// Check if closure uses context
-	return cctx.Tracer.ClosureUsesContext(closure, ctxVars)
+	// Check if closure uses context via SSA
+	if cctx.Tracer.ClosureUsesContext(closure, ctxVars) {
+		return true
+	}
+
+	// SSA FreeVars check failed - double-check with AST
+	// This handles cases where SSA doesn't capture all context usage patterns
+	return checkClosureFromAST(cctx, callbackArg)
 }
 
 func (*ClosureCapturesCtx) Message(apiName string, ctxName string) string {

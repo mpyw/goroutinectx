@@ -28,10 +28,15 @@ func (*GoStmtCapturesCtx) Name() string {
 }
 
 func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) bool {
+	// Always try AST fallback first if SSA is not available
+	if cctx.SSAProg == nil {
+		return checkGoStmtFromAST(cctx, stmt)
+	}
+
 	// Get SSA function containing this go statement
 	ssaFn := cctx.SSAProg.EnclosingFunc(stmt)
 	if ssaFn == nil {
-		return true // Can't analyze, assume OK
+		return checkGoStmtFromAST(cctx, stmt)
 	}
 
 	// Get context variables from the enclosing function
@@ -43,13 +48,13 @@ func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) bool
 	// Extract the function being called in the go statement
 	callExpr := extractGoCallExpr(stmt)
 	if callExpr == nil {
-		return true // Can't extract call, assume OK
+		return checkGoStmtFromAST(cctx, stmt)
 	}
 
 	// Get the function expression
 	fnExpr := extractFnFromCall(callExpr)
 	if fnExpr == nil {
-		return true
+		return checkGoStmtFromAST(cctx, stmt)
 	}
 
 	// Find the SSA value for the function
@@ -62,11 +67,16 @@ func (*GoStmtCapturesCtx) CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) bool
 	// Find the closure
 	closure := cctx.Tracer.FindClosure(ssaValue)
 	if closure == nil {
-		return true // Can't trace, assume OK
+		return checkGoStmtFromAST(cctx, stmt)
 	}
 
-	// Check if closure uses context
-	return cctx.Tracer.ClosureUsesContext(closure, ctxVars)
+	// Check if closure uses context via SSA
+	if cctx.Tracer.ClosureUsesContext(closure, ctxVars) {
+		return true
+	}
+
+	// SSA FreeVars check failed - double-check with AST
+	return checkGoStmtFromAST(cctx, stmt)
 }
 
 func (*GoStmtCapturesCtx) Message(ctxName string) string {
