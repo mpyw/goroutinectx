@@ -1,5 +1,5 @@
-// Package checker provides a unified checker that uses SSA-based pattern matching.
-package checker
+// Package internal provides the unified analyzer that uses SSA-based pattern matching.
+package internal
 
 import (
 	"fmt"

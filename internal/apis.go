@@ -1,4 +1,4 @@
-package checker
+package internal
 
 import (
 	"github.com/mpyw/goroutinectx/internal/patterns"

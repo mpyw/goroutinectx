@@ -12,14 +12,14 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
+	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/directives/spawner"
 	"github.com/mpyw/goroutinectx/internal/patterns"
 	"github.com/mpyw/goroutinectx/internal/registry"
+	"github.com/mpyw/goroutinectx/internal/spawnerlabel"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
@@ -135,7 +135,7 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	return ignoreMaps
 }
 
-// runASTChecks runs checkers on the pass using the unified SSA-based checker.
+// runASTChecks runs checkers on the pass using the unified SSA-based internal.
 func runASTChecks(
 	pass *analysis.Pass,
 	insp *inspector.Inspector,
@@ -151,14 +151,14 @@ func runASTChecks(
 	reg := registry.New()
 
 	// Register errgroup/waitgroup/conc APIs with ClosureCapturesCtx pattern
-	checker.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
+	internal.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
 
 	// Register gotask APIs with ShouldCallDeriver and ArgIsDeriverCall patterns
 	if goroutineDeriver != "" && enableGotask {
 		matcher := deriver.NewMatcher(goroutineDeriver)
 		deriverPattern := &patterns.ShouldCallDeriver{Matcher: matcher}
 		doAsyncPattern := &patterns.ArgIsDeriverCall{Matcher: matcher}
-		checker.RegisterGotaskAPIs(reg, deriverPattern, doAsyncPattern)
+		internal.RegisterGotaskAPIs(reg, deriverPattern, doAsyncPattern)
 	}
 
 	// Build GoStmt patterns
@@ -189,7 +189,7 @@ func runASTChecks(
 	}
 
 	// Create and run unified checker
-	unifiedChecker := checker.New(
+	unifiedChecker := internal.New(
 		reg,
 		goPatterns,
 		spawnerMap,
