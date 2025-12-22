@@ -4,13 +4,12 @@
     "goroutinederivemixed"
   ],
   "variants": {
-    "good": {
-      "description": "IIFE pattern with AND group deriver requirements.",
+    "partial": {
+      "description": "SSA correctly detects ctx capture, but second deriver in nested IIFE not counted.",
       "functions": {
-        "goroutinederivemixed": "goodMixedSplitDeriversAcrossLevels"
+        "goroutinederivemixed": "partialMixedSplitDeriversAcrossLevels"
       }
-    },
-    "bad": null
+    }
   },
   "level": "evil"
 }

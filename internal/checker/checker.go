@@ -80,9 +80,11 @@ func (c *Checker) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 		}
 
 		cctx := &patterns.CheckContext{
-			Pass:    pass,
-			Tracer:  c.tracer,
-			SSAProg: c.ssaProg,
+			Pass:     pass,
+			Tracer:   c.tracer,
+			SSAProg:  c.ssaProg,
+			CtxNames: scope.ctxNames,
+			Carriers: c.carriers,
 		}
 
 		switch node := n.(type) {

@@ -63,11 +63,12 @@ func badAndNested2LevelInnerMissingOneDeriver(ctx context.Context, txn *newrelic
 	}()
 }
 
-// [GOOD]: AND - Both derivers in nested IIFE (not at outer level).
+// [PARTIAL]: AND - Both derivers in nested IIFE (not at outer level).
 //
 // AND - both derivers in nested IIFE (not at outer level).
-func goodAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
+// SSA correctly detects ctx capture, but deriver calls in nested IIFE not counted.
+func partialAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transaction) {
+	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
 		func() {
 			txn = txn.NewGoroutine()
 			ctx = newrelic.NewContext(ctx, txn)
@@ -76,11 +77,12 @@ func goodAndBothDeriverInNestedIIFE(ctx context.Context, txn *newrelic.Transacti
 	}()
 }
 
-// [GOOD]: AND - Split derivers across levels (outer has first, IIFE has second).
+// [PARTIAL]: AND - Split derivers across levels (outer has first, IIFE has second).
 //
 // AND - split derivers across levels (outer has first, IIFE has second).
-func goodAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
+// SSA correctly detects ctx capture, but second deriver in nested IIFE not counted.
+func partialAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transaction) {
+	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
 		txn = txn.NewGoroutine() // First deriver at outer level
 		func() {
 			ctx = newrelic.NewContext(ctx, txn) // Second deriver in IIFE - not counted for outer
@@ -93,8 +95,9 @@ func goodAndSplitDeriversAcrossLevels(ctx context.Context, txn *newrelic.Transac
 // [BAD]: AND - Nested 3-level, outer only has first deriver.
 //
 // AND - nested 3-level, outer only has first deriver.
+// SSA correctly detects ctx capture at each level, but deriver AND conditions not met.
 func badAndNested3LevelOuterPartial(ctx context.Context, txn *newrelic.Transaction) {
-	go func() { // want `goroutine does not propagate context "ctx"` `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
+	go func() { // want `goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context`
 		txn = txn.NewGoroutine() // Only first deriver
 		go func() { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context"
 			ctx = newrelic.NewContext(ctx, txn) // Only second deriver

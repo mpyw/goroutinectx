@@ -173,12 +173,12 @@ func badIIFEInsideGoroutine(ctx context.Context) {
 	}()
 }
 
-// [BAD]: Ctx only in IIFE nested closure (LIMITATION)
+// [GOOD]: Ctx in IIFE nested closure - SSA correctly detects
 //
-// Known analyzer limitation: this pattern cannot be detected statically.
-func badIIFEUsesCtxInNestedFunc(ctx context.Context) {
-	// ctx used only in nested IIFE, not by goroutine's direct body
-	go func() { // want `goroutine does not propagate context "ctx"`
+// SSA FreeVars propagation correctly detects context captured in nested closures.
+func goodIIFEUsesCtxInNestedFunc(ctx context.Context) {
+	// ctx used in nested IIFE - SSA captures this via FreeVars
+	go func() { // SSA correctly detects ctx capture
 		func() {
 			_ = ctx.Done()
 		}()

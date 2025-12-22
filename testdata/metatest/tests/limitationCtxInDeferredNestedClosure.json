@@ -1,20 +1,19 @@
 {
-  "title": "Ctx in deferred nested closure not detected",
+  "title": "Ctx in deferred nested closure - SSA correctly detects",
   "targets": [
     "goroutine",
     "errgroup",
     "waitgroup"
   ],
   "variants": {
-    "limitation": {
-      "description": "Context used only in deferred nested closure is not detected.",
+    "good": {
+      "description": "SSA FreeVars propagation correctly detects context captured in nested closures.",
       "functions": {
-        "goroutine": "limitationDeferNestedClosure",
-        "errgroup": "limitationDeferNestedClosure",
-        "waitgroup": "limitationDeferNestedClosure"
+        "goroutine": "goodDeferNestedClosure",
+        "errgroup": "goodDeferNestedClosure",
+        "waitgroup": "goodDeferNestedClosure"
       }
-    },
-    "good": null
+    }
   },
   "level": "advanced"
 }

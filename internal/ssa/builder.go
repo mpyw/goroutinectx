@@ -74,3 +74,37 @@ func (p *Program) findEnclosingFunc(fn *ssa.Function, pos ast.Node) *ssa.Functio
 	}
 	return fn
 }
+
+// FindFuncLit finds the SSA function for a given FuncLit AST node.
+func (p *Program) FindFuncLit(lit *ast.FuncLit) *ssa.Function {
+	if p == nil || lit == nil {
+		return nil
+	}
+
+	// First find the enclosing top-level function
+	topFn := p.FuncAt(lit)
+	if topFn == nil {
+		return nil
+	}
+
+	// Search for the anonymous function matching this FuncLit
+	return p.findFuncLitInFunc(topFn, lit)
+}
+
+func (p *Program) findFuncLitInFunc(fn *ssa.Function, lit *ast.FuncLit) *ssa.Function {
+	for _, anon := range fn.AnonFuncs {
+		syntax := anon.Syntax()
+		if syntax == nil {
+			continue
+		}
+		// Match by exact position
+		if syntax.Pos() == lit.Pos() {
+			return anon
+		}
+		// Recursively check nested anonymous functions
+		if found := p.findFuncLitInFunc(anon, lit); found != nil {
+			return found
+		}
+	}
+	return nil
+}

@@ -12,18 +12,17 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/checkers"
-	"github.com/mpyw/goroutinectx/internal/checkers/errgroup"
-	"github.com/mpyw/goroutinectx/internal/checkers/goroutine"
-	"github.com/mpyw/goroutinectx/internal/checkers/goroutinederive"
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/checkers/gotask"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawner"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
-	"github.com/mpyw/goroutinectx/internal/checkers/waitgroup"
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	spawnerdir "github.com/mpyw/goroutinectx/internal/directives/spawner"
+	"github.com/mpyw/goroutinectx/internal/patterns"
+	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
@@ -139,7 +138,7 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	return ignoreMaps
 }
 
-// runASTChecks runs AST-based checkers on the pass.
+// runASTChecks runs checkers on the pass using the unified SSA-based checker.
 func runASTChecks(
 	pass *analysis.Pass,
 	insp *inspector.Inspector,
@@ -148,49 +147,73 @@ func runASTChecks(
 	spawners *spawnerdir.Map,
 	skipFiles map[string]bool,
 ) {
-	// Build SSA program for future use (currently unused but required for buildssa dependency)
-	_ = internalssa.Build(pass)
+	// Build SSA program
+	ssaProg := internalssa.Build(pass)
 
-	// Build context scopes for functions with context parameters
-	funcScopes := buildFuncScopes(pass, insp, carriers)
+	// Create registry and register APIs
+	reg := registry.New()
 
-	// Build checkers based on flags
-	var (
-		callCheckers   []checkers.CallChecker
-		goStmtCheckers []checkers.GoStmtChecker
-	)
+	// Register errgroup/waitgroup/conc APIs with ClosureCapturesCtx pattern
+	checker.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
+
+	// Build GoStmt patterns
+	var goPatterns []patterns.GoStmtPattern
 
 	if enableGoroutine {
-		goStmtCheckers = append(goStmtCheckers, goroutine.New())
+		goPatterns = append(goPatterns, &patterns.GoStmtCapturesCtx{})
 	}
 
 	if goroutineDeriver != "" {
-		goStmtCheckers = append(goStmtCheckers, goroutinederive.New(goroutineDeriver))
+		matcher := deriver.NewMatcher(goroutineDeriver)
+		goPatterns = append(goPatterns, &patterns.GoStmtCallsDeriver{Matcher: matcher})
 	}
 
-	if enableWaitgroup {
-		callCheckers = append(callCheckers, waitgroup.New())
+	// Map pattern names to ignore checker names
+	checkerNames := map[string]ignore.CheckerName{
+		"GoStmtCapturesCtx":  ignore.Goroutine,
+		"GoStmtCallsDeriver": ignore.GoroutineDerive,
+		"ClosureCapturesCtx": ignore.Errgroup, // errgroup/waitgroup use this
 	}
 
-	if enableErrgroup {
-		callCheckers = append(callCheckers, errgroup.New())
+	// Create and run unified checker
+	unifiedChecker := checker.New(
+		reg,
+		goPatterns,
+		ssaProg,
+		carriers,
+		ignoreMaps,
+		skipFiles,
+		checkerNames,
+	)
+	unifiedChecker.Run(pass, insp)
+
+	// Run remaining checkers that aren't migrated yet (spawner, gotask)
+	runLegacyCheckers(pass, insp, ignoreMaps, carriers, spawners, skipFiles)
+}
+
+// runLegacyCheckers runs checkers that haven't been migrated to the unified checker yet.
+func runLegacyCheckers(
+	pass *analysis.Pass,
+	insp *inspector.Inspector,
+	ignoreMaps map[string]ignore.Map,
+	carriers []carrier.Carrier,
+	spawners *spawnerdir.Map,
+	skipFiles map[string]bool,
+) {
+	// Only spawner and gotask need the legacy path
+	spawnerEnabled := enableSpawner && spawners.Len() > 0
+	gotaskEnabled := goroutineDeriver != "" && enableGotask
+	if !spawnerEnabled && !gotaskEnabled {
+		return
 	}
 
-	// Add spawner checker if enabled and any functions are marked
-	if enableSpawner && spawners.Len() > 0 {
-		callCheckers = append(callCheckers, spawner.New(spawners))
-	}
-
-	// gotask checker requires goroutine-deriver to be set
-	if goroutineDeriver != "" && enableGotask {
-		callCheckers = append(callCheckers, gotask.New(goroutineDeriver))
-	}
+	// Build context scopes for functions with context parameters
+	funcScopes := buildFuncScopes(pass, insp, carriers)
 
 	// Node types we're interested in
 	nodeFilter := []ast.Node{
 		(*ast.FuncDecl)(nil),
 		(*ast.FuncLit)(nil),
-		(*ast.GoStmt)(nil),
 		(*ast.CallExpr)(nil),
 	}
 
@@ -217,14 +240,14 @@ func runASTChecks(
 			Carriers:  carriers,
 		}
 
-		switch node := n.(type) {
-		case *ast.GoStmt:
-			for _, checker := range goStmtCheckers {
-				checker.CheckGoStmt(cctx, node)
+		if call, ok := n.(*ast.CallExpr); ok {
+			// Spawner checker
+			if enableSpawner && spawners.Len() > 0 {
+				spawner.New(spawners).CheckCall(cctx, call)
 			}
-		case *ast.CallExpr:
-			for _, checker := range callCheckers {
-				checker.CheckCall(cctx, node)
+			// Gotask checker
+			if goroutineDeriver != "" && enableGotask {
+				gotask.New(goroutineDeriver).CheckCall(cctx, call)
 			}
 		}
 

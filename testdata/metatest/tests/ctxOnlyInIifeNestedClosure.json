@@ -1,16 +1,15 @@
 {
-  "title": "Ctx only in IIFE nested closure (LIMITATION)",
+  "title": "Ctx in IIFE nested closure - SSA correctly detects",
   "targets": [
     "goroutine"
   ],
   "variants": {
-    "bad": {
-      "description": "Known analyzer limitation: this pattern cannot be detected statically.",
+    "good": {
+      "description": "SSA FreeVars propagation correctly detects context captured in nested closures.",
       "functions": {
-        "goroutine": "badIIFEUsesCtxInNestedFunc"
+        "goroutine": "goodIIFEUsesCtxInNestedFunc"
       }
-    },
-    "good": null
+    }
   },
   "level": "evil"
 }

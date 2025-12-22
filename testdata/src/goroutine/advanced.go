@@ -22,17 +22,17 @@ func badGoroutineWithDefer(ctx context.Context) {
 	}()
 }
 
-// [LIMITATION]: Ctx in deferred nested closure not detected
+// [GOOD]: Ctx in deferred nested closure - SSA correctly detects
 //
-// Context used only in deferred nested closure is not detected.
+// SSA FreeVars propagation correctly detects context captured in nested closures.
 //
 // See also:
-//   errgroup: limitationDeferNestedClosure
-//   waitgroup: limitationDeferNestedClosure
-func limitationDeferNestedClosure(ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
+//   errgroup: goodDeferNestedClosure
+//   waitgroup: goodDeferNestedClosure
+func goodDeferNestedClosure(ctx context.Context) {
+	go func() { // SSA correctly detects ctx capture
 		defer func() {
-			_ = ctx.Done() // ctx in deferred closure doesn't count
+			_ = ctx.Done() // ctx in deferred closure - SSA captures this
 		}()
 	}()
 }
@@ -51,14 +51,14 @@ func badGoroutineWithRecovery(ctx context.Context) {
 	}()
 }
 
-// [BAD]: Ctx only in recovery closure (LIMITATION)
+// [GOOD]: Ctx in recovery closure - SSA correctly detects
 //
-// Known analyzer limitation: this pattern cannot be detected statically.
-func badGoroutineUsesCtxOnlyInRecoveryClosure(ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
+// SSA FreeVars propagation correctly detects context captured in nested closures.
+func goodGoroutineUsesCtxInRecoveryClosure(ctx context.Context) {
+	go func() { // SSA correctly detects ctx capture
 		defer func() {
 			if r := recover(); r != nil {
-				_ = ctx // ctx in recovery closure doesn't count
+				_ = ctx // ctx in recovery closure - SSA captures this
 			}
 		}()
 		panic("test")

@@ -4,13 +4,12 @@
     "goroutinederivemixed"
   ],
   "variants": {
-    "good": {
-      "description": "Satisfies the mixed requirement via OR alternative path.",
+    "partial": {
+      "description": "SSA correctly detects ctx capture, but OR alternative in nested IIFE not counted.",
       "functions": {
-        "goroutinederivemixed": "goodMixedOrAlternativeInNestedIIFE"
+        "goroutinederivemixed": "partialMixedOrAlternativeInNestedIIFE"
       }
-    },
-    "bad": null
+    }
   },
   "level": "evil"
 }

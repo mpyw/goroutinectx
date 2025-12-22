@@ -6,6 +6,9 @@ import (
 	"maps"
 
 	"golang.org/x/tools/go/ssa"
+
+	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Tracer provides SSA-based value tracing for goroutinectx.
@@ -34,6 +37,25 @@ func (t *Tracer) ClosureUsesContext(closure *ssa.Function, ctxVars []*types.Var)
 			if fv.Name() == ctx.Name() && isContextType(fv.Type()) {
 				return true
 			}
+		}
+	}
+
+	return false
+}
+
+// ClosureCapturesContext checks if a closure captures any context.Context variable
+// or a configured carrier type.
+// This is simpler than ClosureUsesContext - it just checks FreeVars types.
+// It includes nested closures due to SSA's FreeVars propagation.
+func (t *Tracer) ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier) bool {
+	if closure == nil {
+		return false
+	}
+
+	// Check free variables (captured from enclosing scope)
+	for _, fv := range closure.FreeVars {
+		if typeutil.IsContextOrCarrierType(fv.Type(), carriers) {
+			return true
 		}
 	}
 
@@ -298,7 +320,13 @@ func (t *Tracer) isNilConst(v ssa.Value) bool {
 // =============================================================================
 
 // isContextType checks if a type is context.Context.
+// Handles pointer types (*context.Context) which are common in SSA FreeVars.
 func isContextType(t types.Type) bool {
+	// Unwrap pointer types
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+
 	named, ok := t.(*types.Named)
 	if !ok {
 		return false
