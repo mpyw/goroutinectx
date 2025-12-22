@@ -1,0 +1,15 @@
+{
+  "title": "Unreachable spawn after panic - SSA eliminates unreachable code",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "limitation": {
+      "description": "SSA optimizes away code after panic()",
+      "functions": {
+        "spawnerlabel": "limitationPanicBeforeSpawn"
+      }
+    }
+  }
+}

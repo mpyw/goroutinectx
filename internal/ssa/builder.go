@@ -108,3 +108,22 @@ func (p *Program) findFuncLitInFunc(fn *ssa.Function, lit *ast.FuncLit) *ssa.Fun
 	}
 	return nil
 }
+
+// FindFuncDecl finds the SSA function for a given FuncDecl AST node.
+func (p *Program) FindFuncDecl(decl *ast.FuncDecl) *ssa.Function {
+	if p == nil || decl == nil {
+		return nil
+	}
+
+	for _, fn := range p.SrcFuncs {
+		syntax := fn.Syntax()
+		if syntax == nil {
+			continue
+		}
+		// Match by exact position of the FuncDecl
+		if fnDecl, ok := syntax.(*ast.FuncDecl); ok && fnDecl.Pos() == decl.Pos() {
+			return fn
+		}
+	}
+	return nil
+}

@@ -147,3 +147,68 @@ func (r *Registry) getCallbackArg(call *ast.CallExpr, api API) ast.Expr {
 
 	return call.Args[idx]
 }
+
+// MatchFunc attempts to match a types.Func against registered APIs.
+// Returns the matched entry or nil if no match.
+// This is used for SSA-based analysis where we have types.Func instead of ast.CallExpr.
+func (r *Registry) MatchFunc(fn *types.Func) *Entry {
+	for i := range r.entries {
+		entry := &r.entries[i]
+		if matchFuncToAPI(fn, entry.API) {
+			return entry
+		}
+	}
+	return nil
+}
+
+// matchFuncToAPI checks if a types.Func matches the given API.
+func matchFuncToAPI(fn *types.Func, api API) bool {
+	if fn == nil {
+		return false
+	}
+
+	// Check function name
+	if fn.Name() != api.Name {
+		return false
+	}
+
+	// Get package path
+	pkg := fn.Pkg()
+	if pkg == nil {
+		return false
+	}
+
+	switch api.Kind {
+	case KindMethod:
+		// Check receiver type
+		sig, ok := fn.Type().(*types.Signature)
+		if !ok {
+			return false
+		}
+		recv := sig.Recv()
+		if recv == nil {
+			return false
+		}
+		recvType := typeutil.UnwrapPointer(recv.Type())
+		named, ok := recvType.(*types.Named)
+		if !ok {
+			return false
+		}
+		if origin := named.Origin(); origin != nil {
+			named = origin
+		}
+		if named.Obj().Name() != api.Type {
+			return false
+		}
+		return typeutil.MatchPkg(pkg.Path(), api.Pkg)
+
+	case KindFunc:
+		// Package-level function
+		if api.Type != "" {
+			return false // Not a package-level function
+		}
+		return typeutil.MatchPkg(pkg.Path(), api.Pkg)
+	}
+
+	return false
+}

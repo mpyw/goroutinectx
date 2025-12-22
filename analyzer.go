@@ -90,12 +90,15 @@ func run(pass *analysis.Pass) (any, error) {
 	// Build registry
 	reg := buildRegistry()
 
+	// Build SSA program
+	ssaProg := internalssa.Build(pass)
+
 	// Run AST-based checks (goroutine, errgroup, waitgroup)
-	runASTChecks(pass, insp, ignoreMaps, carriers, spawners, skipFiles, reg)
+	runASTChecks(pass, insp, ignoreMaps, carriers, spawners, skipFiles, reg, ssaProg)
 
 	// Run spawnerlabel checker if enabled
 	if enableSpawnerlabel {
-		spawnerlabelChecker := spawnerlabel.New(spawners, reg)
+		spawnerlabelChecker := spawnerlabel.New(spawners, reg, ssaProg)
 		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)
 	}
 
@@ -169,9 +172,8 @@ func runASTChecks(
 	spawners *spawner.Map,
 	skipFiles map[string]bool,
 	reg *registry.Registry,
+	ssaProg *internalssa.Program,
 ) {
-	// Build SSA program
-	ssaProg := internalssa.Build(pass)
 
 	// Build GoStmt patterns
 	var goPatterns []patterns.GoStmtPattern

@@ -1,0 +1,16 @@
+{
+  "title": "Spawn in nested function literal - SSA detects spawn",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "good": null,
+    "bad": {
+      "description": "Spawn inside nested function literal - SSA traverses nested closures",
+      "functions": {
+        "spawnerlabel": "badNestedFuncLitSpawn"
+      }
+    }
+  }
+}
