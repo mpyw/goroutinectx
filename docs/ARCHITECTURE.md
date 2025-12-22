@@ -246,7 +246,7 @@ func UsesContext(pass *analysis.Pass, body *ast.BlockStmt, contextVar *types.Var
 For patterns like `g.Go(fn)` where `fn` is a variable:
 
 ```go
-func FindFuncLitAssignment(pass *analysis.Pass, ident *ast.Ident) *ast.FuncLit
+func (c *CheckContext) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit
 ```
 
 Traces variable assignments to find the original function literal.

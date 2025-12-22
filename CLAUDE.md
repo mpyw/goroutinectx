@@ -437,7 +437,7 @@ When improving code quality, follow this iterative cycle:
 
    **Keep as function** when:
    - There are 2+ arguments and it's unclear which is the "subject"
-   - Example: `FindFuncLitAssignment(cctx, v)` - finding for `v` using `cctx` (ambiguous subject)
+   - Example: `closureFindFieldInAssignment(cctx, assign, v, fieldName)` - multiple subjects makes method conversion unclear
 
 ### Phase 4: Newbie - Naive Questions
 Become a complete beginner who has never seen the code. Ask genuinely confused questions:

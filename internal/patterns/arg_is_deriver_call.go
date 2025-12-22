@@ -39,7 +39,7 @@ func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *context.CheckContext, expr ast
 	}
 
 	// Check if this call IS a deriver call
-	fn := cctx.ExtractCallFunc(call)
+	fn := cctx.FuncOf(call)
 	if fn != nil && p.Matcher.MatchesFunc(fn) {
 		return true
 	}
@@ -51,19 +51,19 @@ func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *context.CheckContext, expr ast
 
 // identIsDeriverCall checks if a variable holds a deriver call result.
 func (p *ArgIsDeriverCall) identIsDeriverCall(cctx *context.CheckContext, ident *ast.Ident) bool {
-	v := cctx.VarFromIdent(ident)
+	v := cctx.VarOf(ident)
 	if v == nil {
 		return false
 	}
 
 	// Find call expression assigned to this variable
-	call := cctx.FindCallExprAssignment(v, ident.Pos())
+	call := cctx.CallExprAssignedTo(v, ident.Pos())
 	if call == nil {
 		return false
 	}
 
 	// Check if RHS is a deriver call
-	fn := cctx.ExtractCallFunc(call)
+	fn := cctx.FuncOf(call)
 	return fn != nil && p.Matcher.MatchesFunc(fn)
 }
 

@@ -24,21 +24,49 @@ func (p *ShouldCallDeriver) Check(cctx *context.CheckContext, call *ast.CallExpr
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
 		return true // No deriver configured
 	}
-	return p.exprCallsDeriver(cctx, callbackArg)
+
+	// For function literals, try SSA-based check first
+	if lit, ok := callbackArg.(*ast.FuncLit); ok {
+		if result, ok := p.checkFromSSA(cctx, lit); ok {
+			return result
+		}
+		// Fall back to AST-based check
+		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, lit.Body)
+	}
+
+	// For other expressions, use AST-based check
+	return p.checkFromAST(cctx, callbackArg)
 }
 
-// exprCallsDeriver checks if an expression contains a call to the deriver function.
-// Handles: FuncLit, Ident (variable), CallExpr (NewTask, factory functions).
-func (p *ShouldCallDeriver) exprCallsDeriver(cctx *context.CheckContext, expr ast.Expr) bool {
+// checkFromSSA uses SSA analysis to check deriver calls.
+// Returns (result, true) if SSA analysis succeeded, or (false, false) if it failed.
+func (p *ShouldCallDeriver) checkFromSSA(cctx *context.CheckContext, lit *ast.FuncLit) (bool, bool) {
+	if cctx.SSAProg == nil || cctx.Tracer == nil {
+		return false, false
+	}
+
+	ssaFn := cctx.SSAProg.FindFuncLit(lit)
+	if ssaFn == nil {
+		return false, false
+	}
+
+	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, p.Matcher)
+	// Only accept deriver calls at start, not in defer
+	return result.FoundAtStart, true
+}
+
+// checkFromAST falls back to AST-based analysis.
+// Handles: Ident (variable), CallExpr (NewTask, factory functions).
+func (p *ShouldCallDeriver) checkFromAST(cctx *context.CheckContext, expr ast.Expr) bool {
 	switch e := expr.(type) {
 	case *ast.FuncLit:
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, e.Body)
 
 	case *ast.Ident:
-		return p.identCallsDeriver(cctx, e)
+		return p.checkIdent(cctx, e)
 
 	case *ast.CallExpr:
-		return p.callExprCallsDeriver(cctx, e)
+		return p.checkCallExpr(cctx, e)
 
 	default:
 		// Can't trace, assume OK (zero false positives)
@@ -46,9 +74,9 @@ func (p *ShouldCallDeriver) exprCallsDeriver(cctx *context.CheckContext, expr as
 	}
 }
 
-// identCallsDeriver checks if a variable contains a deriver by tracing its assignment.
-func (p *ShouldCallDeriver) identCallsDeriver(cctx *context.CheckContext, ident *ast.Ident) bool {
-	v := cctx.VarFromIdent(ident)
+// checkIdent checks if a variable contains a deriver by tracing its assignment.
+func (p *ShouldCallDeriver) checkIdent(cctx *context.CheckContext, ident *ast.Ident) bool {
+	v := cctx.VarOf(ident)
 	if v == nil {
 		return true // Can't trace (not a variable)
 	}
@@ -59,35 +87,35 @@ func (p *ShouldCallDeriver) identCallsDeriver(cctx *context.CheckContext, ident 
 	}
 
 	// Try to find a FuncLit assignment
-	funcLit := cctx.FindFuncLitAssignment(v, ident.Pos())
+	funcLit := cctx.FuncLitAssignedTo(v, ident.Pos())
 	if funcLit != nil {
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 	}
 
 	// Try to find a CallExpr assignment (e.g., task := NewTask(fn))
-	callExpr := cctx.FindCallExprAssignment(v, ident.Pos())
+	callExpr := cctx.CallExprAssignedTo(v, ident.Pos())
 	if callExpr != nil {
-		return p.callExprCallsDeriver(cctx, callExpr)
+		return p.checkCallExpr(cctx, callExpr)
 	}
 
 	// Can't trace
 	return true
 }
 
-// callExprCallsDeriver checks if a call expression contains a deriver.
-func (p *ShouldCallDeriver) callExprCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
+// checkCallExpr checks if a call expression contains a deriver.
+func (p *ShouldCallDeriver) checkCallExpr(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	// Case 1: gotask.NewTask(fn) - check fn
 	if p.isGotaskConstructor(cctx, call) && len(call.Args) > 0 {
-		return p.exprCallsDeriver(cctx, call.Args[0])
+		return p.checkFromAST(cctx, call.Args[0])
 	}
 
 	// Case 2: Factory function - trace return statements
-	if p.factoryReturnCallsDeriver(cctx, call) {
+	if p.factoryReturnCalls(cctx, call) {
 		return true
 	}
 
 	// Case 3: Higher-order callback returns deriver-calling func
-	if p.callbackReturnCallsDeriver(cctx, call) {
+	if p.callbackReturnCalls(cctx, call) {
 		return true
 	}
 
@@ -124,37 +152,37 @@ func (p *ShouldCallDeriver) isGotaskConstructor(cctx *context.CheckContext, call
 	return strings.HasPrefix(pkgName.Imported().Path(), "github.com/siketyan/gotask")
 }
 
-// factoryReturnCallsDeriver traces a factory call to its FuncLit and checks returns.
-func (p *ShouldCallDeriver) factoryReturnCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
+// factoryReturnCalls traces a factory call to its FuncLit and checks returns.
+func (p *ShouldCallDeriver) factoryReturnCalls(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	ident, ok := call.Fun.(*ast.Ident)
 	if !ok {
 		return false
 	}
 
-	funcLit := cctx.FindIdentFuncLitAssignment(ident, call.Pos())
+	funcLit := cctx.FuncLitOfIdent(ident, call.Pos())
 	if funcLit == nil {
 		return false
 	}
 
-	return p.funcLitReturnCallsDeriver(cctx, funcLit)
+	return p.funcLitReturnCalls(cctx, funcLit)
 }
 
-// callbackReturnCallsDeriver checks if any FuncLit argument returns a deriver-calling func.
-func (p *ShouldCallDeriver) callbackReturnCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
+// callbackReturnCalls checks if any FuncLit argument returns a deriver-calling func.
+func (p *ShouldCallDeriver) callbackReturnCalls(cctx *context.CheckContext, call *ast.CallExpr) bool {
 	for _, arg := range call.Args {
 		funcLit, ok := arg.(*ast.FuncLit)
 		if !ok {
 			continue
 		}
-		if p.funcLitReturnCallsDeriver(cctx, funcLit) {
+		if p.funcLitReturnCalls(cctx, funcLit) {
 			return true
 		}
 	}
 	return false
 }
 
-// funcLitReturnCallsDeriver checks if any return statement returns a deriver-calling expr.
-func (p *ShouldCallDeriver) funcLitReturnCallsDeriver(cctx *context.CheckContext, funcLit *ast.FuncLit) bool {
+// funcLitReturnCalls checks if any return statement returns a deriver-calling expr.
+func (p *ShouldCallDeriver) funcLitReturnCalls(cctx *context.CheckContext, funcLit *ast.FuncLit) bool {
 	var found bool
 
 	ast.Inspect(funcLit.Body, func(n ast.Node) bool {
@@ -174,7 +202,7 @@ func (p *ShouldCallDeriver) funcLitReturnCallsDeriver(cctx *context.CheckContext
 		for _, result := range ret.Results {
 			switch r := result.(type) {
 			case *ast.CallExpr:
-				if p.callExprCallsDeriver(cctx, r) {
+				if p.checkCallExpr(cctx, r) {
 					found = true
 					return false
 				}

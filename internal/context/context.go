@@ -2,9 +2,11 @@
 package context
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -31,9 +33,9 @@ func (c *CheckContext) Report(pos token.Pos, msg string) {
 	c.Pass.Reportf(pos, "%s", msg)
 }
 
-// VarFromIdent extracts *types.Var from an identifier.
+// VarOf extracts *types.Var from an identifier.
 // Returns nil if the identifier doesn't refer to a variable.
-func (c *CheckContext) VarFromIdent(ident *ast.Ident) *types.Var {
+func (c *CheckContext) VarOf(ident *ast.Ident) *types.Var {
 	obj := c.Pass.TypesInfo.ObjectOf(ident)
 	if obj == nil {
 		return nil
@@ -45,9 +47,9 @@ func (c *CheckContext) VarFromIdent(ident *ast.Ident) *types.Var {
 	return v
 }
 
-// FindFileContaining finds the file that contains the given position.
+// FileOf finds the file that contains the given position.
 // Returns nil if no file contains the position.
-func (c *CheckContext) FindFileContaining(pos token.Pos) *ast.File {
+func (c *CheckContext) FileOf(pos token.Pos) *ast.File {
 	for _, f := range c.Pass.Files {
 		if f.Pos() <= pos && pos < f.End() {
 			return f
@@ -56,11 +58,11 @@ func (c *CheckContext) FindFileContaining(pos token.Pos) *ast.File {
 	return nil
 }
 
-// FindFuncDecl finds the FuncDecl for a types.Func.
+// FuncDeclOf finds the FuncDecl for a types.Func.
 // Returns nil if the function declaration is not found in the analyzed files.
-func (c *CheckContext) FindFuncDecl(fn *types.Func) *ast.FuncDecl {
+func (c *CheckContext) FuncDeclOf(fn *types.Func) *ast.FuncDecl {
 	pos := fn.Pos()
-	f := c.FindFileContaining(pos)
+	f := c.FileOf(pos)
 	if f == nil {
 		return nil
 	}
@@ -132,8 +134,8 @@ func (c *CheckContext) FuncLitUsesContext(lit *ast.FuncLit) bool {
 	return c.nodeReferencesContext(lit.Body, true)
 }
 
-// ExtractCallFunc extracts the types.Func from a call expression.
-func (c *CheckContext) ExtractCallFunc(call *ast.CallExpr) *types.Func {
+// FuncOf extracts the types.Func from a call expression.
+func (c *CheckContext) FuncOf(call *ast.CallExpr) *types.Func {
 	return funcspec.ExtractFunc(c.Pass, call)
 }
 
@@ -182,21 +184,21 @@ func (c *CheckContext) nodeReferencesContext(node ast.Node, skipNestedFuncLit bo
 	return found
 }
 
-// FindIdentFuncLitAssignment is a convenience method that combines VarFromIdent and FindFuncLitAssignment.
+// FuncLitOfIdent is a convenience method that combines VarOf and FuncLitAssignedTo.
 // Returns nil if the identifier doesn't refer to a variable or no func literal assignment is found.
-func (c *CheckContext) FindIdentFuncLitAssignment(ident *ast.Ident, beforePos token.Pos) *ast.FuncLit {
-	v := c.VarFromIdent(ident)
+func (c *CheckContext) FuncLitOfIdent(ident *ast.Ident, beforePos token.Pos) *ast.FuncLit {
+	v := c.VarOf(ident)
 	if v == nil {
 		return nil
 	}
-	return c.FindFuncLitAssignment(v, beforePos)
+	return c.FuncLitAssignedTo(v, beforePos)
 }
 
-// FindFuncLitAssignment searches for the func literal assigned to the variable.
+// FuncLitAssignedTo searches for the func literal assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
-func (c *CheckContext) FindFuncLitAssignment(v *types.Var, beforePos token.Pos) *ast.FuncLit {
-	f := c.FindFileContaining(v.Pos())
+func (c *CheckContext) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit {
+	f := c.FileOf(v.Pos())
 	if f == nil {
 		return nil
 	}
@@ -240,11 +242,11 @@ func (c *CheckContext) findFuncLitInAssignment(assign *ast.AssignStmt, v *types.
 	return nil
 }
 
-// FindCallExprAssignment searches for the call expression assigned to the variable.
+// CallExprAssignedTo searches for the call expression assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
-func (c *CheckContext) FindCallExprAssignment(v *types.Var, beforePos token.Pos) *ast.CallExpr {
-	f := c.FindFileContaining(v.Pos())
+func (c *CheckContext) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.CallExpr {
+	f := c.FileOf(v.Pos())
 	if f == nil {
 		return nil
 	}
@@ -376,8 +378,8 @@ func (c *CheckContext) IdentFactoryReturnsContextUsingFunc(ident *ast.Ident) boo
 	}
 
 	// Handle local variable pointing to a func literal
-	if v := c.VarFromIdent(ident); v != nil {
-		funcLit := c.FindFuncLitAssignment(v, token.NoPos)
+	if v := c.VarOf(ident); v != nil {
+		funcLit := c.FuncLitAssignedTo(v, token.NoPos)
 		if funcLit == nil {
 			return true // Can't trace, assume OK
 		}
@@ -390,7 +392,7 @@ func (c *CheckContext) IdentFactoryReturnsContextUsingFunc(ident *ast.Ident) boo
 
 	// Handle package-level function declaration
 	if fn, ok := obj.(*types.Func); ok {
-		funcDecl := c.FindFuncDecl(fn)
+		funcDecl := c.FuncDeclOf(fn)
 		if funcDecl == nil {
 			return true // Can't trace, assume OK
 		}
@@ -417,10 +419,194 @@ func (c *CheckContext) returnedValueUsesContext(result ast.Expr) bool {
 		return false
 	}
 
-	innerFuncLit := c.FindIdentFuncLitAssignment(ident, token.NoPos)
+	innerFuncLit := c.FuncLitOfIdent(ident, token.NoPos)
 	if innerFuncLit == nil {
 		return false
 	}
 
 	return c.FuncLitUsesContext(innerFuncLit)
+}
+
+// SelectorExprCapturesContext checks if a struct field func captures context.
+// Handles patterns like: s.handler where s is a struct with a func field.
+func (c *CheckContext) SelectorExprCapturesContext(sel *ast.SelectorExpr) bool {
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return true // Can't trace, assume OK
+	}
+
+	v := c.VarOf(ident)
+	if v == nil {
+		return true // Can't trace, assume OK
+	}
+
+	fieldName := sel.Sel.Name
+	funcLit := c.FuncLitOfStructField(v, fieldName)
+	if funcLit == nil {
+		return true // Can't trace, assume OK
+	}
+
+	return c.FuncLitUsesContext(funcLit)
+}
+
+// IndexExprCapturesContext checks if a slice/map indexed func captures context.
+// Handles patterns like: handlers[0] or handlers["key"].
+func (c *CheckContext) IndexExprCapturesContext(idx *ast.IndexExpr) bool {
+	ident, ok := idx.X.(*ast.Ident)
+	if !ok {
+		return true // Can't trace, assume OK
+	}
+
+	v := c.VarOf(ident)
+	if v == nil {
+		return true // Can't trace, assume OK
+	}
+
+	funcLit := c.FuncLitOfIndex(v, idx.Index)
+	if funcLit == nil {
+		return true // Can't trace, assume OK
+	}
+
+	return c.FuncLitUsesContext(funcLit)
+}
+
+// FuncLitOfStructField finds a func literal assigned to a struct field.
+func (c *CheckContext) FuncLitOfStructField(v *types.Var, fieldName string) *ast.FuncLit {
+	f := c.FileOf(v.Pos())
+	if f == nil {
+		return nil
+	}
+
+	var result *ast.FuncLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if result != nil {
+			return false
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		result = c.funcLitOfFieldAssignment(assign, v, fieldName)
+		return result == nil
+	})
+
+	return result
+}
+
+// FuncLitOfIndex finds a func literal at a specific index in a composite literal.
+func (c *CheckContext) FuncLitOfIndex(v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
+	f := c.FileOf(v.Pos())
+	if f == nil {
+		return nil
+	}
+
+	var result *ast.FuncLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if result != nil {
+			return false
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		result = c.funcLitOfIndexAssignment(assign, v, indexExpr)
+		return result == nil
+	})
+
+	return result
+}
+
+// funcLitOfFieldAssignment extracts a func literal from a struct field assignment.
+func (c *CheckContext) funcLitOfFieldAssignment(assign *ast.AssignStmt, v *types.Var, fieldName string) *ast.FuncLit {
+	for i, lhs := range assign.Lhs {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if c.Pass.TypesInfo.ObjectOf(ident) != v {
+			continue
+		}
+		if i >= len(assign.Rhs) {
+			continue
+		}
+		compLit, ok := assign.Rhs[i].(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		for _, elt := range compLit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != fieldName {
+				continue
+			}
+			if fl, ok := kv.Value.(*ast.FuncLit); ok {
+				return fl
+			}
+		}
+	}
+	return nil
+}
+
+// funcLitOfIndexAssignment extracts a func literal at a specific index from an assignment.
+func (c *CheckContext) funcLitOfIndexAssignment(assign *ast.AssignStmt, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
+	for i, lhs := range assign.Lhs {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if c.Pass.TypesInfo.ObjectOf(ident) != v {
+			continue
+		}
+		if i >= len(assign.Rhs) {
+			continue
+		}
+		compLit, ok := assign.Rhs[i].(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		if lit, ok := indexExpr.(*ast.BasicLit); ok {
+			return funcLitOfLiteralKey(compLit, lit)
+		}
+	}
+	return nil
+}
+
+// funcLitOfLiteralKey extracts a func literal by literal index/key from a composite literal.
+func funcLitOfLiteralKey(compLit *ast.CompositeLit, lit *ast.BasicLit) *ast.FuncLit {
+	switch lit.Kind {
+	case token.INT:
+		index := 0
+		if _, err := fmt.Sscanf(lit.Value, "%d", &index); err != nil {
+			return nil
+		}
+		if index < 0 || index >= len(compLit.Elts) {
+			return nil
+		}
+		if fl, ok := compLit.Elts[index].(*ast.FuncLit); ok {
+			return fl
+		}
+
+	case token.STRING:
+		key := strings.Trim(lit.Value, `"`)
+		for _, elt := range compLit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			keyLit, ok := kv.Key.(*ast.BasicLit)
+			if !ok {
+				continue
+			}
+			if strings.Trim(keyLit.Value, `"`) == key {
+				if fl, ok := kv.Value.(*ast.FuncLit); ok {
+					return fl
+				}
+			}
+		}
+	}
+
+	return nil
 }
