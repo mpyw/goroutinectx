@@ -147,13 +147,8 @@ func (c *Runner) checkRegistryCall(cctx *context.CheckContext, call *ast.CallExp
 		return
 	}
 
-	// Skip if no pattern (API registered for detection only, e.g., for spawnerlabel)
-	if entry.Pattern == nil {
-		return
-	}
-
-	checkerName := c.getCheckerName(entry.Pattern.Name())
-	if c.shouldIgnore(cctx.Pass, call.Pos(), checkerName) {
+	// Skip if no patterns (API registered for detection only, e.g., for spawnerlabel)
+	if len(entry.Patterns) == 0 {
 		return
 	}
 
@@ -163,11 +158,28 @@ func (c *Runner) checkRegistryCall(cctx *context.CheckContext, call *ast.CallExp
 		return
 	}
 
-	if !entry.Pattern.Check(cctx, call, callbackArg, entry.API.TaskConstructor, entry.API.TaskSourceIdx) {
-		msg := entry.Pattern.Message(entry.API.FullName(), scope.ctxName())
-		// Report at method selector position for chained calls
-		reportPos := getCallReportPos(call)
-		cctx.Pass.Reportf(reportPos, "%s", msg)
+	// Build TaskArgument if API has task config
+	var taskArg *patterns.TaskArgument
+	if entry.API.TaskArgConfig != nil {
+		taskArg = &patterns.TaskArgument{
+			Call:   call,
+			Config: entry.API.TaskArgConfig,
+		}
+	}
+
+	// Check each pattern - all must be satisfied
+	for _, pattern := range entry.Patterns {
+		checkerName := c.getCheckerName(pattern.Name())
+		if c.shouldIgnore(cctx.Pass, call.Pos(), checkerName) {
+			continue
+		}
+
+		if !pattern.Check(cctx, callbackArg, taskArg) {
+			msg := pattern.Message(entry.API.FullName(), scope.ctxName())
+			// Report at method selector position for chained calls
+			reportPos := getCallReportPos(call)
+			cctx.Pass.Reportf(reportPos, "%s", msg)
+		}
 	}
 }
 
@@ -191,7 +203,7 @@ func (c *Runner) checkSpawnerCall(cctx *context.CheckContext, call *ast.CallExpr
 	pattern := &patterns.ClosureCapturesCtx{}
 
 	for _, arg := range funcArgs {
-		if !pattern.Check(cctx, call, arg, nil, 0) {
+		if !pattern.Check(cctx, arg, nil) {
 			cctx.Pass.Reportf(arg.Pos(), "%s() func argument should use context %q", fn.Name(), scope.ctxName())
 		}
 	}
@@ -222,20 +234,37 @@ func (c *Runner) checkVariadicCallExpr(
 	// Check if this is a variadic expansion (e.g., DoAllFns(ctx, slice...))
 	isVariadicExpansion := call.Ellipsis.IsValid()
 
+	// Build TaskArgument if API has task config
+	var taskArg *patterns.TaskArgument
+	if entry.API.TaskArgConfig != nil {
+		taskArg = &patterns.TaskArgument{
+			Call:   call,
+			Config: entry.API.TaskArgConfig,
+		}
+	}
+
 	for i := startIdx; i < len(call.Args); i++ {
 		arg := call.Args[i]
-		if !entry.Pattern.Check(cctx, call, arg, entry.API.TaskConstructor, entry.API.TaskSourceIdx) {
-			var msg string
-			if isVariadicExpansion {
-				// For variadic expansion, we can't determine the position
-				msg = entry.API.FullName() + "() variadic argument should call goroutine deriver"
-			} else {
-				// Create message with argument position (1-based for human readability)
-				argNum := i + 1
-				msg = formatVariadicMessage(entry.API.FullName(), argNum)
+		// Check each pattern for this argument
+		for _, pattern := range entry.Patterns {
+			checkerName := c.getCheckerName(pattern.Name())
+			if c.shouldIgnore(cctx.Pass, call.Pos(), checkerName) {
+				continue
 			}
-			// Report at the call position (where the // want comment is)
-			cctx.Pass.Reportf(call.Pos(), "%s", msg)
+
+			if !pattern.Check(cctx, arg, taskArg) {
+				var msg string
+				if isVariadicExpansion {
+					// For variadic expansion, we can't determine the position
+					msg = entry.API.FullName() + "() variadic argument should call goroutine deriver"
+				} else {
+					// Create message with argument position (1-based for human readability)
+					argNum := i + 1
+					msg = formatVariadicMessage(entry.API.FullName(), argNum)
+				}
+				// Report at the call position (where the // want comment is)
+				cctx.Pass.Reportf(call.Pos(), "%s", msg)
+			}
 		}
 	}
 }

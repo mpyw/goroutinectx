@@ -195,8 +195,8 @@ func (c *Checker) checkCallForSpawn(call *ssa.CallCommon, visited map[*ssa.Funct
 		if hasFuncArgsInCall(call, entry.API.CallbackArgIdx) {
 			return &spawnCallInfo{methodName: entry.API.FullName()}
 		}
-		// Method with TaskConstructor always spawns
-		if entry.API.Kind == registry.KindMethod && entry.API.TaskConstructor != nil {
+		// Method with TaskArgConfig always spawns
+		if entry.API.Kind == registry.KindMethod && entry.API.TaskArgConfig != nil {
 			return &spawnCallInfo{methodName: entry.API.FullName()}
 		}
 	}

@@ -10,10 +10,10 @@ import (
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
-// Entry represents a registered API with its pattern.
+// Entry represents a registered API with its patterns.
 type Entry struct {
-	API     API
-	Pattern patterns.Pattern
+	API      API
+	Patterns []patterns.Pattern
 }
 
 // Registry holds registered APIs and their patterns.
@@ -26,14 +26,13 @@ func New() *Registry {
 	return &Registry{}
 }
 
-// Register adds an API with its pattern to the registry.
-func (r *Registry) Register(pattern patterns.Pattern, apis ...API) {
-	for _, api := range apis {
-		r.entries = append(r.entries, Entry{
-			API:     api,
-			Pattern: pattern,
-		})
-	}
+// Register adds an API with its patterns to the registry.
+// All patterns must be satisfied for the check to pass.
+func (r *Registry) Register(api API, patterns ...patterns.Pattern) {
+	r.entries = append(r.entries, Entry{
+		API:      api,
+		Patterns: patterns,
+	})
 }
 
 // Entries returns all registered entries.

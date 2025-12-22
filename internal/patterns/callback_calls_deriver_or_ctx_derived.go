@@ -43,7 +43,7 @@ func (*CallbackCallsDeriverOrCtxDerived) Name() string {
 	return "CallbackCallsDeriverOrCtxDerived"
 }
 
-func (p *CallbackCallsDeriverOrCtxDerived) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr, taskConstructor *TaskConstructor, taskSourceIdx int) bool {
+func (p *CallbackCallsDeriverOrCtxDerived) Check(cctx *context.CheckContext, callbackArg ast.Expr, taskArg *TaskArgument) bool {
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
 		return true // No deriver configured
 	}
@@ -54,11 +54,11 @@ func (p *CallbackCallsDeriverOrCtxDerived) Check(cctx *context.CheckContext, cal
 	}
 
 	// Check 2: Does the task's callback call the deriver?
-	// This requires taskConstructor to trace back to the constructor
-	if taskConstructor == nil {
+	// This requires taskArg to trace back to the constructor
+	if taskArg == nil || taskArg.Config == nil || taskArg.Config.Constructor == nil {
 		return false // No constructor info, can't trace
 	}
-	return p.taskCallbackCallsDeriver(cctx, call, taskConstructor, taskSourceIdx)
+	return p.taskCallbackCallsDeriver(cctx, taskArg)
 }
 
 // argIsDeriverCall checks if the argument expression IS a call to the deriver.
@@ -94,31 +94,31 @@ func (p *CallbackCallsDeriverOrCtxDerived) identIsDeriverCall(cctx *context.Chec
 }
 
 // taskCallbackCallsDeriver checks if the task's callback (from constructor) calls the deriver.
-// taskSourceIdx indicates where the task comes from:
-//   - TaskReceiverIdx (-1): task is the method receiver (e.g., task.DoAsync(ctx))
-//   - 0+: task is the argument at that index (e.g., executor.Run(ctx, task))
-func (p *CallbackCallsDeriverOrCtxDerived) taskCallbackCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr, taskConstructor *TaskConstructor, taskSourceIdx int) bool {
-	// Get the task expression based on taskSourceIdx
+func (p *CallbackCallsDeriverOrCtxDerived) taskCallbackCallsDeriver(cctx *context.CheckContext, taskArg *TaskArgument) bool {
+	call := taskArg.Call
+	cfg := taskArg.Config
+
+	// Get the task expression based on cfg.Idx
 	var taskExpr ast.Expr
-	if taskSourceIdx == TaskReceiverIdx {
+	if cfg.Idx == TaskReceiverIdx {
 		// Task is the method receiver (e.g., task.DoAsync)
 		taskExpr = getMethodReceiver(call)
-	} else if taskSourceIdx >= 0 && taskSourceIdx < len(call.Args) {
+	} else if cfg.Idx >= 0 && cfg.Idx < len(call.Args) {
 		// Task is an argument
-		taskExpr = call.Args[taskSourceIdx]
+		taskExpr = call.Args[cfg.Idx]
 	}
 	if taskExpr == nil {
 		return false
 	}
 
 	// Find the constructor call that created this task
-	constructorCall := p.findConstructorCall(cctx, taskExpr, taskConstructor)
+	constructorCall := p.findConstructorCall(cctx, taskExpr, cfg.Constructor)
 	if constructorCall == nil {
 		return false
 	}
 
 	// Check if constructor's callback argument calls the deriver
-	argIdx := taskConstructor.CallbackArgIdx
+	argIdx := cfg.Constructor.CallbackArgIdx
 	if argIdx < 0 || argIdx >= len(constructorCall.Args) {
 		return false
 	}
@@ -143,25 +143,25 @@ func getMethodReceiver(call *ast.CallExpr) ast.Expr {
 // - lib.NewTask(fn).Cancelable() - chained call
 // - task (variable) - traces to assignment
 // - taskPtr (pointer) - traces through address-of
-func (p *CallbackCallsDeriverOrCtxDerived) findConstructorCall(cctx *context.CheckContext, receiver ast.Expr, taskConstructor *TaskConstructor) *ast.CallExpr {
+func (p *CallbackCallsDeriverOrCtxDerived) findConstructorCall(cctx *context.CheckContext, receiver ast.Expr, tc *TaskConstructorConfig) *ast.CallExpr {
 	switch r := receiver.(type) {
 	case *ast.CallExpr:
 		// Could be NewTask(...) or NewTask(...).Cancelable()
-		return p.findConstructorFromCall(cctx, r, taskConstructor)
+		return p.findConstructorFromCall(cctx, r, tc)
 
 	case *ast.Ident:
 		// Variable: task.DoAsync(...)
-		return p.findConstructorFromIdent(cctx, r, taskConstructor)
+		return p.findConstructorFromIdent(cctx, r, tc)
 
 	case *ast.UnaryExpr:
 		// Pointer dereference: (*taskPtr).DoAsync(...)
 		if r.Op.String() == "*" {
-			return p.findConstructorCall(cctx, r.X, taskConstructor)
+			return p.findConstructorCall(cctx, r.X, tc)
 		}
 
 	case *ast.StarExpr:
 		// Type assertion or pointer type - try inner expression
-		return p.findConstructorCall(cctx, r.X, taskConstructor)
+		return p.findConstructorCall(cctx, r.X, tc)
 	}
 
 	return nil
@@ -170,8 +170,8 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorCall(cctx *context.Che
 // findConstructorFromCall handles call expressions in the receiver chain.
 // - If it's the constructor (e.g., NewTask) → return it
 // - If it's a method call (e.g., Cancelable()) → recurse into its receiver
-func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromCall(cctx *context.CheckContext, call *ast.CallExpr, taskConstructor *TaskConstructor) *ast.CallExpr {
-	if isTaskConstructorCall(cctx, call, taskConstructor) {
+func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromCall(cctx *context.CheckContext, call *ast.CallExpr, tc *TaskConstructorConfig) *ast.CallExpr {
+	if isTaskConstructorCall(cctx, call, tc) {
 		return call
 	}
 
@@ -182,11 +182,11 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromCall(cctx *context
 	}
 
 	// Recurse into the receiver
-	return p.findConstructorCall(cctx, sel.X, taskConstructor)
+	return p.findConstructorCall(cctx, sel.X, tc)
 }
 
 // findConstructorFromIdent traces a variable back to its constructor assignment.
-func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *context.CheckContext, ident *ast.Ident, taskConstructor *TaskConstructor) *ast.CallExpr {
+func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *context.CheckContext, ident *ast.Ident, tc *TaskConstructorConfig) *ast.CallExpr {
 	v := cctx.VarOf(ident)
 	if v == nil {
 		return nil
@@ -198,7 +198,7 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *contex
 		return nil
 	}
 
-	return p.findConstructorFromCall(cctx, call, taskConstructor)
+	return p.findConstructorFromCall(cctx, call, tc)
 }
 
 // callbackCallsDeriver checks if a callback expression calls the deriver.

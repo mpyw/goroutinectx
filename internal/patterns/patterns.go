@@ -13,12 +13,12 @@ import (
 // the method receiver (e.g., task.DoAsync() where task is the receiver).
 const TaskReceiverIdx = -1
 
-// TaskConstructor defines how tasks are created for task-based APIs.
+// TaskConstructorConfig defines how tasks are created for task-based APIs.
 // Used to trace back from executor APIs (e.g., DoAsync) to find the actual callback.
 //
 // Example: gotask.NewTask(fn) creates a Task, which is later executed via task.DoAsync(ctx).
-// The TaskConstructor for DoAsync would point to NewTask so we can find fn.
-type TaskConstructor struct {
+// The TaskConstructorConfig for DoAsync would point to NewTask so we can find fn.
+type TaskConstructorConfig struct {
 	// Pkg is the package path (e.g., "github.com/siketyan/gotask")
 	Pkg string
 
@@ -33,8 +33,30 @@ type TaskConstructor struct {
 	CallbackArgIdx int
 }
 
+// TaskArgumentConfig is static configuration from API definition.
+// Describes how to locate and trace back a task to its callback.
+type TaskArgumentConfig struct {
+	// Constructor defines how the task is constructed (e.g., NewTask).
+	Constructor *TaskConstructorConfig
+
+	// Idx is the argument index where the task is located.
+	//   - TaskReceiverIdx (-1): task is the method receiver
+	//   - 0+: task is at that argument index
+	Idx int
+}
+
+// TaskArgument combines dynamic call info with static config.
+// Used by task-based APIs (e.g., gotask) to trace back to the callback.
+type TaskArgument struct {
+	// Call is the current call expression (dynamic, per-invocation).
+	Call *ast.CallExpr
+
+	// Config is the static API configuration.
+	Config *TaskArgumentConfig
+}
+
 // FullName returns a human-readable name for the task constructor.
-func (c TaskConstructor) FullName() string {
+func (c TaskConstructorConfig) FullName() string {
 	pkgName := shortPkgName(c.Pkg)
 	if c.Type == "" {
 		return pkgName + "." + c.Name
@@ -57,11 +79,8 @@ type Pattern interface {
 
 	// Check checks if the pattern is satisfied for the given call.
 	// Returns true if the pattern is satisfied (no error).
-	// taskConstructor may be nil if the API doesn't use a task constructor pattern.
-	// taskSourceIdx indicates where the task object comes from:
-	//   - TaskReceiverIdx (-1): task is the method receiver
-	//   - 0+: task is the argument at that index
-	Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr, taskConstructor *TaskConstructor, taskSourceIdx int) bool
+	// taskArg may be nil if the API doesn't use task-based patterns (e.g., errgroup, conc).
+	Check(cctx *context.CheckContext, callbackArg ast.Expr, taskArg *TaskArgument) bool
 
 	// Message returns the diagnostic message when the pattern is violated.
 	Message(apiName string, ctxName string) string
