@@ -13,13 +13,11 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkers/spawner"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
-	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
-	spawnerdir "github.com/mpyw/goroutinectx/internal/directives/spawner"
+	"github.com/mpyw/goroutinectx/internal/directives/spawner"
 	"github.com/mpyw/goroutinectx/internal/patterns"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
@@ -84,7 +82,7 @@ func run(pass *analysis.Pass) (any, error) {
 	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
-	spawners := spawnerdir.Build(pass, externalSpawner)
+	spawners := spawner.Build(pass, externalSpawner)
 
 	// Build enabled checkers map
 	enabled := buildEnabledCheckers(spawners)
@@ -143,7 +141,7 @@ func runASTChecks(
 	insp *inspector.Inspector,
 	ignoreMaps map[string]ignore.Map,
 	carriers []carrier.Carrier,
-	spawners *spawnerdir.Map,
+	spawners *spawner.Map,
 	skipFiles map[string]bool,
 ) {
 	// Build SSA program
@@ -175,6 +173,12 @@ func runASTChecks(
 		goPatterns = append(goPatterns, &patterns.GoStmtCallsDeriver{Matcher: matcher})
 	}
 
+	// Spawner map (nil if disabled)
+	var spawnerMap *spawner.Map
+	if enableSpawner {
+		spawnerMap = spawners
+	}
+
 	// Map pattern names to ignore checker names
 	checkerNames := map[string]ignore.CheckerName{
 		"GoStmtCapturesCtx":  ignore.Goroutine,
@@ -188,6 +192,7 @@ func runASTChecks(
 	unifiedChecker := checker.New(
 		reg,
 		goPatterns,
+		spawnerMap,
 		ssaProg,
 		carriers,
 		ignoreMaps,
@@ -195,105 +200,10 @@ func runASTChecks(
 		checkerNames,
 	)
 	unifiedChecker.Run(pass, insp)
-
-	// Run remaining checkers that aren't migrated yet (spawner only)
-	runLegacyCheckers(pass, insp, ignoreMaps, carriers, spawners, skipFiles)
-}
-
-// runLegacyCheckers runs checkers that haven't been migrated to the unified checker yet.
-func runLegacyCheckers(
-	pass *analysis.Pass,
-	insp *inspector.Inspector,
-	ignoreMaps map[string]ignore.Map,
-	carriers []carrier.Carrier,
-	spawners *spawnerdir.Map,
-	skipFiles map[string]bool,
-) {
-	// Only spawner needs the legacy path
-	if !enableSpawner || spawners.Len() == 0 {
-		return
-	}
-
-	// Build context scopes for functions with context parameters
-	funcScopes := buildFuncScopes(pass, insp, carriers)
-
-	// Node types we're interested in
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
-		(*ast.FuncLit)(nil),
-		(*ast.CallExpr)(nil),
-	}
-
-	// Check nodes within context-aware functions
-	insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		if !push {
-			return true
-		}
-
-		filename := pass.Fset.Position(n.Pos()).Filename
-		if skipFiles[filename] {
-			return true
-		}
-
-		scope := findEnclosingScope(funcScopes, stack)
-		if scope == nil {
-			return true // No context in scope
-		}
-
-		cctx := &context.CheckContext{
-			Pass:      pass,
-			Scope:     scope,
-			IgnoreMap: ignoreMaps[filename],
-			Carriers:  carriers,
-		}
-
-		if call, ok := n.(*ast.CallExpr); ok {
-			spawner.New(spawners).CheckCall(cctx, call)
-		}
-
-		return true
-	})
-}
-
-// buildFuncScopes identifies functions with context parameters.
-func buildFuncScopes(
-	pass *analysis.Pass,
-	insp *inspector.Inspector,
-	carriers []carrier.Carrier,
-) map[ast.Node]*context.Scope {
-	funcScopes := make(map[ast.Node]*context.Scope)
-
-	insp.Preorder([]ast.Node{(*ast.FuncDecl)(nil), (*ast.FuncLit)(nil)}, func(n ast.Node) {
-		var fnType *ast.FuncType
-
-		switch fn := n.(type) {
-		case *ast.FuncDecl:
-			fnType = fn.Type
-		case *ast.FuncLit:
-			fnType = fn.Type
-		}
-
-		if scope := context.FindScope(pass, fnType, carriers); scope != nil {
-			funcScopes[n] = scope
-		}
-	})
-
-	return funcScopes
-}
-
-// findEnclosingScope finds the closest enclosing function with a context parameter.
-func findEnclosingScope(funcScopes map[ast.Node]*context.Scope, stack []ast.Node) *context.Scope {
-	for i := len(stack) - 1; i >= 0; i-- {
-		if scope, ok := funcScopes[stack[i]]; ok {
-			return scope
-		}
-	}
-
-	return nil
 }
 
 // buildEnabledCheckers creates a map of which checkers are enabled.
-func buildEnabledCheckers(spawners *spawnerdir.Map) ignore.EnabledCheckers {
+func buildEnabledCheckers(spawners *spawner.Map) ignore.EnabledCheckers {
 	enabled := make(ignore.EnabledCheckers)
 
 	if enableGoroutine {

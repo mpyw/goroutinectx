@@ -11,6 +11,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	"github.com/mpyw/goroutinectx/internal/directives/spawner"
 	"github.com/mpyw/goroutinectx/internal/patterns"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
@@ -21,6 +22,7 @@ import (
 type Checker struct {
 	registry     *registry.Registry
 	goPatterns   []patterns.GoStmtPattern
+	spawners     *spawner.Map
 	ssaProg      *internalssa.Program
 	tracer       *internalssa.Tracer
 	carriers     []carrier.Carrier
@@ -33,6 +35,7 @@ type Checker struct {
 func New(
 	reg *registry.Registry,
 	goPatterns []patterns.GoStmtPattern,
+	spawners *spawner.Map,
 	ssaProg *internalssa.Program,
 	carriers []carrier.Carrier,
 	ignoreMaps map[string]ignore.Map,
@@ -42,6 +45,7 @@ func New(
 	return &Checker{
 		registry:     reg,
 		goPatterns:   goPatterns,
+		spawners:     spawners,
 		ssaProg:      ssaProg,
 		tracer:       internalssa.NewTracer(),
 		carriers:     carriers,
@@ -126,8 +130,17 @@ func (c *Checker) checkGoStmt(cctx *patterns.CheckContext, stmt *ast.GoStmt, sco
 	}
 }
 
-// checkCallExpr checks a call expression against registered API patterns.
+// checkCallExpr checks a call expression against registered API patterns and spawner directives.
 func (c *Checker) checkCallExpr(cctx *patterns.CheckContext, call *ast.CallExpr, scope *contextScope) {
+	// Check against registered API patterns
+	c.checkRegistryCall(cctx, call, scope)
+
+	// Check spawner directives
+	c.checkSpawnerCall(cctx, call, scope)
+}
+
+// checkRegistryCall checks a call expression against registered API patterns.
+func (c *Checker) checkRegistryCall(cctx *patterns.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	entry, callbackArg := c.registry.Match(cctx.Pass, call)
 	if entry == nil {
 		return
@@ -149,6 +162,32 @@ func (c *Checker) checkCallExpr(cctx *patterns.CheckContext, call *ast.CallExpr,
 		// Report at method selector position for chained calls
 		reportPos := getCallReportPos(call)
 		cctx.Pass.Reportf(reportPos, "%s", msg)
+	}
+}
+
+// checkSpawnerCall checks if this is a call to a spawner-marked function.
+func (c *Checker) checkSpawnerCall(cctx *patterns.CheckContext, call *ast.CallExpr, scope *contextScope) {
+	if c.spawners == nil || c.spawners.Len() == 0 {
+		return
+	}
+
+	fn := spawner.GetFuncFromCall(cctx.Pass, call)
+	if fn == nil || !c.spawners.IsSpawner(fn) {
+		return
+	}
+
+	if c.shouldIgnore(cctx.Pass, call.Pos(), ignore.Spawner) {
+		return
+	}
+
+	// Check all func-type arguments
+	funcArgs := spawner.FindFuncArgs(cctx.Pass, call)
+	pattern := &patterns.ClosureCapturesCtx{}
+
+	for _, arg := range funcArgs {
+		if !pattern.Check(cctx, call, arg) {
+			cctx.Pass.Reportf(arg.Pos(), "%s() func argument should use context %q", fn.Name(), scope.ctxName())
+		}
 	}
 }
 
