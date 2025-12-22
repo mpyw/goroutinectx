@@ -1,0 +1,16 @@
+{
+  "title": "Deriver at start with defer for cleanup.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "variants": {
+    "good": {
+      "description": "Deriver called at goroutine start is OK, even if there's also a defer.",
+      "functions": {
+        "goroutinederive": "goodDeriverAtStartWithDefer"
+      }
+    },
+    "bad": null
+  },
+  "level": "goroutinederive"
+}

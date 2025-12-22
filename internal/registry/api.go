@@ -28,8 +28,11 @@ type API struct {
 	Kind APIKind
 
 	// CallbackArgIdx is the index of the callback argument (0-based).
-	// Use -1 for variadic arguments starting at the end.
 	CallbackArgIdx int
+
+	// Variadic indicates that all arguments from CallbackArgIdx onwards should be checked.
+	// Used for APIs like DoAllFns(ctx, fn1, fn2, ...) where multiple callbacks are passed.
+	Variadic bool
 }
 
 // FullName returns a human-readable name for the API.

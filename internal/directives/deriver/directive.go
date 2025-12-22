@@ -113,6 +113,19 @@ func (m *Matcher) IsEmpty() bool {
 	return len(m.OrGroups) == 0
 }
 
+// MatchesFunc checks if the given function matches ANY spec in ANY OR group.
+// This is used to check if a call IS a deriver call (not contains one).
+func (m *Matcher) MatchesFunc(fn *types.Func) bool {
+	for _, andGroup := range m.OrGroups {
+		for _, spec := range andGroup {
+			if matchesSpec(fn, spec) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // collectCalledFuncs collects all types.Func that are called within the node.
 // It does NOT traverse into nested function literals.
 func collectCalledFuncs(pass *analysis.Pass, node ast.Node) []*types.Func {

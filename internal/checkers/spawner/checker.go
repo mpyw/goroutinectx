@@ -20,7 +20,7 @@ func New(spawners *spawner.Map) *Checker {
 	return &Checker{spawners: spawners}
 }
 
-// CheckCall implements checkers.CallChecker.
+// CheckCall checks a call expression for spawner context propagation.
 func (c *Checker) CheckCall(cctx *context.CheckContext, call *ast.CallExpr) {
 	if c.spawners.Len() == 0 {
 		return

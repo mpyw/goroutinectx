@@ -13,7 +13,6 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkers/gotask"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawner"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
 	"github.com/mpyw/goroutinectx/internal/context"
@@ -156,6 +155,14 @@ func runASTChecks(
 	// Register errgroup/waitgroup/conc APIs with ClosureCapturesCtx pattern
 	checker.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
 
+	// Register gotask APIs with ShouldCallDeriver and ArgIsDeriverCall patterns
+	if goroutineDeriver != "" && enableGotask {
+		matcher := deriver.NewMatcher(goroutineDeriver)
+		deriverPattern := &patterns.ShouldCallDeriver{Matcher: matcher}
+		doAsyncPattern := &patterns.ArgIsDeriverCall{Matcher: matcher}
+		checker.RegisterGotaskAPIs(reg, deriverPattern, doAsyncPattern)
+	}
+
 	// Build GoStmt patterns
 	var goPatterns []patterns.GoStmtPattern
 
@@ -173,6 +180,8 @@ func runASTChecks(
 		"GoStmtCapturesCtx":  ignore.Goroutine,
 		"GoStmtCallsDeriver": ignore.GoroutineDerive,
 		"ClosureCapturesCtx": ignore.Errgroup, // errgroup/waitgroup use this
+		"ShouldCallDeriver":  ignore.Gotask,   // gotask uses this
+		"ArgIsDeriverCall":   ignore.Gotask,   // gotask DoAsync uses this
 	}
 
 	// Create and run unified checker
@@ -187,7 +196,7 @@ func runASTChecks(
 	)
 	unifiedChecker.Run(pass, insp)
 
-	// Run remaining checkers that aren't migrated yet (spawner, gotask)
+	// Run remaining checkers that aren't migrated yet (spawner only)
 	runLegacyCheckers(pass, insp, ignoreMaps, carriers, spawners, skipFiles)
 }
 
@@ -200,10 +209,8 @@ func runLegacyCheckers(
 	spawners *spawnerdir.Map,
 	skipFiles map[string]bool,
 ) {
-	// Only spawner and gotask need the legacy path
-	spawnerEnabled := enableSpawner && spawners.Len() > 0
-	gotaskEnabled := goroutineDeriver != "" && enableGotask
-	if !spawnerEnabled && !gotaskEnabled {
+	// Only spawner needs the legacy path
+	if !enableSpawner || spawners.Len() == 0 {
 		return
 	}
 
@@ -241,14 +248,7 @@ func runLegacyCheckers(
 		}
 
 		if call, ok := n.(*ast.CallExpr); ok {
-			// Spawner checker
-			if enableSpawner && spawners.Len() > 0 {
-				spawner.New(spawners).CheckCall(cctx, call)
-			}
-			// Gotask checker
-			if goroutineDeriver != "" && enableGotask {
-				gotask.New(goroutineDeriver).CheckCall(cctx, call)
-			}
+			spawner.New(spawners).CheckCall(cctx, call)
 		}
 
 		return true

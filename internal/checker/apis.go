@@ -113,22 +113,17 @@ func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup
 }
 
 // RegisterGotaskAPIs registers gotask APIs with deriver pattern.
-func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern *patterns.ShouldCallDeriver) {
-	// gotask Do* functions - task callbacks should call deriver
+func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern *patterns.ShouldCallDeriver, doAsyncPattern *patterns.ArgIsDeriverCall) {
+	// DoAll, DoAllSettled, DoRace - variadic Task arguments
+	// Each Task arg is traced through NewTask to check the callback body
 	reg.Register(deriverPattern,
-		registry.API{
-			Pkg:            "github.com/siketyan/gotask",
-			Type:           "",
-			Name:           "Do",
-			Kind:           registry.KindFunc,
-			CallbackArgIdx: 1, // tasks start at index 1
-		},
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
 			Type:           "",
 			Name:           "DoAll",
 			Kind:           registry.KindFunc,
-			CallbackArgIdx: 1,
+			CallbackArgIdx: 1, // Tasks start at index 1 (after ctx)
+			Variadic:       true,
 		},
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
@@ -136,14 +131,28 @@ func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern *patterns.ShouldC
 			Name:           "DoAllSettled",
 			Kind:           registry.KindFunc,
 			CallbackArgIdx: 1,
+			Variadic:       true,
 		},
-		// DoAllFns, DoAllFnsSettled - callback receives ctx
+		registry.API{
+			Pkg:            "github.com/siketyan/gotask",
+			Type:           "",
+			Name:           "DoRace",
+			Kind:           registry.KindFunc,
+			CallbackArgIdx: 1,
+			Variadic:       true,
+		},
+	)
+
+	// DoAllFns, DoAllFnsSettled, DoRaceFns - variadic functions
+	// Each fn argument should call deriver in its body
+	reg.Register(deriverPattern,
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
 			Type:           "",
 			Name:           "DoAllFns",
 			Kind:           registry.KindFunc,
-			CallbackArgIdx: 1,
+			CallbackArgIdx: 1, // fns start at index 1
+			Variadic:       true,
 		},
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
@@ -151,24 +160,33 @@ func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern *patterns.ShouldC
 			Name:           "DoAllFnsSettled",
 			Kind:           registry.KindFunc,
 			CallbackArgIdx: 1,
+			Variadic:       true,
+		},
+		registry.API{
+			Pkg:            "github.com/siketyan/gotask",
+			Type:           "",
+			Name:           "DoRaceFns",
+			Kind:           registry.KindFunc,
+			CallbackArgIdx: 1,
+			Variadic:       true,
 		},
 	)
 
-	// Task/CancelableTask.DoAsync - ctx should be derived
-	reg.Register(deriverPattern,
+	// Task.DoAsync, CancelableTask.DoAsync - ctx arg should BE a deriver call
+	reg.Register(doAsyncPattern,
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
 			Type:           "Task",
 			Name:           "DoAsync",
 			Kind:           registry.KindMethod,
-			CallbackArgIdx: -1, // ctx is in call args, not callback
+			CallbackArgIdx: 0, // ctx is first argument
 		},
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
 			Type:           "CancelableTask",
 			Name:           "DoAsync",
 			Kind:           registry.KindMethod,
-			CallbackArgIdx: -1,
+			CallbackArgIdx: 0,
 		},
 	)
 }

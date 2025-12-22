@@ -163,3 +163,41 @@ func badVariableFuncMissingDeriver(ctx context.Context) {
 	}
 	go fn() // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
 }
+
+// ===== DEFER PATTERNS =====
+
+// [BAD]: Deriver called only in defer.
+//
+// Deriver must be called at goroutine start, not in defer.
+func badDeriverOnlyInDefer(ctx context.Context) {
+	go func() { // want "goroutine calls github.com/my-example-app/telemetry/apm.NewGoroutineContext in defer, but it should be called at goroutine start"
+		defer apm.NewGoroutineContext(ctx)
+		_ = ctx
+	}()
+}
+
+// [BAD]: Deriver in defer with IIFE wrapper.
+//
+// Deriver called in defer via IIFE is still considered defer-only.
+func badDeriverInDeferIIFE(ctx context.Context) {
+	go func() { // want "goroutine calls github.com/my-example-app/telemetry/apm.NewGoroutineContext in defer, but it should be called at goroutine start"
+		defer func() {
+			_ = apm.NewGoroutineContext(ctx)
+		}()
+		_ = ctx
+	}()
+}
+
+// [GOOD]: Deriver at start with defer for cleanup.
+//
+// Deriver called at goroutine start is OK, even if there's also a defer.
+func goodDeriverAtStartWithDefer(ctx context.Context) {
+	go func() {
+		ctx := apm.NewGoroutineContext(ctx)
+		defer func() {
+			// Some cleanup
+			_ = ctx
+		}()
+		_ = ctx
+	}()
+}

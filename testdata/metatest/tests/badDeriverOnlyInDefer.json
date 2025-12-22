@@ -1,0 +1,16 @@
+{
+  "title": "Deriver called only in defer.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "variants": {
+    "good": null,
+    "bad": {
+      "description": "Deriver must be called at goroutine start, not in defer.",
+      "functions": {
+        "goroutinederive": "badDeriverOnlyInDefer"
+      }
+    }
+  },
+  "level": "goroutinederive"
+}

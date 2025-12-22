@@ -2,6 +2,7 @@
 package checker
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 
@@ -137,10 +138,86 @@ func (c *Checker) checkCallExpr(cctx *patterns.CheckContext, call *ast.CallExpr,
 		return
 	}
 
+	// Handle variadic APIs (e.g., DoAllFns(ctx, fn1, fn2, ...))
+	if entry.API.Variadic {
+		c.checkVariadicCallExpr(cctx, call, entry, scope)
+		return
+	}
+
 	if !entry.Pattern.Check(cctx, call, callbackArg) {
 		msg := entry.Pattern.Message(entry.API.FullName(), scope.ctxName())
-		cctx.Pass.Reportf(call.Pos(), "%s", msg)
+		// Report at method selector position for chained calls
+		reportPos := getCallReportPos(call)
+		cctx.Pass.Reportf(reportPos, "%s", msg)
 	}
+}
+
+// getCallReportPos returns the best position to report for a call expression.
+// For method calls, this is the selector (method name) position.
+// For other calls, this is the call position.
+func getCallReportPos(call *ast.CallExpr) token.Pos {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return sel.Sel.Pos()
+	}
+	return call.Pos()
+}
+
+// checkVariadicCallExpr checks each callback argument in a variadic API call.
+func (c *Checker) checkVariadicCallExpr(
+	cctx *patterns.CheckContext,
+	call *ast.CallExpr,
+	entry *registry.Entry,
+	scope *contextScope,
+) {
+	startIdx := entry.API.CallbackArgIdx
+	if startIdx < 0 || startIdx >= len(call.Args) {
+		return
+	}
+
+	// Check if this is a variadic expansion (e.g., DoAllFns(ctx, slice...))
+	isVariadicExpansion := call.Ellipsis.IsValid()
+
+	for i := startIdx; i < len(call.Args); i++ {
+		arg := call.Args[i]
+		if !entry.Pattern.Check(cctx, call, arg) {
+			var msg string
+			if isVariadicExpansion {
+				// For variadic expansion, we can't determine the position
+				msg = entry.API.FullName() + "() variadic argument should call goroutine deriver"
+			} else {
+				// Create message with argument position (1-based for human readability)
+				argNum := i + 1
+				msg = formatVariadicMessage(entry.API.FullName(), argNum)
+			}
+			// Report at the call position (where the // want comment is)
+			cctx.Pass.Reportf(call.Pos(), "%s", msg)
+		}
+	}
+}
+
+// formatVariadicMessage formats a diagnostic message with argument position.
+func formatVariadicMessage(apiName string, argNum int) string {
+	return apiName + "() " + ordinal(argNum) + " argument should call goroutine deriver"
+}
+
+// ordinal returns the ordinal form of a number (1st, 2nd, 3rd, 4th, etc.)
+func ordinal(n int) string {
+	suffix := "th"
+	switch n % 10 {
+	case 1:
+		if n%100 != 11 {
+			suffix = "st"
+		}
+	case 2:
+		if n%100 != 12 {
+			suffix = "nd"
+		}
+	case 3:
+		if n%100 != 13 {
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
 }
 
 // shouldIgnore checks if the position should be ignored for the given checker.
