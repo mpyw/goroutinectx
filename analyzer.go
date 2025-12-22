@@ -87,12 +87,15 @@ func run(pass *analysis.Pass) (any, error) {
 	// Build enabled checkers map
 	enabled := buildEnabledCheckers(spawners)
 
+	// Build registry
+	reg := buildRegistry()
+
 	// Run AST-based checks (goroutine, errgroup, waitgroup)
-	runASTChecks(pass, insp, ignoreMaps, carriers, spawners, skipFiles)
+	runASTChecks(pass, insp, ignoreMaps, carriers, spawners, skipFiles, reg)
 
 	// Run spawnerlabel checker if enabled
 	if enableSpawnerlabel {
-		spawnerlabelChecker := spawnerlabel.New(spawners)
+		spawnerlabelChecker := spawnerlabel.New(spawners, reg)
 		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)
 	}
 
@@ -135,6 +138,28 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	return ignoreMaps
 }
 
+// buildRegistry creates and populates the API registry.
+func buildRegistry() *registry.Registry {
+	reg := registry.New()
+
+	// Register errgroup/waitgroup/conc APIs with ClosureCapturesCtx pattern
+	internal.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
+
+	// Register gotask APIs
+	// - With patterns: enables unified checker to verify context propagation
+	// - Without patterns (nil): enables spawnerlabel detection only
+	var deriverPattern patterns.Pattern
+	var doAsyncPattern patterns.Pattern
+	if goroutineDeriver != "" && enableGotask {
+		matcher := deriver.NewMatcher(goroutineDeriver)
+		deriverPattern = &patterns.CallbackCallsDeriver{Matcher: matcher}
+		doAsyncPattern = &patterns.CallbackCallsDeriverOrCtxDerived{Matcher: matcher}
+	}
+	internal.RegisterGotaskAPIs(reg, deriverPattern, doAsyncPattern)
+
+	return reg
+}
+
 // runASTChecks runs checkers on the pass using the unified SSA-based internal.
 func runASTChecks(
 	pass *analysis.Pass,
@@ -143,27 +168,10 @@ func runASTChecks(
 	carriers []carrier.Carrier,
 	spawners *spawner.Map,
 	skipFiles map[string]bool,
+	reg *registry.Registry,
 ) {
 	// Build SSA program
 	ssaProg := internalssa.Build(pass)
-
-	// Create registry and register APIs
-	reg := registry.New()
-
-	// Register errgroup/waitgroup/conc APIs with ClosureCapturesCtx pattern
-	internal.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
-
-	// Register gotask APIs with CallbackCallsDeriver and CallbackCallsDeriverOrCtxDerived patterns
-	if goroutineDeriver != "" && enableGotask {
-		matcher := deriver.NewMatcher(goroutineDeriver)
-		deriverPattern := &patterns.CallbackCallsDeriver{Matcher: matcher}
-		doAsyncPattern := &patterns.CallbackCallsDeriverOrCtxDerived{
-			Matcher:         matcher,
-			ConstructorName: "NewTask",
-			PackagePrefix:   "github.com/siketyan/gotask",
-		}
-		internal.RegisterGotaskAPIs(reg, deriverPattern, doAsyncPattern)
-	}
 
 	// Build GoStmt patterns
 	var goPatterns []patterns.GoStmtPattern
@@ -193,7 +201,7 @@ func runASTChecks(
 	}
 
 	// Create and run unified checker
-	unifiedChecker := internal.New(
+	unifiedChecker := internal.NewRunner(
 		reg,
 		goPatterns,
 		spawnerMap,

@@ -5,11 +5,9 @@ import (
 	"github.com/mpyw/goroutinectx/internal/registry"
 )
 
-// closureCapturesCtx is the shared pattern instance for closure-capturing APIs.
-var closureCapturesCtx = &patterns.ClosureCapturesCtx{}
-
 // RegisterDefaultAPIs registers all default APIs with the registry.
 func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup bool) {
+	closureCapturesCtx := &patterns.ClosureCapturesCtx{}
 	// errgroup.Group.Go - closure should capture ctx
 	if enableErrgroup {
 		reg.Register(closureCapturesCtx,
@@ -112,39 +110,52 @@ func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup
 	)
 }
 
-// RegisterGotaskAPIs registers gotask APIs with deriver pattern.
-func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern *patterns.CallbackCallsDeriver, doAsyncPattern *patterns.CallbackCallsDeriverOrCtxDerived) {
+// RegisterGotaskAPIs registers gotask APIs.
+// If deriverPattern/doAsyncPattern are nil, APIs are registered for detection only (spawnerlabel).
+// If patterns are provided, APIs are registered with pattern checking (unified checker).
+func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern patterns.Pattern, doAsyncPattern patterns.Pattern) {
+	// gotaskTaskConstructor defines how gotask tasks are created.
+	// Used to trace DoAll/DoAsync calls back to NewTask to find the callback.
+	gotaskTaskConstructor := &patterns.TaskConstructor{
+		Pkg:            "github.com/siketyan/gotask",
+		Name:           "NewTask",
+		CallbackArgIdx: 0,
+	}
+
 	// DoAll, DoAllSettled, DoRace - variadic Task arguments
 	// Each Task arg is traced through NewTask to check the callback body
 	reg.Register(deriverPattern,
 		registry.API{
-			Pkg:            "github.com/siketyan/gotask",
-			Type:           "",
-			Name:           "DoAll",
-			Kind:           registry.KindFunc,
-			CallbackArgIdx: 1, // Tasks start at index 1 (after ctx)
-			Variadic:       true,
+			Pkg:             "github.com/siketyan/gotask",
+			Type:            "",
+			Name:            "DoAll",
+			Kind:            registry.KindFunc,
+			CallbackArgIdx:  1, // Tasks start at index 1 (after ctx)
+			Variadic:        true,
+			TaskConstructor: gotaskTaskConstructor,
 		},
 		registry.API{
-			Pkg:            "github.com/siketyan/gotask",
-			Type:           "",
-			Name:           "DoAllSettled",
-			Kind:           registry.KindFunc,
-			CallbackArgIdx: 1,
-			Variadic:       true,
+			Pkg:             "github.com/siketyan/gotask",
+			Type:            "",
+			Name:            "DoAllSettled",
+			Kind:            registry.KindFunc,
+			CallbackArgIdx:  1,
+			Variadic:        true,
+			TaskConstructor: gotaskTaskConstructor,
 		},
 		registry.API{
-			Pkg:            "github.com/siketyan/gotask",
-			Type:           "",
-			Name:           "DoRace",
-			Kind:           registry.KindFunc,
-			CallbackArgIdx: 1,
-			Variadic:       true,
+			Pkg:             "github.com/siketyan/gotask",
+			Type:            "",
+			Name:            "DoRace",
+			Kind:            registry.KindFunc,
+			CallbackArgIdx:  1,
+			Variadic:        true,
+			TaskConstructor: gotaskTaskConstructor,
 		},
 	)
 
 	// DoAllFns, DoAllFnsSettled, DoRaceFns - variadic functions
-	// Each fn argument should call deriver in its body
+	// Each fn argument should call deriver in its body (no task constructor needed)
 	reg.Register(deriverPattern,
 		registry.API{
 			Pkg:            "github.com/siketyan/gotask",
@@ -173,20 +184,25 @@ func RegisterGotaskAPIs(reg *registry.Registry, deriverPattern *patterns.Callbac
 	)
 
 	// Task.DoAsync, CancelableTask.DoAsync - ctx arg should BE a deriver call
+	// OR the task's callback (from NewTask) should call deriver
 	reg.Register(doAsyncPattern,
 		registry.API{
-			Pkg:            "github.com/siketyan/gotask",
-			Type:           "Task",
-			Name:           "DoAsync",
-			Kind:           registry.KindMethod,
-			CallbackArgIdx: 0, // ctx is first argument
+			Pkg:             "github.com/siketyan/gotask",
+			Type:            "Task",
+			Name:            "DoAsync",
+			Kind:            registry.KindMethod,
+			CallbackArgIdx:  0, // ctx is first argument
+			TaskSourceIdx:   patterns.TaskReceiverIdx,
+			TaskConstructor: gotaskTaskConstructor,
 		},
 		registry.API{
-			Pkg:            "github.com/siketyan/gotask",
-			Type:           "CancelableTask",
-			Name:           "DoAsync",
-			Kind:           registry.KindMethod,
-			CallbackArgIdx: 0,
+			Pkg:             "github.com/siketyan/gotask",
+			Type:            "CancelableTask",
+			Name:            "DoAsync",
+			Kind:            registry.KindMethod,
+			CallbackArgIdx:  0,
+			TaskSourceIdx:   patterns.TaskReceiverIdx,
+			TaskConstructor: gotaskTaskConstructor,
 		},
 	)
 }

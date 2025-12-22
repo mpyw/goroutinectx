@@ -16,7 +16,7 @@ func (*ClosureCapturesCtx) Name() string {
 	return "ClosureCapturesCtx"
 }
 
-func (p *ClosureCapturesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
+func (p *ClosureCapturesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr, _ *TaskConstructor, _ int) bool {
 	// If no context names in scope (from AST), nothing to check
 	if len(cctx.CtxNames) == 0 {
 		return true

@@ -2,8 +2,6 @@ package patterns
 
 import (
 	"go/ast"
-	"go/types"
-	"strings"
 
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
@@ -11,7 +9,7 @@ import (
 
 // CallbackCallsDeriverOrCtxDerived checks that EITHER:
 // - The ctx argument IS a deriver call (ctx is derived), OR
-// - The receiver's callback (passed to a constructor like NewTask) calls the deriver
+// - The receiver's callback (passed to a task constructor like NewTask) calls the deriver
 //
 // This pattern is a superset of CallbackCallsDeriver:
 // - CallbackCallsDeriver: callback MUST call deriver (no alternative)
@@ -39,19 +37,13 @@ import (
 type CallbackCallsDeriverOrCtxDerived struct {
 	// Matcher is the deriver function matcher (OR/AND semantics).
 	Matcher *deriver.Matcher
-
-	// ConstructorName is the name of the constructor function (e.g., "NewTask").
-	ConstructorName string
-
-	// PackagePrefix is the package path prefix (e.g., "github.com/siketyan/gotask").
-	PackagePrefix string
 }
 
 func (*CallbackCallsDeriverOrCtxDerived) Name() string {
 	return "CallbackCallsDeriverOrCtxDerived"
 }
 
-func (p *CallbackCallsDeriverOrCtxDerived) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr) bool {
+func (p *CallbackCallsDeriverOrCtxDerived) Check(cctx *context.CheckContext, call *ast.CallExpr, callbackArg ast.Expr, taskConstructor *TaskConstructor, taskSourceIdx int) bool {
 	if p.Matcher == nil || p.Matcher.IsEmpty() {
 		return true // No deriver configured
 	}
@@ -61,8 +53,12 @@ func (p *CallbackCallsDeriverOrCtxDerived) Check(cctx *context.CheckContext, cal
 		return true
 	}
 
-	// Check 2: Does the receiver's callback call the deriver?
-	return p.receiverCallbackCallsDeriver(cctx, call)
+	// Check 2: Does the task's callback call the deriver?
+	// This requires taskConstructor to trace back to the constructor
+	if taskConstructor == nil {
+		return false // No constructor info, can't trace
+	}
+	return p.taskCallbackCallsDeriver(cctx, call, taskConstructor, taskSourceIdx)
 }
 
 // argIsDeriverCall checks if the argument expression IS a call to the deriver.
@@ -97,35 +93,43 @@ func (p *CallbackCallsDeriverOrCtxDerived) identIsDeriverCall(cctx *context.Chec
 	return fn != nil && p.Matcher.MatchesFunc(fn)
 }
 
-// receiverCallbackCallsDeriver checks if the receiver's callback (from constructor) calls the deriver.
-// For: task.DoAsync(ctx, nil) where task = lib.NewTask(fn)
-// For: lib.NewTask(fn).DoAsync(ctx, nil)
-// For: lib.NewTask(fn).Cancelable().DoAsync(ctx, nil)
-func (p *CallbackCallsDeriverOrCtxDerived) receiverCallbackCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr) bool {
-	// Get the receiver of the method call (task in task.DoAsync)
-	receiver := p.getMethodReceiver(call)
-	if receiver == nil {
+// taskCallbackCallsDeriver checks if the task's callback (from constructor) calls the deriver.
+// taskSourceIdx indicates where the task comes from:
+//   - TaskReceiverIdx (-1): task is the method receiver (e.g., task.DoAsync(ctx))
+//   - 0+: task is the argument at that index (e.g., executor.Run(ctx, task))
+func (p *CallbackCallsDeriverOrCtxDerived) taskCallbackCallsDeriver(cctx *context.CheckContext, call *ast.CallExpr, taskConstructor *TaskConstructor, taskSourceIdx int) bool {
+	// Get the task expression based on taskSourceIdx
+	var taskExpr ast.Expr
+	if taskSourceIdx == TaskReceiverIdx {
+		// Task is the method receiver (e.g., task.DoAsync)
+		taskExpr = getMethodReceiver(call)
+	} else if taskSourceIdx >= 0 && taskSourceIdx < len(call.Args) {
+		// Task is an argument
+		taskExpr = call.Args[taskSourceIdx]
+	}
+	if taskExpr == nil {
 		return false
 	}
 
-	// Find the constructor call that created this object
-	constructorCall := p.findConstructorCall(cctx, receiver)
+	// Find the constructor call that created this task
+	constructorCall := p.findConstructorCall(cctx, taskExpr, taskConstructor)
 	if constructorCall == nil {
 		return false
 	}
 
 	// Check if constructor's callback argument calls the deriver
-	if len(constructorCall.Args) == 0 {
+	argIdx := taskConstructor.CallbackArgIdx
+	if argIdx < 0 || argIdx >= len(constructorCall.Args) {
 		return false
 	}
 
-	callbackArg := constructorCall.Args[0]
+	callbackArg := constructorCall.Args[argIdx]
 	return p.callbackCallsDeriver(cctx, callbackArg)
 }
 
 // getMethodReceiver extracts the receiver from a method call.
 // For task.DoAsync(...), returns the task expression.
-func (*CallbackCallsDeriverOrCtxDerived) getMethodReceiver(call *ast.CallExpr) ast.Expr {
+func getMethodReceiver(call *ast.CallExpr) ast.Expr {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return nil
@@ -139,25 +143,25 @@ func (*CallbackCallsDeriverOrCtxDerived) getMethodReceiver(call *ast.CallExpr) a
 // - lib.NewTask(fn).Cancelable() - chained call
 // - task (variable) - traces to assignment
 // - taskPtr (pointer) - traces through address-of
-func (p *CallbackCallsDeriverOrCtxDerived) findConstructorCall(cctx *context.CheckContext, receiver ast.Expr) *ast.CallExpr {
+func (p *CallbackCallsDeriverOrCtxDerived) findConstructorCall(cctx *context.CheckContext, receiver ast.Expr, taskConstructor *TaskConstructor) *ast.CallExpr {
 	switch r := receiver.(type) {
 	case *ast.CallExpr:
 		// Could be NewTask(...) or NewTask(...).Cancelable()
-		return p.findConstructorFromCall(cctx, r)
+		return p.findConstructorFromCall(cctx, r, taskConstructor)
 
 	case *ast.Ident:
 		// Variable: task.DoAsync(...)
-		return p.findConstructorFromIdent(cctx, r)
+		return p.findConstructorFromIdent(cctx, r, taskConstructor)
 
 	case *ast.UnaryExpr:
 		// Pointer dereference: (*taskPtr).DoAsync(...)
 		if r.Op.String() == "*" {
-			return p.findConstructorCall(cctx, r.X)
+			return p.findConstructorCall(cctx, r.X, taskConstructor)
 		}
 
 	case *ast.StarExpr:
 		// Type assertion or pointer type - try inner expression
-		return p.findConstructorCall(cctx, r.X)
+		return p.findConstructorCall(cctx, r.X, taskConstructor)
 	}
 
 	return nil
@@ -166,8 +170,8 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorCall(cctx *context.Che
 // findConstructorFromCall handles call expressions in the receiver chain.
 // - If it's the constructor (e.g., NewTask) → return it
 // - If it's a method call (e.g., Cancelable()) → recurse into its receiver
-func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromCall(cctx *context.CheckContext, call *ast.CallExpr) *ast.CallExpr {
-	if p.isConstructorCall(cctx, call) {
+func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromCall(cctx *context.CheckContext, call *ast.CallExpr, taskConstructor *TaskConstructor) *ast.CallExpr {
+	if isTaskConstructorCall(cctx, call, taskConstructor) {
 		return call
 	}
 
@@ -178,11 +182,11 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromCall(cctx *context
 	}
 
 	// Recurse into the receiver
-	return p.findConstructorCall(cctx, sel.X)
+	return p.findConstructorCall(cctx, sel.X, taskConstructor)
 }
 
 // findConstructorFromIdent traces a variable back to its constructor assignment.
-func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *context.CheckContext, ident *ast.Ident) *ast.CallExpr {
+func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *context.CheckContext, ident *ast.Ident, taskConstructor *TaskConstructor) *ast.CallExpr {
 	v := cctx.VarOf(ident)
 	if v == nil {
 		return nil
@@ -194,37 +198,7 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *contex
 		return nil
 	}
 
-	return p.findConstructorFromCall(cctx, call)
-}
-
-// isConstructorCall checks if a call is the configured constructor (e.g., lib.NewTask()).
-func (p *CallbackCallsDeriverOrCtxDerived) isConstructorCall(cctx *context.CheckContext, call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-
-	if sel.Sel.Name != p.ConstructorName {
-		return false
-	}
-
-	// Check package
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-
-	obj := cctx.Pass.TypesInfo.ObjectOf(ident)
-	if obj == nil {
-		return false
-	}
-
-	pkgName, ok := obj.(*types.PkgName)
-	if !ok {
-		return false
-	}
-
-	return strings.HasPrefix(pkgName.Imported().Path(), p.PackagePrefix)
+	return p.findConstructorFromCall(cctx, call, taskConstructor)
 }
 
 // callbackCallsDeriver checks if a callback expression calls the deriver.

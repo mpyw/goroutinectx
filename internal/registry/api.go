@@ -1,7 +1,11 @@
 // Package registry provides API registration for goroutinectx patterns.
 package registry
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/mpyw/goroutinectx/internal/patterns"
+)
 
 // APIKind represents the kind of API (method or function).
 type APIKind int
@@ -33,6 +37,20 @@ type API struct {
 	// Variadic indicates that all arguments from CallbackArgIdx onwards should be checked.
 	// Used for APIs like DoAllFns(ctx, fn1, fn2, ...) where multiple callbacks are passed.
 	Variadic bool
+
+	// TaskConstructor defines how to trace back to find the actual callback.
+	// If set, TaskSourceIdx indicates where the task object comes from,
+	// and we trace into the constructor's callback argument to find the callback body.
+	//
+	// Example: For task.DoAsync(ctx), TaskSourceIdx is TaskReceiverIdx (-1),
+	// meaning the task comes from the receiver. We trace task -> NewTask(fn) -> fn.
+	TaskConstructor *patterns.TaskConstructor
+
+	// TaskSourceIdx indicates where the task object comes from when TaskConstructor is set.
+	// Use patterns.TaskReceiverIdx (-1) for method receiver (e.g., task.DoAsync(ctx)).
+	// Use 0+ for argument index (e.g., executor.Run(ctx, task) where task is at index 1).
+	// Default (0) means first argument, so set explicitly when needed.
+	TaskSourceIdx int
 }
 
 // FullName returns a human-readable name for the API.

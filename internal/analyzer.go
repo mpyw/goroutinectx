@@ -19,8 +19,8 @@ import (
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
-// Checker is the unified SSA-based checker.
-type Checker struct {
+// Runner is the unified SSA-based checker.
+type Runner struct {
 	registry     *registry.Registry
 	goPatterns   []patterns.GoStmtPattern
 	spawners     *spawner.Map
@@ -32,8 +32,8 @@ type Checker struct {
 	checkerNames map[string]ignore.CheckerName // pattern name -> checker name for ignore
 }
 
-// New creates a new unified checker.
-func New(
+// NewRunner creates a new unified checker.
+func NewRunner(
 	reg *registry.Registry,
 	goPatterns []patterns.GoStmtPattern,
 	spawners *spawner.Map,
@@ -42,8 +42,8 @@ func New(
 	ignoreMaps map[string]ignore.Map,
 	skipFiles map[string]bool,
 	checkerNames map[string]ignore.CheckerName,
-) *Checker {
-	return &Checker{
+) *Runner {
+	return &Runner{
 		registry:     reg,
 		goPatterns:   goPatterns,
 		spawners:     spawners,
@@ -57,7 +57,7 @@ func New(
 }
 
 // Run executes the checker on the given pass.
-func (c *Checker) Run(pass *analysis.Pass, insp *inspector.Inspector) {
+func (c *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 	// Build context scopes for functions with context parameters
 	funcScopes := buildFuncScopes(pass, insp, c.carriers)
 
@@ -105,7 +105,7 @@ func (c *Checker) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 }
 
 // checkGoStmt checks a go statement against all registered go patterns.
-func (c *Checker) checkGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt, scope *contextScope) {
+func (c *Runner) checkGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt, scope *contextScope) {
 	for _, pattern := range c.goPatterns {
 		checkerName := c.getCheckerName(pattern.Name())
 		if c.shouldIgnore(cctx.Pass, stmt.Pos(), checkerName) {
@@ -132,7 +132,7 @@ func (c *Checker) checkGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt, scop
 }
 
 // checkCallExpr checks a call expression against registered API patterns and spawner directives.
-func (c *Checker) checkCallExpr(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
+func (c *Runner) checkCallExpr(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	// Check against registered API patterns
 	c.checkRegistryCall(cctx, call, scope)
 
@@ -141,9 +141,14 @@ func (c *Checker) checkCallExpr(cctx *context.CheckContext, call *ast.CallExpr, 
 }
 
 // checkRegistryCall checks a call expression against registered API patterns.
-func (c *Checker) checkRegistryCall(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
+func (c *Runner) checkRegistryCall(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	entry, callbackArg := c.registry.Match(cctx.Pass, call)
 	if entry == nil {
+		return
+	}
+
+	// Skip if no pattern (API registered for detection only, e.g., for spawnerlabel)
+	if entry.Pattern == nil {
 		return
 	}
 
@@ -158,7 +163,7 @@ func (c *Checker) checkRegistryCall(cctx *context.CheckContext, call *ast.CallEx
 		return
 	}
 
-	if !entry.Pattern.Check(cctx, call, callbackArg) {
+	if !entry.Pattern.Check(cctx, call, callbackArg, entry.API.TaskConstructor, entry.API.TaskSourceIdx) {
 		msg := entry.Pattern.Message(entry.API.FullName(), scope.ctxName())
 		// Report at method selector position for chained calls
 		reportPos := getCallReportPos(call)
@@ -167,7 +172,7 @@ func (c *Checker) checkRegistryCall(cctx *context.CheckContext, call *ast.CallEx
 }
 
 // checkSpawnerCall checks if this is a call to a spawner-marked function.
-func (c *Checker) checkSpawnerCall(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
+func (c *Runner) checkSpawnerCall(cctx *context.CheckContext, call *ast.CallExpr, scope *contextScope) {
 	if c.spawners == nil || c.spawners.Len() == 0 {
 		return
 	}
@@ -186,7 +191,7 @@ func (c *Checker) checkSpawnerCall(cctx *context.CheckContext, call *ast.CallExp
 	pattern := &patterns.ClosureCapturesCtx{}
 
 	for _, arg := range funcArgs {
-		if !pattern.Check(cctx, call, arg) {
+		if !pattern.Check(cctx, call, arg, nil, 0) {
 			cctx.Pass.Reportf(arg.Pos(), "%s() func argument should use context %q", fn.Name(), scope.ctxName())
 		}
 	}
@@ -203,7 +208,7 @@ func getCallReportPos(call *ast.CallExpr) token.Pos {
 }
 
 // checkVariadicCallExpr checks each callback argument in a variadic API call.
-func (c *Checker) checkVariadicCallExpr(
+func (c *Runner) checkVariadicCallExpr(
 	cctx *context.CheckContext,
 	call *ast.CallExpr,
 	entry *registry.Entry,
@@ -219,7 +224,7 @@ func (c *Checker) checkVariadicCallExpr(
 
 	for i := startIdx; i < len(call.Args); i++ {
 		arg := call.Args[i]
-		if !entry.Pattern.Check(cctx, call, arg) {
+		if !entry.Pattern.Check(cctx, call, arg, entry.API.TaskConstructor, entry.API.TaskSourceIdx) {
 			var msg string
 			if isVariadicExpansion {
 				// For variadic expansion, we can't determine the position
@@ -261,7 +266,7 @@ func ordinal(n int) string {
 }
 
 // shouldIgnore checks if the position should be ignored for the given checker.
-func (c *Checker) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName ignore.CheckerName) bool {
+func (c *Runner) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName ignore.CheckerName) bool {
 	filename := pass.Fset.Position(pos).Filename
 	ignoreMap, ok := c.ignoreMaps[filename]
 	if !ok {
@@ -272,7 +277,7 @@ func (c *Checker) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName i
 }
 
 // getCheckerName maps pattern name to ignore checker name.
-func (c *Checker) getCheckerName(patternName string) ignore.CheckerName {
+func (c *Runner) getCheckerName(patternName string) ignore.CheckerName {
 	if name, ok := c.checkerNames[patternName]; ok {
 		return name
 	}

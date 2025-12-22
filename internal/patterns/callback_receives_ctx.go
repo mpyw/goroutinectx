@@ -24,7 +24,7 @@ func (*CallbackReceivesCtx) Name() string {
 	return "CallbackReceivesCtx"
 }
 
-func (p *CallbackReceivesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr, _ ast.Expr) bool {
+func (p *CallbackReceivesCtx) Check(cctx *context.CheckContext, call *ast.CallExpr, _ ast.Expr, _ *TaskConstructor, _ int) bool {
 	// Get the context argument from the API call
 	if p.CtxArgIdx < 0 || p.CtxArgIdx >= len(call.Args) {
 		return true // Invalid index, assume OK
