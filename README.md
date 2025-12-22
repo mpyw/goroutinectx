@@ -360,6 +360,14 @@ Available flags:
 - `-goroutine` (default: true)
 - `-waitgroup` (default: true)
 - `-errgroup` (default: true)
+- `-conc` (default: true) - Check `github.com/sourcegraph/conc` APIs:
+  - `conc.Pool.Go`, `conc.WaitGroup.Go`
+  - `pool.Pool.Go`, `pool.ResultPool[T].Go`, `pool.ContextPool.Go`, `pool.ResultContextPool[T].Go`
+  - `pool.ErrorPool.Go`, `pool.ResultErrorPool[T].Go`
+  - `stream.Stream.Go`
+  - `iter.ForEach`, `iter.ForEachIdx`, `iter.Map`, `iter.MapErr`
+  - `iter.Iterator.ForEach`, `iter.Iterator.ForEachIdx`
+  - `iter.Mapper.Map`, `iter.Mapper.MapErr`
 - `-spawner` (default: true)
 - `-spawnerlabel` (default: false) - Check that spawner functions are properly labeled
 - `-gotask` (default: true, requires `-goroutine-deriver`)

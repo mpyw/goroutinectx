@@ -33,6 +33,7 @@ var (
 	enableGoroutine    bool
 	enableWaitgroup    bool
 	enableErrgroup     bool
+	enableConc         bool
 	enableSpawner      bool
 	enableSpawnerlabel bool
 	enableGotask       bool
@@ -50,6 +51,7 @@ func init() {
 	Analyzer.Flags.BoolVar(&enableGoroutine, "goroutine", true, "enable goroutine checker")
 	Analyzer.Flags.BoolVar(&enableWaitgroup, "waitgroup", true, "enable waitgroup checker")
 	Analyzer.Flags.BoolVar(&enableErrgroup, "errgroup", true, "enable errgroup checker")
+	Analyzer.Flags.BoolVar(&enableConc, "conc", true, "enable conc (sourcegraph/conc) checker")
 	Analyzer.Flags.BoolVar(&enableSpawner, "spawner", true, "enable spawner checker")
 	Analyzer.Flags.BoolVar(&enableSpawnerlabel, "spawnerlabel", false, "enable spawnerlabel checker")
 	Analyzer.Flags.BoolVar(&enableGotask, "gotask", true, "enable gotask checker (requires -goroutine-deriver)")
@@ -146,7 +148,7 @@ func buildRegistry() *registry.Registry {
 	reg := registry.New()
 
 	// Register errgroup/waitgroup/conc APIs with ClosureCapturesCtx pattern
-	internal.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup)
+	internal.RegisterDefaultAPIs(reg, enableErrgroup, enableWaitgroup, enableConc)
 
 	// Register gotask APIs
 	// - With patterns: enables unified checker to verify context propagation
@@ -232,7 +234,7 @@ func buildEnabledCheckers(spawners *spawner.Map) ignore.EnabledCheckers {
 		enabled[ignore.Waitgroup] = true
 	}
 
-	if enableErrgroup {
+	if enableErrgroup || enableConc {
 		enabled[ignore.Errgroup] = true
 	}
 

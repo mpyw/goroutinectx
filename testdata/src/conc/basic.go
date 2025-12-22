@@ -8,7 +8,9 @@ import (
 	"fmt"
 
 	"github.com/sourcegraph/conc"
+	"github.com/sourcegraph/conc/iter"
 	"github.com/sourcegraph/conc/pool"
+	"github.com/sourcegraph/conc/stream"
 )
 
 // ===== conc.Pool =====
@@ -158,4 +160,181 @@ func goodResultErrorPoolGo(ctx context.Context) {
 		return "result", nil
 	})
 	_, _ = p.Wait()
+}
+
+// ===== stream.Stream =====
+
+// [BAD]: stream.Stream.Go without ctx
+func badStreamGo(ctx context.Context) {
+	s := stream.New()
+	s.Go(func() stream.Callback { // want `stream.Stream.Go\(\) closure should use context "ctx"`
+		return func() {}
+	})
+	s.Wait()
+}
+
+// [GOOD]: stream.Stream.Go with ctx
+func goodStreamGo(ctx context.Context) {
+	s := stream.New()
+	s.Go(func() stream.Callback {
+		_ = ctx
+		return func() {}
+	})
+	s.Wait()
+}
+
+// ===== iter.ForEach =====
+
+// [BAD]: iter.ForEach without ctx
+func badIterForEach(ctx context.Context) {
+	items := []int{1, 2, 3}
+	iter.ForEach(items, func(item *int) { // want `iter.ForEach\(\) closure should use context "ctx"`
+		fmt.Println(*item)
+	})
+}
+
+// [GOOD]: iter.ForEach with ctx
+func goodIterForEach(ctx context.Context) {
+	items := []int{1, 2, 3}
+	iter.ForEach(items, func(item *int) {
+		_ = ctx
+		fmt.Println(*item)
+	})
+}
+
+// ===== iter.ForEachIdx =====
+
+// [BAD]: iter.ForEachIdx without ctx
+func badIterForEachIdx(ctx context.Context) {
+	items := []int{1, 2, 3}
+	iter.ForEachIdx(items, func(idx int, item *int) { // want `iter.ForEachIdx\(\) closure should use context "ctx"`
+		fmt.Println(idx, *item)
+	})
+}
+
+// [GOOD]: iter.ForEachIdx with ctx
+func goodIterForEachIdx(ctx context.Context) {
+	items := []int{1, 2, 3}
+	iter.ForEachIdx(items, func(idx int, item *int) {
+		_ = ctx
+		fmt.Println(idx, *item)
+	})
+}
+
+// ===== iter.Map =====
+
+// [BAD]: iter.Map without ctx
+func badIterMap(ctx context.Context) {
+	items := []int{1, 2, 3}
+	_ = iter.Map(items, func(item *int) int { // want `iter.Map\(\) closure should use context "ctx"`
+		return *item * 2
+	})
+}
+
+// [GOOD]: iter.Map with ctx
+func goodIterMap(ctx context.Context) {
+	items := []int{1, 2, 3}
+	_ = iter.Map(items, func(item *int) int {
+		_ = ctx
+		return *item * 2
+	})
+}
+
+// ===== iter.MapErr =====
+
+// [BAD]: iter.MapErr without ctx
+func badIterMapErr(ctx context.Context) {
+	items := []int{1, 2, 3}
+	_, _ = iter.MapErr(items, func(item *int) (int, error) { // want `iter.MapErr\(\) closure should use context "ctx"`
+		return *item * 2, nil
+	})
+}
+
+// [GOOD]: iter.MapErr with ctx
+func goodIterMapErr(ctx context.Context) {
+	items := []int{1, 2, 3}
+	_, _ = iter.MapErr(items, func(item *int) (int, error) {
+		_ = ctx
+		return *item * 2, nil
+	})
+}
+
+// ===== iter.Iterator =====
+
+// [BAD]: iter.Iterator.ForEach without ctx
+func badIteratorForEach(ctx context.Context) {
+	items := []int{1, 2, 3}
+	it := iter.Iterator[int]{MaxGoroutines: 2}
+	it.ForEach(items, func(item *int) { // want `iter.Iterator.ForEach\(\) closure should use context "ctx"`
+		fmt.Println(*item)
+	})
+}
+
+// [GOOD]: iter.Iterator.ForEach with ctx
+func goodIteratorForEach(ctx context.Context) {
+	items := []int{1, 2, 3}
+	it := iter.Iterator[int]{MaxGoroutines: 2}
+	it.ForEach(items, func(item *int) {
+		_ = ctx
+		fmt.Println(*item)
+	})
+}
+
+// [BAD]: iter.Iterator.ForEachIdx without ctx
+func badIteratorForEachIdx(ctx context.Context) {
+	items := []int{1, 2, 3}
+	it := iter.Iterator[int]{MaxGoroutines: 2}
+	it.ForEachIdx(items, func(idx int, item *int) { // want `iter.Iterator.ForEachIdx\(\) closure should use context "ctx"`
+		fmt.Println(idx, *item)
+	})
+}
+
+// [GOOD]: iter.Iterator.ForEachIdx with ctx
+func goodIteratorForEachIdx(ctx context.Context) {
+	items := []int{1, 2, 3}
+	it := iter.Iterator[int]{MaxGoroutines: 2}
+	it.ForEachIdx(items, func(idx int, item *int) {
+		_ = ctx
+		fmt.Println(idx, *item)
+	})
+}
+
+// ===== iter.Mapper =====
+
+// [BAD]: iter.Mapper.Map without ctx
+func badMapperMap(ctx context.Context) {
+	items := []int{1, 2, 3}
+	m := iter.Mapper[int, int]{MaxGoroutines: 2}
+	_ = m.Map(items, func(item *int) int { // want `iter.Mapper.Map\(\) closure should use context "ctx"`
+		return *item * 2
+	})
+}
+
+// [GOOD]: iter.Mapper.Map with ctx
+func goodMapperMap(ctx context.Context) {
+	items := []int{1, 2, 3}
+	m := iter.Mapper[int, int]{MaxGoroutines: 2}
+	_ = m.Map(items, func(item *int) int {
+		_ = ctx
+		return *item * 2
+	})
+}
+
+// [BAD]: iter.Mapper.MapErr without ctx
+func badMapperMapErr(ctx context.Context) {
+	items := []int{1, 2, 3}
+	m := iter.Mapper[int, int]{MaxGoroutines: 2}
+	_, _ = m.MapErr(items, func(item *int) (int, error) { // want `iter.Mapper.MapErr\(\) closure should use context "ctx"`
+		return *item * 2, nil
+	})
+}
+
+// [GOOD]: iter.Mapper.MapErr with ctx
+func goodMapperMapErr(ctx context.Context) {
+	items := []int{1, 2, 3}
+	m := iter.Mapper[int, int]{MaxGoroutines: 2}
+	_, _ = m.MapErr(items, func(item *int) (int, error) {
+		_ = ctx
+		return *item * 2, nil
+	})
 }

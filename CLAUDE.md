@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **goroutine**: Detect `go func()` that doesn't capture/use context
 - **errgroup**: Detect `errgroup.Group.Go()` closures without context
 - **waitgroup**: Detect `sync.WaitGroup.Go()` closures without context (Go 1.25+)
+- **conc**: Detect `github.com/sourcegraph/conc` pool closures without context
 - **spawner**: Detect calls to spawner functions that pass closures without context
   - Directive: `//goroutinectx:spawner` marks local functions
   - Flag: `-external-spawner=pkg/path.Func` or `-external-spawner=pkg/path.Type.Method` for external functions

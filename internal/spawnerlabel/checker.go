@@ -105,16 +105,15 @@ func (c *Checker) getFuncObject(pass *analysis.Pass, fnDecl *ast.FuncDecl) *type
 
 // findSpawnCall searches for spawn calls using SSA analysis.
 // It checks nested function literals, IIFEs, and higher-order function returns.
-func (c *Checker) findSpawnCall(pass *analysis.Pass, fnDecl *ast.FuncDecl) *spawnCallInfo {
-	// Try SSA-based analysis first
-	if c.ssaProg != nil {
-		if ssaFn := c.ssaProg.FindFuncDecl(fnDecl); ssaFn != nil {
-			return c.findSpawnCallSSA(ssaFn, make(map[*ssa.Function]bool))
-		}
+func (c *Checker) findSpawnCall(_ *analysis.Pass, fnDecl *ast.FuncDecl) *spawnCallInfo {
+	if c.ssaProg == nil {
+		return nil
 	}
-
-	// Fall back to AST-based analysis
-	return c.findSpawnCallAST(pass, fnDecl.Body)
+	ssaFn := c.ssaProg.FindFuncDecl(fnDecl)
+	if ssaFn == nil {
+		return nil
+	}
+	return c.findSpawnCallSSA(ssaFn, make(map[*ssa.Function]bool))
 }
 
 // findSpawnCallSSA uses SSA to find spawn calls, including in nested functions and IIFEs.
@@ -247,42 +246,6 @@ func (c *Checker) checkReturnedFuncForSpawn(fn *ssa.Function, visited map[*ssa.F
 	return nil
 }
 
-// findSpawnCallAST is the fallback AST-based search (without FuncLit skip).
-func (c *Checker) findSpawnCallAST(pass *analysis.Pass, body *ast.BlockStmt) *spawnCallInfo {
-	var result *spawnCallInfo
-
-	ast.Inspect(body, func(n ast.Node) bool {
-		if result != nil {
-			return false
-		}
-
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		// Check registered APIs
-		if entry, _ := c.registry.Match(pass, call); entry != nil {
-			isMethodWithTask := entry.API.Kind == registry.KindMethod && entry.API.TaskConstructor != nil
-			hasFuncArgs := hasFuncArgFromIndex(pass, call, entry.API.CallbackArgIdx)
-			if isMethodWithTask || hasFuncArgs {
-				result = &spawnCallInfo{methodName: entry.API.FullName()}
-				return false
-			}
-		}
-
-		// Check spawner-marked functions
-		if info := isSpawnerMarkedCall(pass, call, c.spawners); info != nil {
-			result = info
-			return false
-		}
-
-		return true
-	})
-
-	return result
-}
-
 // extractCalledFunc extracts the types.Func from a CallCommon.
 func extractCalledFunc(call *ssa.CallCommon) *types.Func {
 	if call.IsInvoke() {
@@ -350,25 +313,6 @@ func hasFuncArgsInCall(call *ssa.CallCommon, startIdx int) bool {
 			if _, isFunc := slice.Elem().Underlying().(*types.Signature); isFunc {
 				return true
 			}
-		}
-	}
-	return false
-}
-
-// hasFuncArgFromIndex checks if the call has any func-typed argument starting from the given index.
-func hasFuncArgFromIndex(pass *analysis.Pass, call *ast.CallExpr, startIdx int) bool {
-	if startIdx < 0 || startIdx >= len(call.Args) {
-		return false
-	}
-
-	for i := startIdx; i < len(call.Args); i++ {
-		arg := call.Args[i]
-		tv, ok := pass.TypesInfo.Types[arg]
-		if !ok {
-			continue
-		}
-		if _, isFunc := tv.Type.Underlying().(*types.Signature); isFunc {
-			return true
 		}
 	}
 	return false

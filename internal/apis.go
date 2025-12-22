@@ -6,7 +6,7 @@ import (
 )
 
 // RegisterDefaultAPIs registers all default APIs with the registry.
-func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup bool) {
+func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup, enableConc bool) {
 	closureCapturesCtx := &patterns.ClosureCapturesCtx{}
 	// errgroup.Group.Go - closure should capture ctx
 	if enableErrgroup {
@@ -42,6 +42,9 @@ func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup
 	}
 
 	// sourcegraph/conc pool APIs - closure should capture ctx
+	if !enableConc {
+		return
+	}
 	reg.Register(closureCapturesCtx,
 		// Pool.Go
 		registry.API{
@@ -106,6 +109,78 @@ func RegisterDefaultAPIs(reg *registry.Registry, enableErrgroup, enableWaitgroup
 			Name:           "Go",
 			Kind:           registry.KindMethod,
 			CallbackArgIdx: 0,
+		},
+		// stream.Stream.Go
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/stream",
+			Type:           "Stream",
+			Name:           "Go",
+			Kind:           registry.KindMethod,
+			CallbackArgIdx: 0,
+		},
+		// iter.ForEach
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "",
+			Name:           "ForEach",
+			Kind:           registry.KindFunc,
+			CallbackArgIdx: 1,
+		},
+		// iter.ForEachIdx
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "",
+			Name:           "ForEachIdx",
+			Kind:           registry.KindFunc,
+			CallbackArgIdx: 1,
+		},
+		// iter.Map
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "",
+			Name:           "Map",
+			Kind:           registry.KindFunc,
+			CallbackArgIdx: 1,
+		},
+		// iter.MapErr
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "",
+			Name:           "MapErr",
+			Kind:           registry.KindFunc,
+			CallbackArgIdx: 1,
+		},
+		// iter.Iterator.ForEach
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "Iterator",
+			Name:           "ForEach",
+			Kind:           registry.KindMethod,
+			CallbackArgIdx: 1,
+		},
+		// iter.Iterator.ForEachIdx
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "Iterator",
+			Name:           "ForEachIdx",
+			Kind:           registry.KindMethod,
+			CallbackArgIdx: 1,
+		},
+		// iter.Mapper.Map
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "Mapper",
+			Name:           "Map",
+			Kind:           registry.KindMethod,
+			CallbackArgIdx: 1,
+		},
+		// iter.Mapper.MapErr
+		registry.API{
+			Pkg:            "github.com/sourcegraph/conc/iter",
+			Type:           "Mapper",
+			Name:           "MapErr",
+			Kind:           registry.KindMethod,
+			CallbackArgIdx: 1,
 		},
 	)
 }
