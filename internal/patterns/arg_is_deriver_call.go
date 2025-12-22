@@ -51,56 +51,20 @@ func (p *ArgIsDeriverCall) argIsDeriverCall(cctx *context.CheckContext, expr ast
 
 // identIsDeriverCall checks if a variable holds a deriver call result.
 func (p *ArgIsDeriverCall) identIsDeriverCall(cctx *context.CheckContext, ident *ast.Ident) bool {
-	// Try to trace the variable assignment
-	// This is a simplified check - just look for direct assignments
-	obj := cctx.Pass.TypesInfo.ObjectOf(ident)
-	if obj == nil {
+	v := cctx.VarFromIdent(ident)
+	if v == nil {
 		return false
 	}
 
-	// Find assignments to this variable
-	for _, f := range cctx.Pass.Files {
-		var found bool
-		ast.Inspect(f, func(n ast.Node) bool {
-			if found {
-				return false
-			}
-
-			assign, ok := n.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-
-			for i, lhs := range assign.Lhs {
-				lhsIdent, ok := lhs.(*ast.Ident)
-				if !ok {
-					continue
-				}
-				if cctx.Pass.TypesInfo.ObjectOf(lhsIdent) != obj {
-					continue
-				}
-				if i >= len(assign.Rhs) {
-					continue
-				}
-
-				// Check if RHS is a deriver call
-				if call, ok := assign.Rhs[i].(*ast.CallExpr); ok {
-					fn := cctx.ExtractCallFunc(call)
-					if fn != nil && p.Matcher.MatchesFunc(fn) {
-						found = true
-						return false
-					}
-				}
-			}
-			return true
-		})
-
-		if found {
-			return true
-		}
+	// Find call expression assigned to this variable
+	call := cctx.FindCallExprAssignment(v, ident.Pos())
+	if call == nil {
+		return false
 	}
 
-	return false
+	// Check if RHS is a deriver call
+	fn := cctx.ExtractCallFunc(call)
+	return fn != nil && p.Matcher.MatchesFunc(fn)
 }
 
 // Message formats the error message for DoAsync-style methods.
