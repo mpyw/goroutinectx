@@ -24,6 +24,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	spawnerdir "github.com/mpyw/goroutinectx/internal/directives/spawner"
+	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // Flags for the analyzer.
@@ -62,7 +63,7 @@ func init() {
 var Analyzer = &analysis.Analyzer{
 	Name:     "goroutinectx",
 	Doc:      "checks that context.Context is properly propagated to downstream calls",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
+	Requires: []*analysis.Analyzer{inspect.Analyzer, internalssa.BuildSSAAnalyzer},
 	Run:      run,
 	Flags:    flag.FlagSet{},
 }
@@ -147,6 +148,9 @@ func runASTChecks(
 	spawners *spawnerdir.Map,
 	skipFiles map[string]bool,
 ) {
+	// Build SSA program for future use (currently unused but required for buildssa dependency)
+	_ = internalssa.Build(pass)
+
 	// Build context scopes for functions with context parameters
 	funcScopes := buildFuncScopes(pass, insp, carriers)
 
