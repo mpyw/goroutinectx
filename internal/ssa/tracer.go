@@ -368,10 +368,10 @@ type DeriverResult struct {
 	FoundOnlyInDefer bool
 }
 
-// CheckDeriverCalls checks if a closure calls any of the required deriver functions.
+// ClosureCallsDeriver checks if a closure calls any of the required deriver functions.
 // It traverses into immediately-invoked function expressions (IIFE) but tracks
 // whether calls are made in defer statements.
-func (t *Tracer) CheckDeriverCalls(closure *ssa.Function, matcher *deriver.Matcher) DeriverResult {
+func (t *Tracer) ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher) DeriverResult {
 	if closure == nil || matcher == nil || matcher.IsEmpty() {
 		return DeriverResult{FoundAtStart: true} // No check needed
 	}

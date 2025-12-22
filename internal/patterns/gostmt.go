@@ -193,7 +193,7 @@ func (p *GoStmtCallsDeriver) checkDeriverFromSSA(cctx *context.CheckContext, lit
 		return GoStmtResult{}, false
 	}
 
-	result := cctx.Tracer.CheckDeriverCalls(ssaFn, p.Matcher)
+	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, p.Matcher)
 
 	if result.FoundAtStart {
 		return GoStmtResult{OK: true}, true
