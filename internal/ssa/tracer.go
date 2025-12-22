@@ -35,7 +35,7 @@ func (t *Tracer) ClosureUsesContext(closure *ssa.Function, ctxVars []*types.Var)
 	for _, fv := range closure.FreeVars {
 		for _, ctx := range ctxVars {
 			// Compare by name and type - FreeVar wraps the original Var
-			if fv.Name() == ctx.Name() && isContextType(fv.Type()) {
+			if fv.Name() == ctx.Name() && typeutil.IsContextType(fv.Type()) {
 				return true
 			}
 		}
@@ -320,22 +320,6 @@ func (t *Tracer) isNilConst(v ssa.Value) bool {
 // Context Type Detection
 // =============================================================================
 
-// isContextType checks if a type is context.Context.
-// Handles pointer types (*context.Context) which are common in SSA FreeVars.
-func isContextType(t types.Type) bool {
-	// Unwrap pointer types
-	if ptr, ok := t.(*types.Pointer); ok {
-		t = ptr.Elem()
-	}
-
-	named, ok := t.(*types.Named)
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	return obj.Pkg() != nil && obj.Pkg().Path() == "context" && obj.Name() == "Context"
-}
-
 // GetContextVars returns all context.Context variables available in a function.
 // This includes both parameters and captured variables (FreeVars) from enclosing scopes.
 func GetContextVars(fn *ssa.Function) []*types.Var {
@@ -349,14 +333,14 @@ func GetContextVars(fn *ssa.Function) []*types.Var {
 	params := sig.Params()
 	for i := 0; i < params.Len(); i++ {
 		param := params.At(i)
-		if isContextType(param.Type()) {
+		if typeutil.IsContextType(param.Type()) {
 			ctxVars = append(ctxVars, param)
 		}
 	}
 
 	// Check captured variables (FreeVars) from enclosing scopes
 	for _, fv := range fn.FreeVars {
-		if isContextType(fv.Type()) {
+		if typeutil.IsContextType(fv.Type()) {
 			// FreeVar doesn't have an underlying types.Var directly accessible,
 			// but we can create a synthetic Var for matching purposes.
 			// The package is derived from the parent function.

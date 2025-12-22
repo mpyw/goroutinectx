@@ -83,7 +83,7 @@ func closureCheckFromAST(cctx *CheckContext, callbackArg ast.Expr) bool {
 		if !ok {
 			return false // Can't trace
 		}
-		funcLit := findFuncLitAssignment(cctx, v)
+		funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
 		if funcLit == nil {
 			return false // Can't trace (channel receive, type assertion, etc.)
 		}
@@ -337,7 +337,7 @@ func closureCheckFactoryCall(cctx *CheckContext, call *ast.CallExpr) bool {
 		if !ok {
 			return false
 		}
-		funcLit := findFuncLitAssignment(cctx, v)
+		funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
 		if funcLit == nil {
 			return false
 		}

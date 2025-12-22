@@ -4,7 +4,6 @@ package patterns
 import (
 	"go/ast"
 	"go/token"
-	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -27,16 +26,6 @@ type CheckContext struct {
 // Report reports a diagnostic at the given position.
 func (c *CheckContext) Report(pos token.Pos, msg string) {
 	c.Pass.Reportf(pos, "%s", msg)
-}
-
-// isContextType checks if a type is context.Context.
-func isContextType(t types.Type) bool {
-	named, ok := t.(*types.Named)
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	return obj.Pkg() != nil && obj.Pkg().Path() == "context" && obj.Name() == "Context"
 }
 
 // Pattern defines the interface for context propagation patterns.

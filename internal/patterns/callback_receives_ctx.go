@@ -3,6 +3,8 @@ package patterns
 import (
 	"fmt"
 	"go/ast"
+
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // CallbackReceivesCtx checks APIs where the callback receives context as its first parameter.
@@ -39,7 +41,7 @@ func (*CallbackReceivesCtx) contextArgUsesVar(cctx *CheckContext, ctxArg ast.Exp
 	// For simple identifier, check if it's a context type from scope
 	if ident, ok := ctxArg.(*ast.Ident); ok {
 		obj := cctx.Pass.TypesInfo.ObjectOf(ident)
-		if obj != nil && isContextType(obj.Type()) {
+		if obj != nil && typeutil.IsContextType(obj.Type()) {
 			return true
 		}
 	}
@@ -47,7 +49,7 @@ func (*CallbackReceivesCtx) contextArgUsesVar(cctx *CheckContext, ctxArg ast.Exp
 	// For call expressions (e.g., context.WithCancel(ctx)), check the result type
 	if callExpr, ok := ctxArg.(*ast.CallExpr); ok {
 		typ := cctx.Pass.TypesInfo.TypeOf(callExpr)
-		if typ != nil && isContextType(typ) {
+		if typ != nil && typeutil.IsContextType(typ) {
 			return true
 		}
 	}
@@ -55,7 +57,7 @@ func (*CallbackReceivesCtx) contextArgUsesVar(cctx *CheckContext, ctxArg ast.Exp
 	// For selector expressions (e.g., req.Context())
 	if sel, ok := ctxArg.(*ast.SelectorExpr); ok {
 		typ := cctx.Pass.TypesInfo.TypeOf(sel)
-		if typ != nil && isContextType(typ) {
+		if typ != nil && typeutil.IsContextType(typ) {
 			return true
 		}
 	}

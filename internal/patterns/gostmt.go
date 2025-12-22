@@ -2,6 +2,7 @@ package patterns
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
@@ -161,7 +162,7 @@ func goStmtCheckIdentFactory(cctx *CheckContext, ident *ast.Ident) bool {
 
 	// Handle local variable pointing to a func literal
 	if v, ok := obj.(*types.Var); ok {
-		funcLit := findFuncLitAssignment(cctx, v)
+		funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
 		if funcLit == nil {
 			return true // Can't trace
 		}
@@ -210,63 +211,12 @@ func goStmtFindFuncDecl(cctx *CheckContext, fn *types.Func) *ast.FuncDecl {
 
 // goStmtFuncDeclHasContextParam checks if a function declaration has a context.Context parameter.
 func goStmtFuncDeclHasContextParam(cctx *CheckContext, decl *ast.FuncDecl) bool {
-	if decl.Type == nil || decl.Type.Params == nil {
-		return false
-	}
-	for _, field := range decl.Type.Params.List {
-		typ := cctx.Pass.TypesInfo.TypeOf(field.Type)
-		if typ == nil {
-			continue
-		}
-		if isContextType(typ) {
-			return true
-		}
-	}
-	return false
+	return funcTypeHasContextParam(cctx, decl.Type)
 }
 
 // goStmtFactoryDeclReturnsCtxFunc checks if a function declaration returns funcs that use context.
-// For nested factories, this recursively checks if any deeply nested function uses context.
 func goStmtFactoryDeclReturnsCtxFunc(cctx *CheckContext, decl *ast.FuncDecl) bool {
-	if decl.Body == nil {
-		return true // No body to check
-	}
-
-	usesContext := false
-	ast.Inspect(decl.Body, func(n ast.Node) bool {
-		if usesContext {
-			return false
-		}
-		// For nested func literals, check both direct usage and returned values
-		if fl, ok := n.(*ast.FuncLit); ok {
-			// Check if this nested func lit uses context directly
-			if funcLitUsesContext(cctx, fl) {
-				usesContext = true
-				return false
-			}
-			// Recursively check if it returns functions that use context
-			if factoryReturnsContextUsingFunc(cctx, fl) {
-				usesContext = true
-				return false
-			}
-			return false // Don't descend into nested func literals (we handle them recursively)
-		}
-
-		ret, ok := n.(*ast.ReturnStmt)
-		if !ok {
-			return true
-		}
-
-		for _, result := range ret.Results {
-			if returnedValueUsesContext(cctx, result) {
-				usesContext = true
-				return false
-			}
-		}
-		return true
-	})
-
-	return usesContext
+	return blockReturnsContextUsingFunc(cctx, decl.Body, nil)
 }
 
 // GoStmtCallsDeriver checks that a go statement's closure calls a deriver function.
@@ -352,7 +302,7 @@ func (p *GoStmtCallsDeriver) checkIdentDeriver(cctx *CheckContext, ident *ast.Id
 		return true // Not a variable
 	}
 
-	funcLit := findFuncLitAssignment(cctx, v)
+	funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
 	if funcLit == nil {
 		return true // Can't trace
 	}
@@ -388,7 +338,7 @@ func (p *GoStmtCallsDeriver) checkHigherOrderDeriver(cctx *CheckContext, innerCa
 		if !ok {
 			return true // Not a variable (could be a function)
 		}
-		funcLit := findFuncLitAssignment(cctx, v)
+		funcLit := findFuncLitAssignment(cctx, v, token.NoPos)
 		if funcLit == nil {
 			return true // Can't trace
 		}
@@ -462,7 +412,7 @@ func (p *GoStmtCallsDeriver) returnedValueCallsDeriver(cctx *CheckContext, resul
 		return false
 	}
 
-	innerFuncLit := findFuncLitAssignment(cctx, v)
+	innerFuncLit := findFuncLitAssignment(cctx, v, token.NoPos)
 	if innerFuncLit == nil {
 		return false
 	}

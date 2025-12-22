@@ -2,6 +2,7 @@ package patterns
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
@@ -9,21 +10,26 @@ import (
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
-// funcLitHasContextParam checks if a function literal has a context.Context parameter.
-func funcLitHasContextParam(cctx *CheckContext, lit *ast.FuncLit) bool {
-	if lit.Type == nil || lit.Type.Params == nil {
+// funcTypeHasContextParam checks if a function type has a context.Context parameter.
+func funcTypeHasContextParam(cctx *CheckContext, fnType *ast.FuncType) bool {
+	if fnType == nil || fnType.Params == nil {
 		return false
 	}
-	for _, field := range lit.Type.Params.List {
+	for _, field := range fnType.Params.List {
 		typ := cctx.Pass.TypesInfo.TypeOf(field.Type)
 		if typ == nil {
 			continue
 		}
-		if isContextType(typ) {
+		if typeutil.IsContextType(typ) {
 			return true
 		}
 	}
 	return false
+}
+
+// funcLitHasContextParam checks if a function literal has a context.Context parameter.
+func funcLitHasContextParam(cctx *CheckContext, lit *ast.FuncLit) bool {
+	return funcTypeHasContextParam(cctx, lit.Type)
 }
 
 // funcLitUsesContext checks if a function literal references any context variable.
@@ -105,8 +111,9 @@ func argUsesContext(cctx *CheckContext, expr ast.Expr) bool {
 }
 
 // findFuncLitAssignment searches for the func literal assigned to the variable.
-// Returns the LAST assignment found (for cases where variables are reassigned).
-func findFuncLitAssignment(cctx *CheckContext, v *types.Var) *ast.FuncLit {
+// If beforePos is token.NoPos, returns the LAST assignment found.
+// If beforePos is set, returns the last assignment BEFORE that position.
+func findFuncLitAssignment(cctx *CheckContext, v *types.Var, beforePos token.Pos) *ast.FuncLit {
 	var result *ast.FuncLit
 	declPos := v.Pos()
 
@@ -118,6 +125,10 @@ func findFuncLitAssignment(cctx *CheckContext, v *types.Var) *ast.FuncLit {
 		ast.Inspect(f, func(n ast.Node) bool {
 			assign, ok := n.(*ast.AssignStmt)
 			if !ok {
+				return true
+			}
+			// Skip assignments at or after beforePos
+			if beforePos != token.NoPos && assign.Pos() >= beforePos {
 				return true
 			}
 			if fl := findFuncLitInAssignment(cctx, assign, v); fl != nil {
@@ -151,24 +162,29 @@ func findFuncLitInAssignment(cctx *CheckContext, assign *ast.AssignStmt, v *type
 	return nil
 }
 
-// factoryReturnsContextUsingFunc checks if a factory function's return statements
+// blockReturnsContextUsingFunc checks if a block's return statements
 // return functions that use context. Recursively checks nested func literals.
-func factoryReturnsContextUsingFunc(cctx *CheckContext, factory *ast.FuncLit) bool {
+// excludeFuncLit can be set to exclude a specific FuncLit from being counted (e.g., the parent).
+func blockReturnsContextUsingFunc(cctx *CheckContext, body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
+	if body == nil {
+		return true // No body to check
+	}
+
 	usesContext := false
 
-	ast.Inspect(factory.Body, func(n ast.Node) bool {
+	ast.Inspect(body, func(n ast.Node) bool {
 		if usesContext {
 			return false
 		}
 		// For nested func literals, check both direct usage and returned values
-		if fl, ok := n.(*ast.FuncLit); ok && fl != factory {
+		if fl, ok := n.(*ast.FuncLit); ok && fl != excludeFuncLit {
 			// Check if this nested func lit uses context directly
 			if funcLitUsesContext(cctx, fl) {
 				usesContext = true
 				return false
 			}
 			// Recursively check if it returns functions that use context
-			if factoryReturnsContextUsingFunc(cctx, fl) {
+			if blockReturnsContextUsingFunc(cctx, fl.Body, fl) {
 				usesContext = true
 				return false
 			}
@@ -190,6 +206,12 @@ func factoryReturnsContextUsingFunc(cctx *CheckContext, factory *ast.FuncLit) bo
 	})
 
 	return usesContext
+}
+
+// factoryReturnsContextUsingFunc checks if a factory FuncLit's return statements
+// return functions that use context.
+func factoryReturnsContextUsingFunc(cctx *CheckContext, factory *ast.FuncLit) bool {
+	return blockReturnsContextUsingFunc(cctx, factory.Body, factory)
 }
 
 // returnedValueUsesContext checks if a returned value is a func that uses context.
@@ -215,7 +237,7 @@ func returnedValueUsesContext(cctx *CheckContext, result ast.Expr) bool {
 		return false
 	}
 
-	innerFuncLit := findFuncLitAssignment(cctx, v)
+	innerFuncLit := findFuncLitAssignment(cctx, v, token.NoPos)
 	if innerFuncLit == nil {
 		return false
 	}

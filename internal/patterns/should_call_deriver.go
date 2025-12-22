@@ -64,7 +64,7 @@ func (p *ShouldCallDeriver) identCallsDeriver(cctx *CheckContext, ident *ast.Ide
 	}
 
 	// Try to find a FuncLit assignment
-	funcLit := deriverFindFuncLitAssignmentBefore(cctx, v, ident.Pos())
+	funcLit := findFuncLitAssignment(cctx, v, ident.Pos())
 	if funcLit != nil {
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 	}
@@ -146,7 +146,7 @@ func (p *ShouldCallDeriver) factoryReturnCallsDeriver(cctx *CheckContext, call *
 		return false
 	}
 
-	funcLit := deriverFindFuncLitAssignmentBefore(cctx, v, call.Pos())
+	funcLit := findFuncLitAssignment(cctx, v, call.Pos())
 	if funcLit == nil {
 		return false
 	}
@@ -208,48 +208,6 @@ func (p *ShouldCallDeriver) funcLitReturnCallsDeriver(cctx *CheckContext, funcLi
 
 func (p *ShouldCallDeriver) Message(apiName string, _ string) string {
 	return apiName + "() callback should call goroutine deriver"
-}
-
-// deriverFindFuncLitAssignmentBefore finds the last FuncLit assigned to variable before pos.
-func deriverFindFuncLitAssignmentBefore(cctx *CheckContext, v *types.Var, beforePos token.Pos) *ast.FuncLit {
-	var result *ast.FuncLit
-	declPos := v.Pos()
-
-	for _, f := range cctx.Pass.Files {
-		if f.Pos() > declPos || declPos >= f.End() {
-			continue
-		}
-
-		ast.Inspect(f, func(n ast.Node) bool {
-			assign, ok := n.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-			if beforePos != token.NoPos && assign.Pos() >= beforePos {
-				return true
-			}
-
-			for i, lhs := range assign.Lhs {
-				ident, ok := lhs.(*ast.Ident)
-				if !ok {
-					continue
-				}
-				if cctx.Pass.TypesInfo.ObjectOf(ident) != v {
-					continue
-				}
-				if i >= len(assign.Rhs) {
-					continue
-				}
-				if fl, ok := assign.Rhs[i].(*ast.FuncLit); ok {
-					result = fl
-				}
-			}
-			return true
-		})
-		break
-	}
-
-	return result
 }
 
 // deriverFindCallExprAssignmentBefore finds the last CallExpr assigned to variable before pos.
