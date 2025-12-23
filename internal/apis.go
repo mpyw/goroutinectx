@@ -18,14 +18,12 @@ func buildCallArgPatterns(checkerName ignore.CheckerName, derivers *deriver.Matc
 	return p
 }
 
-// RegisterGoroutinePattern registers the goroutine context capture pattern.
-func RegisterGoroutinePattern(reg *registry.Registry) {
+// RegisterGoroutinePatterns registers goroutine patterns.
+func RegisterGoroutinePatterns(reg *registry.Registry, derivers *deriver.Matcher) {
 	reg.RegisterGoStmt(&patterns.GoStmtCapturesCtx{})
-}
-
-// RegisterGoroutineDerivePattern registers the goroutine deriver call pattern.
-func RegisterGoroutineDerivePattern(reg *registry.Registry, derivers *deriver.Matcher) {
-	reg.RegisterGoStmt(&patterns.GoStmtCallsDeriver{Matcher: derivers})
+	if derivers != nil {
+		reg.RegisterGoStmt(&patterns.GoStmtCallsDeriver{Matcher: derivers})
+	}
 }
 
 // RegisterErrgroupAPIs registers errgroup.Group APIs.

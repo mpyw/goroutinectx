@@ -166,15 +166,10 @@ func buildRegistry() *registry.Registry {
 		derivers = deriver.NewMatcher(goroutineDeriver)
 	}
 
-	// Register goroutine patterns
+	// Register patterns (pass derivers for deriver checking)
 	if enableGoroutine {
-		internal.RegisterGoroutinePattern(reg)
+		internal.RegisterGoroutinePatterns(reg, derivers)
 	}
-	if derivers != nil {
-		internal.RegisterGoroutineDerivePattern(reg, derivers)
-	}
-
-	// Register API patterns (pass derivers for deriver checking)
 	if enableErrgroup {
 		internal.RegisterErrgroupAPIs(reg, derivers)
 	}
