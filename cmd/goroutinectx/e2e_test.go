@@ -128,6 +128,7 @@ func TestE2E_HelpFlag(t *testing.T) {
 
 	// Should show usage info with our flags
 	expectedFlags := []string{
+		"-goroutine",
 		"-goroutine-deriver",
 		"-context-carriers",
 		"-external-spawner",
