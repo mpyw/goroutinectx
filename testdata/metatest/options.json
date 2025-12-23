@@ -3,6 +3,7 @@
     "github.com",
     "golang.org",
     "filefilter",
-    "filefilterskip"
+    "filefilterskip",
+    "conc"
   ]
 }

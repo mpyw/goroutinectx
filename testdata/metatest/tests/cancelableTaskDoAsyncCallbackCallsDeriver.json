@@ -1,0 +1,16 @@
+{
+  "title": "CancelableTask.DoAsync - callback calls deriver",
+  "targets": [
+    "gotask"
+  ],
+  "level": "basic",
+  "variants": {
+    "good": {
+      "description": "CancelableTask.DoAsync with callback calling deriver",
+      "functions": {
+        "gotask": "goodCancelableTaskDoAsyncCallbackCallsDeriver"
+      }
+    },
+    "bad": null
+  }
+}

@@ -174,22 +174,22 @@ type WorkerFactoryNoCtx interface {
 	CreateWorker() func()
 }
 
-// [BAD]: Interface method with argument
+// [NOTCHECKED]: Interface method with argument
 //
-// Interface method call without context argument.
+// Interface method call without context argument - not traced.
 //
 // See also:
-//   errgroup: badInterfaceMethodWithoutCtxArg
-func badInterfaceMethodWithoutCtxArg(ctx context.Context, factory WorkerFactoryNoCtx) {
+//   errgroup: badInterfaceMethodWithoutCtxArgNotTraced
+func badInterfaceMethodWithoutCtxArgNotTraced(ctx context.Context, factory WorkerFactoryNoCtx) {
 	var wg sync.WaitGroup
-	// ctx NOT passed to CreateWorker - expected to fail
-	wg.Go(factory.CreateWorker()) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	// ctx NOT passed to CreateWorker - should fail but can't trace
+	wg.Go(factory.CreateWorker()) // No error - can't trace interface methods
 	wg.Wait()
 }
 
-// ===== REMAINING LIMITATIONS =====
+// ===== TRACING LIMITATIONS =====
 // These patterns cannot be tracked statically.
-// LIMITATION = false positive: ctx IS used but analyzer can't detect it.
+// Due to "zero false positives" policy, these are NOT reported.
 
 //goroutinectx:spawner //vt:helper
 func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
@@ -231,16 +231,16 @@ func badFuncPassedThroughSpawner(ctx context.Context) {
 // Function received from channel cannot be traced statically.
 //
 // See also:
-//   errgroup: limitationFuncFromChannel
-func limitationFuncFromChannel(ctx context.Context) {
+//   errgroup: goodFuncFromChannelNotTraced
+func goodFuncFromChannelNotTraced(ctx context.Context) {
 	var wg sync.WaitGroup
 	ch := make(chan func(), 1)
 	ch <- func() {
 		_ = ctx // The func DOES capture ctx
 	}
 	fn := <-ch
-	// LIMITATION: fn captures ctx, but analyzer can't trace through channel receive
-	wg.Go(fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	// Can't trace through channel receive, assume OK
+	wg.Go(fn) // No error - zero false positives policy
 	wg.Wait()
 }
 
@@ -300,8 +300,8 @@ func badSliceValueWithoutCtx(ctx context.Context) {
 // Context captured but lost through interface type assertion.
 //
 // See also:
-//   errgroup: limitationFuncThroughInterfaceWithCtx
-func limitationFuncThroughInterfaceWithCtx(ctx context.Context) {
+//   errgroup: goodFuncThroughInterfaceNotTraced
+func goodFuncThroughInterfaceNotTraced(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	var i interface{} = func() {
@@ -310,18 +310,18 @@ func limitationFuncThroughInterfaceWithCtx(ctx context.Context) {
 
 	// Type assert to get func back
 	fn := i.(func())
-	// LIMITATION: fn captures ctx, but analyzer can't trace through interface{} assertion
-	wg.Go(fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	// Can't trace through interface{} assertion, assume OK
+	wg.Go(fn) // No error - zero false positives policy
 	wg.Wait()
 }
 
-// [BAD]: Function through interface without ctx
+// [NOTCHECKED]: Function through interface without ctx
 //
-// Interface method call without context argument.
+// Function through interface{} type assertion without context - not traced.
 //
 // See also:
-//   errgroup: badFuncThroughInterfaceWithoutCtx
-func badFuncThroughInterfaceWithoutCtx(ctx context.Context) {
+//   errgroup: badFuncThroughInterfaceWithoutCtxNotTraced
+func badFuncThroughInterfaceWithoutCtxNotTraced(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	var i interface{} = func() {
@@ -329,7 +329,8 @@ func badFuncThroughInterfaceWithoutCtx(ctx context.Context) {
 	}
 
 	fn := i.(func())
-	wg.Go(fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	// Can't trace through interface{} assertion
+	wg.Go(fn) // No error - can't trace interface assertion
 	wg.Wait()
 }
 

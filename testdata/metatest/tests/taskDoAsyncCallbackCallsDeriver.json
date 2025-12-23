@@ -1,0 +1,16 @@
+{
+  "title": "Task.DoAsync - callback calls deriver (ctx not derived)",
+  "targets": [
+    "gotask"
+  ],
+  "level": "basic",
+  "variants": {
+    "good": {
+      "description": "Task.DoAsync with callback calling deriver - ctx doesn't need to be derived",
+      "functions": {
+        "gotask": "goodTaskDoAsyncCallbackCallsDeriver"
+      }
+    },
+    "bad": null
+  }
+}

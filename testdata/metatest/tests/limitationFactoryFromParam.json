@@ -1,0 +1,15 @@
+{
+  "title": "Factory from function parameter - can't trace",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "limitation": {
+      "description": "Factory function passed as parameter can't be traced.",
+      "functions": {
+        "goroutinederive": "limitationFactoryFromParam"
+      }
+    }
+  }
+}

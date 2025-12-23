@@ -22,17 +22,17 @@ func badGoroutineWithDefer(ctx context.Context) {
 	}()
 }
 
-// [LIMITATION]: Ctx in deferred nested closure not detected
+// [GOOD]: Ctx in deferred nested closure - SSA correctly detects
 //
-// Context used only in deferred nested closure is not detected.
+// SSA FreeVars propagation correctly detects context captured in nested closures.
 //
 // See also:
-//   errgroup: limitationDeferNestedClosure
-//   waitgroup: limitationDeferNestedClosure
-func limitationDeferNestedClosure(ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
+//   errgroup: goodDeferNestedClosure
+//   waitgroup: goodDeferNestedClosure
+func goodDeferNestedClosure(ctx context.Context) {
+	go func() { // SSA correctly detects ctx capture
 		defer func() {
-			_ = ctx.Done() // ctx in deferred closure doesn't count
+			_ = ctx.Done() // ctx in deferred closure - SSA captures this
 		}()
 	}()
 }
@@ -51,14 +51,14 @@ func badGoroutineWithRecovery(ctx context.Context) {
 	}()
 }
 
-// [BAD]: Ctx only in recovery closure (LIMITATION)
+// [GOOD]: Ctx in recovery closure - SSA correctly detects
 //
-// Known analyzer limitation: this pattern cannot be detected statically.
-func badGoroutineUsesCtxOnlyInRecoveryClosure(ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
+// SSA FreeVars propagation correctly detects context captured in nested closures.
+func goodGoroutineUsesCtxInRecoveryClosure(ctx context.Context) {
+	go func() { // SSA correctly detects ctx capture
 		defer func() {
 			if r := recover(); r != nil {
-				_ = ctx // ctx in recovery closure doesn't count
+				_ = ctx // ctx in recovery closure - SSA captures this
 			}
 		}()
 		panic("test")
@@ -399,4 +399,70 @@ func goodShadowingInnerCtxParam(outerCtx context.Context) {
 	go func(ctx context.Context) {
 		_ = ctx.Done() // uses inner ctx - OK
 	}(outerCtx)
+}
+
+// ===== INDEX EXPRESSION PATTERNS =====
+
+// [GOOD]: Index expression captures ctx
+//
+// Function in slice captures context.
+func goodIndexExprCapturesCtx(ctx context.Context) {
+	handlers := []func(){
+		func() { _ = ctx },
+	}
+	go handlers[0]()
+}
+
+// [BAD]: Index expression captures ctx
+//
+// Function in slice does not capture context.
+func badIndexExprMissingCtx(ctx context.Context) {
+	handlers := []func(){
+		func() { fmt.Println("no ctx") },
+	}
+	go handlers[0]() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== MAP INDEX EXPRESSION PATTERNS =====
+
+// [GOOD]: Map index expression captures ctx
+//
+// Function in map with string key captures context.
+func goodMapIndexCapturesCtx(ctx context.Context) {
+	handlers := map[string]func(){
+		"work": func() { _ = ctx },
+	}
+	go handlers["work"]()
+}
+
+// [BAD]: Map index expression captures ctx
+//
+// Function in map with string key does not capture context.
+func badMapIndexMissingCtx(ctx context.Context) {
+	handlers := map[string]func(){
+		"work": func() { fmt.Println("no ctx") },
+	}
+	go handlers["work"]() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== STRUCT FIELD SELECTOR PATTERNS =====
+
+// [GOOD]: Struct field selector captures ctx
+//
+// Function in struct field captures context.
+func goodStructFieldCapturesCtx(ctx context.Context) {
+	s := struct{ handler func() }{
+		handler: func() { _ = ctx },
+	}
+	go s.handler()
+}
+
+// [BAD]: Struct field selector captures ctx
+//
+// Function in struct field does not capture context.
+func badStructFieldMissingCtx(ctx context.Context) {
+	s := struct{ handler func() }{
+		handler: func() { fmt.Println("no ctx") },
+	}
+	go s.handler() // want `goroutine does not propagate context "ctx"`
 }

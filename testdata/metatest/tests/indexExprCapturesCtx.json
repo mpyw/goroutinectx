@@ -1,0 +1,21 @@
+{
+  "title": "Index expression captures ctx",
+  "targets": [
+    "goroutine"
+  ],
+  "level": "advanced",
+  "variants": {
+    "good": {
+      "description": "Function in slice captures context.",
+      "functions": {
+        "goroutine": "goodIndexExprCapturesCtx"
+      }
+    },
+    "bad": {
+      "description": "Function in slice does not capture context.",
+      "functions": {
+        "goroutine": "badIndexExprMissingCtx"
+      }
+    }
+  }
+}

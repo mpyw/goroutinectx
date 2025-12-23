@@ -1,0 +1,16 @@
+{
+  "title": "Task.DoAsync - both callback and ctx call deriver",
+  "targets": [
+    "gotask"
+  ],
+  "level": "basic",
+  "variants": {
+    "good": {
+      "description": "Task.DoAsync with both callback and ctx calling deriver (redundant but allowed)",
+      "functions": {
+        "gotask": "goodTaskDoAsyncBothCallDeriver"
+      }
+    },
+    "bad": null
+  }
+}

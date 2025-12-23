@@ -1,16 +1,15 @@
 {
-  "title": "AND - Both derivers in nested IIFE (not at outer level).",
+  "title": "AND - Both derivers in nested IIFE - SSA detects",
   "targets": [
     "goroutinederiveand"
   ],
   "variants": {
     "good": {
-      "description": "AND - both derivers in nested IIFE (not at outer level).",
+      "description": "SSA traverses into IIFE and correctly detects both deriver calls.",
       "functions": {
         "goroutinederiveand": "goodAndBothDeriverInNestedIIFE"
       }
-    },
-    "bad": null
+    }
   },
   "level": "evil"
 }

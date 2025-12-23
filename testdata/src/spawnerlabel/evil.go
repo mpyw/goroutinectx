@@ -56,8 +56,8 @@ func evilElseOnlySpawn(cond bool) { // want `function "evilElseOnlySpawn" should
 
 // ===== DEFER =====
 
-// [GOOD]: Spawn in defer - nested closure has its own scope
-func goodDeferSpawnNestedScope() {
+// [BAD]: Spawn in defer IIFE - SSA detects spawn in nested closure
+func badDeferSpawnNestedScope() { // want `function "badDeferSpawnNestedScope" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
 	g := new(errgroup.Group)
 	defer func() {
 		g.Go(func() error {
@@ -124,11 +124,10 @@ func evilGotaskDoAllFns(ctx context.Context) { // want `function "evilGotaskDoAl
 	)
 }
 
-// ===== LIMITATIONS =====
+// ===== NESTED CLOSURE =====
 
-//vt:helper
-// LIMITATION: Spawn in nested function literal - only direct children checked
-func limitationNestedFuncLitSpawn() {
+// [BAD]: Spawn in nested function literal - SSA detects spawn
+func badNestedFuncLitSpawn() { // want `function "badNestedFuncLitSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
 	outer := func() {
 		g := new(errgroup.Group)
 		g.Go(func() error {
@@ -139,20 +138,23 @@ func limitationNestedFuncLitSpawn() {
 	outer()
 }
 
-// LIMITATION: Interface method calls - can't determine spawn statically
+// Interface method calls - can't determine spawn statically
 type Runner interface {
 	Run(fn func())
 }
 
-//vt:helper
+// [LIMITATION]: Interface method call spawn not detected
+//
+// Interface method calls - can't determine spawn statically
 func limitationInterfaceCall(r Runner) {
 	r.Run(func() {
 		fmt.Println("work")
 	})
 }
 
-// LIMITATION: Higher-order return - can't trace through function return
-//vt:helper
+// [LIMITATION]: Higher-order return spawn not detected
+//
+// Higher-order return - can't trace through function return
 func limitationHigherOrderReturn() {
 	fn := getSpawnerFunc()
 	fn()
@@ -169,8 +171,9 @@ func getSpawnerFunc() func() {
 	}
 }
 
-// LIMITATION: Channel receive - can't trace func from channel
-//vt:helper
+// [LIMITATION]: Channel receive spawn not detected
+//
+// Channel receive - can't trace func from channel
 func limitationChannelReceive(ch chan func()) {
 	fn := <-ch
 	_ = fn
@@ -320,9 +323,8 @@ func onlyCreateGroup() {
 	_ = g.Wait()
 }
 
-//vt:helper
-// LIMITATION: Spawn in IIFE - nested FuncLit is skipped
-func limitationIIFEWithSpawn() {
+// [BAD]: IIFE spawn - SSA detects spawn in IIFE
+func badIIFEWithSpawn() { // want `function "badIIFEWithSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
 	g := new(errgroup.Group)
 	func() {
 		g.Go(func() error {
@@ -360,8 +362,10 @@ func deepNesting() { // want `function "deepNesting" should have //goroutinectx:
 	_ = g.Wait()
 }
 
-// [BAD]: Unreachable spawn after panic - still detected
-func panicBeforeSpawn() { // want `function "panicBeforeSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+// [LIMITATION]: Unreachable spawn after panic - SSA eliminates unreachable code
+//
+// SSA optimizes away code after panic()
+func limitationPanicBeforeSpawn() {
 	g := new(errgroup.Group)
 	panic("oops")
 	g.Go(func() error {
@@ -389,4 +393,32 @@ func namedReturnWithSpawn() (err error) { // want `function "namedReturnWithSpaw
 	})
 	err = g.Wait()
 	return
+}
+
+// [BAD]: IIFE containing spawn call
+//
+// IIFE that spawns a goroutine - SSA traces into IIFE.
+func badIIFEContainingSpawn() { // want `function "badIIFEContainingSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	func() {
+		g.Go(func() error {
+			return nil
+		})
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Nested IIFE containing spawn call
+//
+// Nested IIFE that spawns a goroutine.
+func badNestedIIFEContainingSpawn() { // want `function "badNestedIIFEContainingSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	func() {
+		func() {
+			g.Go(func() error {
+				return nil
+			})
+		}()
+	}()
+	_ = g.Wait()
 }

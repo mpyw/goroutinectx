@@ -1,0 +1,21 @@
+{
+  "title": "Pointer dereference DoAsync without deriver",
+  "targets": [
+    "gotask"
+  ],
+  "level": "evil",
+  "variants": {
+    "bad": {
+      "description": "Task pointer dereference pattern.",
+      "functions": {
+        "gotask": "badPointerDereferenceDoAsync"
+      }
+    },
+    "good": {
+      "description": "Task pointer dereference pattern with deriver.",
+      "functions": {
+        "gotask": "goodPointerDereferenceDoAsync"
+      }
+    }
+  }
+}

@@ -224,17 +224,17 @@ func goodDeferWithCtxDirect(ctx context.Context) {
 	_ = g.Wait()
 }
 
-// [LIMITATION]: Ctx in deferred nested closure not detected
+// [GOOD]: Ctx in deferred nested closure - SSA correctly detects
 //
-// Context used only in deferred nested closure is not detected.
+// SSA FreeVars propagation correctly detects context captured in nested closures.
 //
 // See also:
-//   goroutine: limitationDeferNestedClosure
-//   waitgroup: limitationDeferNestedClosure
-func limitationDeferNestedClosure(ctx context.Context) {
+//   goroutine: goodDeferNestedClosure
+//   waitgroup: goodDeferNestedClosure
+func goodDeferNestedClosure(ctx context.Context) {
 	g := new(errgroup.Group)
-	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
-		// ctx is only in nested closure - not detected
+	g.Go(func() error { // SSA correctly detects ctx capture
+		// ctx in nested closure - SSA captures this
 		defer func() { _ = ctx }()
 		return nil
 	})

@@ -1,0 +1,15 @@
+{
+  "title": "Higher-order return spawn not detected",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "limitation": {
+      "description": "Higher-order return - can't trace through function return",
+      "functions": {
+        "spawnerlabel": "limitationHigherOrderReturn"
+      }
+    }
+  }
+}

@@ -1,16 +1,15 @@
 {
-  "title": "Mixed - AND group split between outer and IIFE.",
+  "title": "Mixed - AND group split between outer and IIFE - SSA detects",
   "targets": [
     "goroutinederivemixed"
   ],
   "variants": {
     "good": {
-      "description": "IIFE pattern with AND group deriver requirements.",
+      "description": "SSA traverses into IIFE and correctly detects deriver calls.",
       "functions": {
         "goroutinederivemixed": "goodMixedSplitDeriversAcrossLevels"
       }
-    },
-    "bad": null
+    }
   },
   "level": "evil"
 }

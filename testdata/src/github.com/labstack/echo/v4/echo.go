@@ -8,6 +8,7 @@ type Context interface {
 	Response() any
 	Get(key string) any
 	Set(key string, val any)
+	RealContext() context.Context
 	// Real echo.Context has many more methods...
 }
 

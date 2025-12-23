@@ -173,12 +173,12 @@ func badIIFEInsideGoroutine(ctx context.Context) {
 	}()
 }
 
-// [BAD]: Ctx only in IIFE nested closure (LIMITATION)
+// [GOOD]: Ctx in IIFE nested closure - SSA correctly detects
 //
-// Known analyzer limitation: this pattern cannot be detected statically.
-func badIIFEUsesCtxInNestedFunc(ctx context.Context) {
-	// ctx used only in nested IIFE, not by goroutine's direct body
-	go func() { // want `goroutine does not propagate context "ctx"`
+// SSA FreeVars propagation correctly detects context captured in nested closures.
+func goodIIFEUsesCtxInNestedFunc(ctx context.Context) {
+	// ctx used in nested IIFE - SSA captures this via FreeVars
+	go func() { // SSA correctly detects ctx capture
 		func() {
 			_ = ctx.Done()
 		}()
@@ -668,4 +668,46 @@ func goodTripleHigherOrderVariableWithCtx(ctx context.Context) {
 		return maker
 	}
 	go makeMaker()()()
+}
+
+// [BAD]: Triple higher-order returns variable - missing ctx
+//
+// Triple higher-order with variable returns missing context.
+func badTripleHigherOrderVariableMissingCtx(ctx context.Context) {
+	makeMaker := func() func() func() {
+		maker := func() func() {
+			worker := func() {
+				fmt.Println("no ctx")
+			}
+			return worker
+		}
+		return maker
+	}
+	go makeMaker()()() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== PACKAGE-LEVEL FACTORY PATTERNS =====
+
+// [GOOD]: Package-level factory with ctx param
+//
+// Package-level factory function with context parameter.
+func goodPackageLevelFactoryWithCtxParam(ctx context.Context) {
+	go packageFactoryWithCtxParam(ctx)()
+}
+
+// [BAD]: Package-level factory with ctx param
+//
+// Package-level factory called without context propagation.
+func badPackageLevelFactoryWithoutCtx(ctx context.Context) {
+	go packageFactoryWithoutCtx()() // want `goroutine does not propagate context "ctx"`
+}
+
+//vt:helper
+func packageFactoryWithCtxParam(ctx context.Context) func() {
+	return func() { _ = ctx }
+}
+
+//vt:helper
+func packageFactoryWithoutCtx() func() {
+	return func() { fmt.Println("no ctx") }
 }

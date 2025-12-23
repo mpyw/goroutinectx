@@ -208,6 +208,45 @@ func goodCancelableTaskDoAsyncWithDeriver(ctx context.Context) {
 	task.DoAsync(apm.NewGoroutineContext(ctx), errChan)
 }
 
+// [GOOD]: Task.DoAsync - callback calls deriver (ctx not derived)
+//
+// Task.DoAsync with callback calling deriver - ctx doesn't need to be derived
+func goodTaskDoAsyncCallbackCallsDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx) // Callback calls deriver
+		return nil
+	})
+	errChan := make(chan error)
+
+	task.DoAsync(ctx, errChan) // OK - callback already calls deriver
+}
+
+// [GOOD]: CancelableTask.DoAsync - callback calls deriver
+//
+// CancelableTask.DoAsync with callback calling deriver
+func goodCancelableTaskDoAsyncCallbackCallsDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx) // Callback calls deriver
+		return nil
+	}).Cancelable()
+	errChan := make(chan error)
+
+	task.DoAsync(ctx, errChan) // OK - callback already calls deriver
+}
+
+// [GOOD]: Task.DoAsync - both callback and ctx call deriver
+//
+// Task.DoAsync with both callback and ctx calling deriver
+func goodTaskDoAsyncBothCallDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx) // Callback calls deriver
+		return nil
+	})
+	errChan := make(chan error)
+
+	task.DoAsync(apm.NewGoroutineContext(ctx), errChan) // OK - both call deriver
+}
+
 // ===== Other Do* functions - SHOULD REPORT =====
 
 // [BAD]: DoAll with deriver

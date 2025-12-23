@@ -1,0 +1,16 @@
+{
+  "title": "IIFE spawn - SSA detects spawn in IIFE",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "good": null,
+    "bad": {
+      "description": "Spawn inside IIFE - SSA traverses IIFE",
+      "functions": {
+        "spawnerlabel": "badIIFEWithSpawn"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "title": "Factory returns variable with ctx param",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "good": {
+      "description": "Factory returns a variable pointing to a func with its own ctx param.",
+      "functions": {
+        "goroutinederive": "goodFactoryReturnsVariableWithCtxParam"
+      }
+    }
+  }
+}

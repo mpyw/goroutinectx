@@ -1,0 +1,21 @@
+{
+  "title": "Package-level factory with ctx param",
+  "targets": [
+    "goroutine"
+  ],
+  "level": "evil",
+  "variants": {
+    "good": {
+      "description": "Package-level factory function with context parameter.",
+      "functions": {
+        "goroutine": "goodPackageLevelFactoryWithCtxParam"
+      }
+    },
+    "bad": {
+      "description": "Package-level factory called without context propagation.",
+      "functions": {
+        "goroutine": "badPackageLevelFactoryWithoutCtx"
+      }
+    }
+  }
+}

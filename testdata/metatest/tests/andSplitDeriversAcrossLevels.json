@@ -1,16 +1,15 @@
 {
-  "title": "AND - Split derivers across levels (outer has first, IIFE has second).",
+  "title": "AND - Split derivers across levels - SSA detects",
   "targets": [
     "goroutinederiveand"
   ],
   "variants": {
     "good": {
-      "description": "AND - split derivers across levels (outer has first, IIFE has second).",
+      "description": "SSA traverses into IIFE and correctly detects deriver calls.",
       "functions": {
         "goroutinederiveand": "goodAndSplitDeriversAcrossLevels"
       }
-    },
-    "bad": null
+    }
   },
   "level": "evil"
 }

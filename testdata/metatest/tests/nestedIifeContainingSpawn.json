@@ -1,0 +1,15 @@
+{
+  "title": "Nested IIFE containing spawn call",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "bad": {
+      "description": "Nested IIFE that spawns a goroutine.",
+      "functions": {
+        "spawnerlabel": "badNestedIIFEContainingSpawn"
+      }
+    }
+  }
+}

@@ -1,16 +1,16 @@
 {
-  "title": "Spawn in defer - nested closure has its own scope",
+  "title": "Spawn in defer IIFE - SSA detects spawn in nested closure",
   "targets": [
     "spawnerlabel"
   ],
   "level": "evil",
   "variants": {
-    "good": {
-      "description": "Spawn inside deferred closure - nested scope",
+    "good": null,
+    "bad": {
+      "description": "Spawn inside deferred closure - SSA traverses nested closures",
       "functions": {
-        "spawnerlabel": "goodDeferSpawnNestedScope"
+        "spawnerlabel": "badDeferSpawnNestedScope"
       }
-    },
-    "bad": null
+    }
   }
 }

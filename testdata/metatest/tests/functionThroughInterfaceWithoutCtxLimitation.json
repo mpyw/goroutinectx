@@ -5,14 +5,13 @@
     "waitgroup"
   ],
   "variants": {
-    "bad": {
-      "description": "Interface method call without context argument.",
+    "notChecked": {
+      "description": "Function through interface{} type assertion without context - not traced.",
       "functions": {
-        "errgroup": "badFuncThroughInterfaceWithoutCtx",
-        "waitgroup": "badFuncThroughInterfaceWithoutCtx"
+        "errgroup": "badFuncThroughInterfaceWithoutCtxNotTraced",
+        "waitgroup": "badFuncThroughInterfaceWithoutCtxNotTraced"
       }
-    },
-    "good": null
+    }
   },
   "level": "evil"
 }

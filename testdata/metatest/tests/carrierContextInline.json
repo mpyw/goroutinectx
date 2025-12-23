@@ -1,0 +1,21 @@
+{
+  "title": "Carrier context inline - calls deriver",
+  "targets": [
+    "carrierderive"
+  ],
+  "level": "carrierderive",
+  "variants": {
+    "good": {
+      "description": "Context extracted inline from carrier, deriver called.",
+      "functions": {
+        "carrierderive": "goodCarrierContextInline"
+      }
+    },
+    "bad": {
+      "description": "Context extracted inline from carrier, but no deriver called.",
+      "functions": {
+        "carrierderive": "badCarrierContextInlineNoDeriver"
+      }
+    }
+  }
+}

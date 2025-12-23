@@ -1,0 +1,15 @@
+{
+  "title": "Interface method call spawn not detected",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "limitation": {
+      "description": "Interface method calls - can't determine spawn statically",
+      "functions": {
+        "spawnerlabel": "limitationInterfaceCall"
+      }
+    }
+  }
+}

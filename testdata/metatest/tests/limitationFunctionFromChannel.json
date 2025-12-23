@@ -8,8 +8,8 @@
     "limitation": {
       "description": "Function received from channel cannot be traced statically.",
       "functions": {
-        "errgroup": "limitationFuncFromChannel",
-        "waitgroup": "limitationFuncFromChannel"
+        "errgroup": "goodFuncFromChannelNotTraced",
+        "waitgroup": "goodFuncFromChannelNotTraced"
       }
     }
   },

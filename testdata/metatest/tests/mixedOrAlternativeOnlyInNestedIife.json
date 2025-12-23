@@ -1,16 +1,15 @@
 {
-  "title": "Mixed - OR alternative only in nested IIFE.",
+  "title": "Mixed - OR alternative in nested IIFE - SSA detects",
   "targets": [
     "goroutinederivemixed"
   ],
   "variants": {
     "good": {
-      "description": "Satisfies the mixed requirement via OR alternative path.",
+      "description": "SSA traverses into IIFE and correctly detects OR alternative.",
       "functions": {
         "goroutinederivemixed": "goodMixedOrAlternativeInNestedIIFE"
       }
-    },
-    "bad": null
+    }
   },
   "level": "evil"
 }

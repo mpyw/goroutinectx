@@ -8,8 +8,8 @@
     "limitation": {
       "description": "Context captured but lost through interface type assertion.",
       "functions": {
-        "errgroup": "limitationFuncThroughInterfaceWithCtx",
-        "waitgroup": "limitationFuncThroughInterfaceWithCtx"
+        "errgroup": "goodFuncThroughInterfaceNotTraced",
+        "waitgroup": "goodFuncThroughInterfaceNotTraced"
       }
     }
   },

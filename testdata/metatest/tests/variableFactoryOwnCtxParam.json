@@ -1,0 +1,15 @@
+{
+  "title": "Variable factory has own context param",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "notChecked": {
+      "description": "Factory variable has its own context parameter, so not checked.",
+      "functions": {
+        "goroutinederive": "notCheckedVariableFactoryOwnCtxParam"
+      }
+    }
+  }
+}

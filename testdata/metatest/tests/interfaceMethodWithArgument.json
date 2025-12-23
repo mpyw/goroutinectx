@@ -13,11 +13,11 @@
         "waitgroup": "goodInterfaceMethodWithCtxArg"
       }
     },
-    "bad": {
-      "description": "Interface method call without context argument.",
+    "notChecked": {
+      "description": "Interface method call without context argument - not traced.",
       "functions": {
-        "errgroup": "badInterfaceMethodWithoutCtxArg",
-        "waitgroup": "badInterfaceMethodWithoutCtxArg"
+        "errgroup": "badInterfaceMethodWithoutCtxArgNotTraced",
+        "waitgroup": "badInterfaceMethodWithoutCtxArgNotTraced"
       }
     }
   }

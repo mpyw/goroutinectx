@@ -1,0 +1,15 @@
+{
+  "title": "Channel receive spawn not detected",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "limitation": {
+      "description": "Channel receive - can't trace func from channel",
+      "functions": {
+        "spawnerlabel": "limitationChannelReceive"
+      }
+    }
+  }
+}

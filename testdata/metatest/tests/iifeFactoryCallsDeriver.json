@@ -1,0 +1,21 @@
+{
+  "title": "IIFE factory calls deriver",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "good": {
+      "description": "Inline factory returns func that calls deriver.",
+      "functions": {
+        "goroutinederive": "goodIIFEFactoryCallsDeriver"
+      }
+    },
+    "bad": {
+      "description": "Inline factory returns func without deriver call.",
+      "functions": {
+        "goroutinederive": "badIIFEFactoryMissingDeriver"
+      }
+    }
+  }
+}

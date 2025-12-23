@@ -1,0 +1,15 @@
+{
+  "title": "Factory returns nested func with own ctx param",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "good": {
+      "description": "Factory returns a nested func that has its own context parameter.",
+      "functions": {
+        "goroutinederive": "goodFactoryNestedFuncWithCtxParam"
+      }
+    }
+  }
+}

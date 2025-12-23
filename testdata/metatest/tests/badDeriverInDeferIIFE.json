@@ -1,0 +1,16 @@
+{
+  "title": "Deriver in defer with IIFE wrapper.",
+  "targets": [
+    "goroutinederive"
+  ],
+  "variants": {
+    "good": null,
+    "bad": {
+      "description": "Deriver called in defer via IIFE is still considered defer-only.",
+      "functions": {
+        "goroutinederive": "badDeriverInDeferIIFE"
+      }
+    }
+  },
+  "level": "goroutinederive"
+}

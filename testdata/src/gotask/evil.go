@@ -413,3 +413,27 @@ func goodDerivedOnOneBranch(ctx context.Context) {
 		},
 	)
 }
+
+// ===== POINTER DEREFERENCE PATTERNS =====
+
+// [BAD]: Pointer dereference DoAsync without deriver
+//
+// Task pointer dereference pattern.
+func badPointerDereferenceDoAsync(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	taskPtr := &task
+	(*taskPtr).DoAsync(ctx, nil) // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [GOOD]: Pointer dereference DoAsync without deriver
+//
+// Task pointer dereference pattern with deriver.
+func goodPointerDereferenceDoAsync(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	taskPtr := &task
+	(*taskPtr).DoAsync(apm.NewGoroutineContext(ctx), nil)
+}

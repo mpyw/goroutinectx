@@ -1,0 +1,21 @@
+{
+  "title": "Carrier context local var - calls deriver",
+  "targets": [
+    "carrierderive"
+  ],
+  "level": "carrierderive",
+  "variants": {
+    "good": {
+      "description": "Context extracted to local variable inside goroutine, deriver called.",
+      "functions": {
+        "carrierderive": "goodCarrierContextLocalVar"
+      }
+    },
+    "bad": {
+      "description": "Context extracted to local variable inside goroutine, no deriver called.",
+      "functions": {
+        "carrierderive": "badCarrierContextLocalVarNoDeriver"
+      }
+    }
+  }
+}
