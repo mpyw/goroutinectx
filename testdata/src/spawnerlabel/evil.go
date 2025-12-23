@@ -394,3 +394,31 @@ func namedReturnWithSpawn() (err error) { // want `function "namedReturnWithSpaw
 	err = g.Wait()
 	return
 }
+
+// [BAD]: IIFE containing spawn call
+//
+// IIFE that spawns a goroutine - SSA traces into IIFE.
+func badIIFEContainingSpawn() { // want `function "badIIFEContainingSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	func() {
+		g.Go(func() error {
+			return nil
+		})
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Nested IIFE containing spawn call
+//
+// Nested IIFE that spawns a goroutine.
+func badNestedIIFEContainingSpawn() { // want `function "badNestedIIFEContainingSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	func() {
+		func() {
+			g.Go(func() error {
+				return nil
+			})
+		}()
+	}()
+	_ = g.Wait()
+}

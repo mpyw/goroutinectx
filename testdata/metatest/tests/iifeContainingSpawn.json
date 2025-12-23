@@ -1,0 +1,15 @@
+{
+  "title": "IIFE containing spawn call",
+  "targets": [
+    "spawnerlabel"
+  ],
+  "level": "evil",
+  "variants": {
+    "bad": {
+      "description": "IIFE that spawns a goroutine - SSA traces into IIFE.",
+      "functions": {
+        "spawnerlabel": "badIIFEContainingSpawn"
+      }
+    }
+  }
+}
