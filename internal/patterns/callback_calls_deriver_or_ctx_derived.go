@@ -201,7 +201,7 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *contex
 func (*CallbackCallsDeriverOrCtxDerived) Message(apiName string, _ string) string {
 	parts := splitAPIName(apiName)
 	if len(parts) == 3 {
-		return "(*" + parts[0] + "." + parts[1] + ")." + parts[2] + "() 1st argument should call goroutine deriver"
+		return parts[0] + ".(*" + parts[1] + ")." + parts[2] + "() 1st argument should call goroutine deriver"
 	}
 	return apiName + "() 1st argument should call goroutine deriver"
 }

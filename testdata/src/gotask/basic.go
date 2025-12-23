@@ -94,7 +94,7 @@ func badTaskDoAsyncNoDeriver(ctx context.Context) {
 	})
 	errChan := make(chan error)
 
-	task.DoAsync(ctx, errChan) // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task.DoAsync(ctx, errChan) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: Task - with nil channel (ctx still needs deriver)
@@ -105,7 +105,7 @@ func badTaskDoAsyncNilChannel(ctx context.Context) {
 		return nil
 	})
 
-	task.DoAsync(ctx, nil) // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task.DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: CancelableTask - with deriver
@@ -117,7 +117,7 @@ func badCancelableTaskDoAsyncNoDeriver(ctx context.Context) {
 	}).Cancelable()
 	errChan := make(chan error)
 
-	task.DoAsync(ctx, errChan) // want `\(\*gotask\.CancelableTask\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task.DoAsync(ctx, errChan) // want `gotask\.\(\*CancelableTask\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== DoAllFnsSettled - SHOULD NOT REPORT =====

@@ -86,7 +86,7 @@ func goodDerivedInIfBranch(ctx context.Context) {
 func badChainedTaskDoAsync(ctx context.Context) {
 	gotask.NewTask(func(ctx context.Context) error {
 		return nil
-	}).DoAsync(ctx, nil) // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	}).DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: Cancelable chain DoAsync without deriver
@@ -95,7 +95,7 @@ func badChainedTaskDoAsync(ctx context.Context) {
 func badCancelableChainDoAsync(ctx context.Context) {
 	gotask.NewTask(func(ctx context.Context) error {
 		return nil
-	}).Cancelable().DoAsync(ctx, nil) // want `\(\*gotask\.CancelableTask\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	}).Cancelable().DoAsync(ctx, nil) // want `gotask\.\(\*CancelableTask\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== METHOD CHAINING - SHOULD NOT REPORT =====
@@ -204,7 +204,7 @@ func badTaskPointerDoAsync(ctx context.Context) {
 		return nil
 	})
 	taskPtr := &task
-	taskPtr.DoAsync(ctx, nil) // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	taskPtr.DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== DOASYNC ON POINTER - SHOULD NOT REPORT =====
@@ -284,9 +284,9 @@ func badMultipleDoAsync(ctx context.Context) {
 	task1 := gotask.NewTask(func(ctx context.Context) error { return nil })
 	task2 := gotask.NewTask(func(ctx context.Context) error { return nil })
 
-	task1.DoAsync(ctx, nil)                          // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task1.DoAsync(ctx, nil)                          // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 	task2.DoAsync(apm.NewGoroutineContext(ctx), nil) // OK - has deriver
-	task1.DoAsync(ctx, nil)                          // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task1.DoAsync(ctx, nil)                          // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: Edge case: Context with different param name
@@ -424,7 +424,7 @@ func badPointerDereferenceDoAsync(ctx context.Context) {
 		return nil
 	})
 	taskPtr := &task
-	(*taskPtr).DoAsync(ctx, nil) // want `\(\*gotask\.Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	(*taskPtr).DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [GOOD]: Pointer dereference DoAsync without deriver
