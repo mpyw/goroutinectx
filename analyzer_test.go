@@ -18,6 +18,11 @@ func TestErrgroup(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroup")
 }
 
+func TestConc(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "conc")
+}
+
 func TestGoroutineDerive(t *testing.T) {
 	testdata := analysistest.TestData()
 
@@ -79,6 +84,27 @@ func TestContextCarriers(t *testing.T) {
 	}()
 
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "carrier")
+}
+
+func TestCarrierDerive(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	carriers := "github.com/labstack/echo/v4.Context"
+	if err := goroutinectx.Analyzer.Flags.Set("context-carriers", carriers); err != nil {
+		t.Fatal(err)
+	}
+
+	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
+	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("context-carriers", "")
+		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "carrierderive")
 }
 
 func TestSpawner(t *testing.T) {
