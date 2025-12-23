@@ -12,18 +12,14 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/checkers"
-	"github.com/mpyw/goroutinectx/internal/checkers/errgroup"
-	"github.com/mpyw/goroutinectx/internal/checkers/goroutine"
-	"github.com/mpyw/goroutinectx/internal/checkers/goroutinederive"
-	"github.com/mpyw/goroutinectx/internal/checkers/gotask"
-	"github.com/mpyw/goroutinectx/internal/checkers/spawner"
-	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
-	"github.com/mpyw/goroutinectx/internal/checkers/waitgroup"
-	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
-	spawnerdir "github.com/mpyw/goroutinectx/internal/directives/spawner"
+	"github.com/mpyw/goroutinectx/internal/directives/spawner"
+	"github.com/mpyw/goroutinectx/internal/registry"
+	"github.com/mpyw/goroutinectx/internal/spawnerlabel"
+	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // Flags for the analyzer.
@@ -36,6 +32,7 @@ var (
 	enableGoroutine    bool
 	enableWaitgroup    bool
 	enableErrgroup     bool
+	enableConc         bool
 	enableSpawner      bool
 	enableSpawnerlabel bool
 	enableGotask       bool
@@ -53,6 +50,7 @@ func init() {
 	Analyzer.Flags.BoolVar(&enableGoroutine, "goroutine", true, "enable goroutine checker")
 	Analyzer.Flags.BoolVar(&enableWaitgroup, "waitgroup", true, "enable waitgroup checker")
 	Analyzer.Flags.BoolVar(&enableErrgroup, "errgroup", true, "enable errgroup checker")
+	Analyzer.Flags.BoolVar(&enableConc, "conc", true, "enable conc (sourcegraph/conc) checker")
 	Analyzer.Flags.BoolVar(&enableSpawner, "spawner", true, "enable spawner checker")
 	Analyzer.Flags.BoolVar(&enableSpawnerlabel, "spawnerlabel", false, "enable spawnerlabel checker")
 	Analyzer.Flags.BoolVar(&enableGotask, "gotask", true, "enable gotask checker (requires -goroutine-deriver)")
@@ -62,7 +60,7 @@ func init() {
 var Analyzer = &analysis.Analyzer{
 	Name:     "goroutinectx",
 	Doc:      "checks that context.Context is properly propagated to downstream calls",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
+	Requires: []*analysis.Analyzer{inspect.Analyzer, internalssa.BuildSSAAnalyzer},
 	Run:      run,
 	Flags:    flag.FlagSet{},
 }
@@ -85,17 +83,37 @@ func run(pass *analysis.Pass) (any, error) {
 	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
-	spawners := spawnerdir.Build(pass, externalSpawner)
+	spawners := spawner.Build(pass, externalSpawner)
 
 	// Build enabled checkers map
 	enabled := buildEnabledCheckers(spawners)
 
-	// Run AST-based checks (goroutine, errgroup, waitgroup)
-	runASTChecks(pass, insp, ignoreMaps, carriers, spawners, skipFiles)
+	// Build registry
+	reg := buildRegistry()
+
+	// Build SSA program
+	ssaProg := internalssa.Build(pass)
+
+	// Spawner map (nil if disabled)
+	var spawnerMap *spawner.Map
+	if enableSpawner {
+		spawnerMap = spawners
+	}
+
+	// Create and run unified checker
+	runner := internal.NewRunner(
+		reg,
+		spawnerMap,
+		ssaProg,
+		carriers,
+		ignoreMaps,
+		skipFiles,
+	)
+	runner.Run(pass, insp)
 
 	// Run spawnerlabel checker if enabled
 	if enableSpawnerlabel {
-		spawnerlabelChecker := spawnerlabel.New(spawners)
+		spawnerlabelChecker := spawnerlabel.New(spawners, reg, ssaProg)
 		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)
 	}
 
@@ -138,135 +156,38 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	return ignoreMaps
 }
 
-// runASTChecks runs AST-based checkers on the pass.
-func runASTChecks(
-	pass *analysis.Pass,
-	insp *inspector.Inspector,
-	ignoreMaps map[string]ignore.Map,
-	carriers []carrier.Carrier,
-	spawners *spawnerdir.Map,
-	skipFiles map[string]bool,
-) {
-	// Build context scopes for functions with context parameters
-	funcScopes := buildFuncScopes(pass, insp, carriers)
+// buildRegistry creates and populates the API registry.
+func buildRegistry() *registry.Registry {
+	reg := registry.New()
 
-	// Build checkers based on flags
-	var (
-		callCheckers   []checkers.CallChecker
-		goStmtCheckers []checkers.GoStmtChecker
-	)
-
-	if enableGoroutine {
-		goStmtCheckers = append(goStmtCheckers, goroutine.New())
-	}
-
+	// Create derivers matcher once if configured
+	var derivers *deriver.Matcher
 	if goroutineDeriver != "" {
-		goStmtCheckers = append(goStmtCheckers, goroutinederive.New(goroutineDeriver))
+		derivers = deriver.NewMatcher(goroutineDeriver)
 	}
 
-	if enableWaitgroup {
-		callCheckers = append(callCheckers, waitgroup.New())
+	// Register patterns (pass derivers for deriver checking)
+	if enableGoroutine {
+		internal.RegisterGoroutinePatterns(reg, derivers)
 	}
-
 	if enableErrgroup {
-		callCheckers = append(callCheckers, errgroup.New())
+		internal.RegisterErrgroupAPIs(reg, derivers)
+	}
+	if enableWaitgroup {
+		internal.RegisterWaitgroupAPIs(reg, derivers)
+	}
+	if enableConc {
+		internal.RegisterConcAPIs(reg, derivers)
+	}
+	if enableGotask {
+		internal.RegisterGotaskAPIs(reg, derivers)
 	}
 
-	// Add spawner checker if enabled and any functions are marked
-	if enableSpawner && spawners.Len() > 0 {
-		callCheckers = append(callCheckers, spawner.New(spawners))
-	}
-
-	// gotask checker requires goroutine-deriver to be set
-	if goroutineDeriver != "" && enableGotask {
-		callCheckers = append(callCheckers, gotask.New(goroutineDeriver))
-	}
-
-	// Node types we're interested in
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
-		(*ast.FuncLit)(nil),
-		(*ast.GoStmt)(nil),
-		(*ast.CallExpr)(nil),
-	}
-
-	// Check nodes within context-aware functions
-	insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		if !push {
-			return true
-		}
-
-		filename := pass.Fset.Position(n.Pos()).Filename
-		if skipFiles[filename] {
-			return true
-		}
-
-		scope := findEnclosingScope(funcScopes, stack)
-		if scope == nil {
-			return true // No context in scope
-		}
-
-		cctx := &context.CheckContext{
-			Pass:      pass,
-			Scope:     scope,
-			IgnoreMap: ignoreMaps[filename],
-			Carriers:  carriers,
-		}
-
-		switch node := n.(type) {
-		case *ast.GoStmt:
-			for _, checker := range goStmtCheckers {
-				checker.CheckGoStmt(cctx, node)
-			}
-		case *ast.CallExpr:
-			for _, checker := range callCheckers {
-				checker.CheckCall(cctx, node)
-			}
-		}
-
-		return true
-	})
-}
-
-// buildFuncScopes identifies functions with context parameters.
-func buildFuncScopes(
-	pass *analysis.Pass,
-	insp *inspector.Inspector,
-	carriers []carrier.Carrier,
-) map[ast.Node]*context.Scope {
-	funcScopes := make(map[ast.Node]*context.Scope)
-
-	insp.Preorder([]ast.Node{(*ast.FuncDecl)(nil), (*ast.FuncLit)(nil)}, func(n ast.Node) {
-		var fnType *ast.FuncType
-
-		switch fn := n.(type) {
-		case *ast.FuncDecl:
-			fnType = fn.Type
-		case *ast.FuncLit:
-			fnType = fn.Type
-		}
-
-		if scope := context.FindScope(pass, fnType, carriers); scope != nil {
-			funcScopes[n] = scope
-		}
-	})
-
-	return funcScopes
-}
-
-// findEnclosingScope finds the closest enclosing function with a context parameter.
-func findEnclosingScope(funcScopes map[ast.Node]*context.Scope, stack []ast.Node) *context.Scope {
-	for i := len(stack) - 1; i >= 0; i-- {
-		if scope, ok := funcScopes[stack[i]]; ok {
-			return scope
-		}
-	}
-
-	return nil
+	return reg
 }
 
 // buildEnabledCheckers creates a map of which checkers are enabled.
-func buildEnabledCheckers(spawners *spawnerdir.Map) ignore.EnabledCheckers {
+func buildEnabledCheckers(spawners *spawner.Map) ignore.EnabledCheckers {
 	enabled := make(ignore.EnabledCheckers)
 
 	if enableGoroutine {
@@ -281,7 +202,7 @@ func buildEnabledCheckers(spawners *spawnerdir.Map) ignore.EnabledCheckers {
 		enabled[ignore.Waitgroup] = true
 	}
 
-	if enableErrgroup {
+	if enableErrgroup || enableConc {
 		enabled[ignore.Errgroup] = true
 	}
 

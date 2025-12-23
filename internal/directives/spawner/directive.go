@@ -5,23 +5,17 @@ import (
 	"go/ast"
 	"go/types"
 	"strings"
-	"unicode"
 
 	"golang.org/x/tools/go/analysis"
-)
 
-// FuncSpec holds parsed components of a spawner function specification.
-type FuncSpec struct {
-	PkgPath  string
-	TypeName string // empty for package-level functions
-	FuncName string
-}
+	"github.com/mpyw/goroutinectx/internal/funcspec"
+)
 
 // Map tracks functions marked with //goroutinectx:spawner.
 // These functions are expected to spawn goroutines with their func arguments.
 type Map struct {
 	local    map[*types.Func]struct{} // from directives
-	external []FuncSpec               // from -external-spawner flag
+	external []funcspec.Spec          // from -external-spawner flag
 }
 
 // IsSpawner checks if a function is marked as a spawner.
@@ -51,51 +45,12 @@ func (m *Map) Len() int {
 // matchesExternal checks if fn matches any external spec.
 func (m *Map) matchesExternal(fn *types.Func) bool {
 	for _, spec := range m.external {
-		if matchesSpec(fn, spec) {
+		if spec.Matches(fn) {
 			return true
 		}
 	}
 
 	return false
-}
-
-// matchesSpec checks if a function matches a FuncSpec.
-func matchesSpec(fn *types.Func, spec FuncSpec) bool {
-	if fn.Name() != spec.FuncName {
-		return false
-	}
-
-	pkg := fn.Pkg()
-	if pkg == nil || pkg.Path() != spec.PkgPath {
-		return false
-	}
-
-	// Check if it's a method
-	sig := fn.Type().(*types.Signature)
-	recv := sig.Recv()
-
-	if spec.TypeName == "" {
-		// Package-level function: should have no receiver
-		return recv == nil
-	}
-
-	// Method: should have receiver of correct type
-	if recv == nil {
-		return false
-	}
-
-	recvType := recv.Type()
-	// Handle pointer receivers
-	if ptr, ok := recvType.(*types.Pointer); ok {
-		recvType = ptr.Elem()
-	}
-
-	named, ok := recvType.(*types.Named)
-	if !ok {
-		return false
-	}
-
-	return named.Obj().Name() == spec.TypeName
 }
 
 // Build scans files for functions marked with the directive
@@ -115,12 +70,12 @@ func Build(pass *analysis.Pass, externalSpawners string) *Map {
 
 // parseExternal parses the -external-spawner flag value.
 // Format: comma-separated list of "pkg/path.Func" or "pkg/path.Type.Method".
-func parseExternal(s string) []FuncSpec {
+func parseExternal(s string) []funcspec.Spec {
 	if s == "" {
 		return nil
 	}
 
-	var specs []FuncSpec
+	var specs []funcspec.Spec
 
 	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
@@ -128,44 +83,11 @@ func parseExternal(s string) []FuncSpec {
 			continue
 		}
 
-		spec := parseFunc(part)
+		spec := funcspec.Parse(part)
 		specs = append(specs, spec)
 	}
 
 	return specs
-}
-
-// parseFunc parses a single spawner function string into components.
-// Format: "pkg/path.Func" or "pkg/path.Type.Method".
-func parseFunc(s string) FuncSpec {
-	spec := FuncSpec{}
-
-	lastDot := strings.LastIndex(s, ".")
-	if lastDot == -1 {
-		spec.FuncName = s
-
-		return spec
-	}
-
-	spec.FuncName = s[lastDot+1:]
-	prefix := s[:lastDot]
-
-	// Check if there's another dot (indicating Type.Method)
-	// Type names start with uppercase in Go.
-	secondLastDot := strings.LastIndex(prefix, ".")
-	if secondLastDot != -1 {
-		possibleType := prefix[secondLastDot+1:]
-		if len(possibleType) > 0 && unicode.IsUpper(rune(possibleType[0])) {
-			spec.TypeName = possibleType
-			spec.PkgPath = prefix[:secondLastDot]
-
-			return spec
-		}
-	}
-
-	spec.PkgPath = prefix
-
-	return spec
 }
 
 // buildSpawnersForFile scans a single file for spawner directives.
@@ -222,28 +144,7 @@ func isSpawnerComment(text string) bool {
 // GetFuncFromCall extracts the *types.Func from a call expression if possible.
 // Returns nil if the callee cannot be determined statically.
 func GetFuncFromCall(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
-	var ident *ast.Ident
-
-	switch fun := call.Fun.(type) {
-	case *ast.Ident:
-		ident = fun
-	case *ast.SelectorExpr:
-		ident = fun.Sel
-	default:
-		return nil
-	}
-
-	obj := pass.TypesInfo.ObjectOf(ident)
-	if obj == nil {
-		return nil
-	}
-
-	fn, ok := obj.(*types.Func)
-	if !ok {
-		return nil
-	}
-
-	return fn
+	return funcspec.ExtractFunc(pass, call)
 }
 
 // FindFuncArgs finds all arguments in a call that are func types.
