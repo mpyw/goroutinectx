@@ -14,6 +14,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	"github.com/mpyw/goroutinectx/internal/directives/deriver"
 	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/directives/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
@@ -159,11 +160,33 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 func buildRegistry() *registry.Registry {
 	reg := registry.New()
 
-	internal.RegisterGoStmtPatterns(reg, enableGoroutine, goroutineDeriver)
-	internal.RegisterErrgroupAPIs(reg, enableErrgroup)
-	internal.RegisterWaitgroupAPIs(reg, enableWaitgroup)
-	internal.RegisterConcAPIs(reg, enableConc)
-	internal.RegisterGotaskAPIs(reg, goroutineDeriver, enableGotask)
+	// Create derivers matcher once if configured
+	var derivers *deriver.Matcher
+	if goroutineDeriver != "" {
+		derivers = deriver.NewMatcher(goroutineDeriver)
+	}
+
+	// Register goroutine patterns
+	if enableGoroutine {
+		internal.RegisterGoroutinePattern(reg)
+	}
+	if derivers != nil {
+		internal.RegisterGoroutineDerivePattern(reg, derivers)
+	}
+
+	// Register API patterns (pass derivers for deriver checking)
+	if enableErrgroup {
+		internal.RegisterErrgroupAPIs(reg, derivers)
+	}
+	if enableWaitgroup {
+		internal.RegisterWaitgroupAPIs(reg, derivers)
+	}
+	if enableConc {
+		internal.RegisterConcAPIs(reg, derivers)
+	}
+	if enableGotask {
+		internal.RegisterGotaskAPIs(reg, derivers)
+	}
 
 	return reg
 }

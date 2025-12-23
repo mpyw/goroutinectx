@@ -8,25 +8,29 @@ import (
 	"github.com/mpyw/goroutinectx/internal/registry"
 )
 
-// RegisterGoStmtPatterns registers GoStmt patterns based on flags.
-func RegisterGoStmtPatterns(reg *registry.Registry, enableGoroutine bool, goroutineDeriver string) {
-	if enableGoroutine {
-		reg.RegisterGoStmt(&patterns.GoStmtCapturesCtx{})
+// buildCallArgPatterns creates patterns for CallArg APIs.
+// Always includes ClosureCapturesCtx, and adds CallbackCallsDeriver if derivers is set.
+func buildCallArgPatterns(checkerName ignore.CheckerName, derivers *deriver.Matcher) []patterns.CallArgPattern {
+	p := []patterns.CallArgPattern{patterns.NewClosureCapturesCtx(checkerName)}
+	if derivers != nil {
+		p = append(p, &patterns.CallbackCallsDeriver{Matcher: derivers})
 	}
+	return p
+}
 
-	if goroutineDeriver != "" {
-		matcher := deriver.NewMatcher(goroutineDeriver)
-		reg.RegisterGoStmt(&patterns.GoStmtCallsDeriver{Matcher: matcher})
-	}
+// RegisterGoroutinePattern registers the goroutine context capture pattern.
+func RegisterGoroutinePattern(reg *registry.Registry) {
+	reg.RegisterGoStmt(&patterns.GoStmtCapturesCtx{})
+}
+
+// RegisterGoroutineDerivePattern registers the goroutine deriver call pattern.
+func RegisterGoroutineDerivePattern(reg *registry.Registry, derivers *deriver.Matcher) {
+	reg.RegisterGoStmt(&patterns.GoStmtCallsDeriver{Matcher: derivers})
 }
 
 // RegisterErrgroupAPIs registers errgroup.Group APIs.
-func RegisterErrgroupAPIs(reg *registry.Registry, enabled bool) {
-	if !enabled {
-		return
-	}
-
-	p := []patterns.CallArgPattern{patterns.NewClosureCapturesCtx(ignore.Errgroup)}
+func RegisterErrgroupAPIs(reg *registry.Registry, derivers *deriver.Matcher) {
+	p := buildCallArgPatterns(ignore.Errgroup, derivers)
 
 	reg.RegisterCallArg(registry.CallArgEntry{
 		Spec:           funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"},
@@ -42,12 +46,8 @@ func RegisterErrgroupAPIs(reg *registry.Registry, enabled bool) {
 }
 
 // RegisterWaitgroupAPIs registers sync.WaitGroup APIs (Go 1.25+).
-func RegisterWaitgroupAPIs(reg *registry.Registry, enabled bool) {
-	if !enabled {
-		return
-	}
-
-	p := []patterns.CallArgPattern{patterns.NewClosureCapturesCtx(ignore.Waitgroup)}
+func RegisterWaitgroupAPIs(reg *registry.Registry, derivers *deriver.Matcher) {
+	p := buildCallArgPatterns(ignore.Waitgroup, derivers)
 
 	reg.RegisterCallArg(registry.CallArgEntry{
 		Spec:           funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"},
@@ -58,12 +58,8 @@ func RegisterWaitgroupAPIs(reg *registry.Registry, enabled bool) {
 
 // RegisterConcAPIs registers sourcegraph/conc pool APIs.
 // Uses errgroup checker name since conc is conceptually similar.
-func RegisterConcAPIs(reg *registry.Registry, enabled bool) {
-	if !enabled {
-		return
-	}
-
-	p := []patterns.CallArgPattern{patterns.NewClosureCapturesCtx(ignore.Errgroup)}
+func RegisterConcAPIs(reg *registry.Registry, derivers *deriver.Matcher) {
+	p := buildCallArgPatterns(ignore.Errgroup, derivers)
 
 	// conc.Pool.Go
 	reg.RegisterCallArg(registry.CallArgEntry{
@@ -186,9 +182,9 @@ func RegisterConcAPIs(reg *registry.Registry, enabled bool) {
 }
 
 // RegisterGotaskAPIs registers gotask APIs.
-// If goroutineDeriver is empty, APIs are registered for detection only (spawnerlabel).
-// If goroutineDeriver is set, APIs are registered with pattern checking.
-func RegisterGotaskAPIs(reg *registry.Registry, goroutineDeriver string, enabled bool) {
+// If derivers is nil, APIs are registered for detection only (spawnerlabel).
+// If derivers is set, APIs are registered with pattern checking.
+func RegisterGotaskAPIs(reg *registry.Registry, derivers *deriver.Matcher) {
 	// gotaskConstructor defines how gotask tasks are created.
 	gotaskConstructor := &patterns.TaskConstructorConfig{
 		Pkg:            "github.com/siketyan/gotask",
@@ -196,14 +192,13 @@ func RegisterGotaskAPIs(reg *registry.Registry, goroutineDeriver string, enabled
 		CallbackArgIdx: 0,
 	}
 
-	// Build patterns only if deriver is configured and enabled
+	// Build patterns only if derivers is configured
 	var deriverPatterns []patterns.CallArgPattern
 	var doAsyncPatterns []patterns.TaskSourcePattern
-	if goroutineDeriver != "" && enabled {
-		matcher := deriver.NewMatcher(goroutineDeriver)
-		deriverPatterns = []patterns.CallArgPattern{&patterns.CallbackCallsDeriver{Matcher: matcher}}
+	if derivers != nil {
+		deriverPatterns = []patterns.CallArgPattern{&patterns.CallbackCallsDeriver{Matcher: derivers}}
 		doAsyncPatterns = []patterns.TaskSourcePattern{&patterns.CallbackCallsDeriverOrCtxDerived{
-			CallbackCallsDeriver: patterns.CallbackCallsDeriver{Matcher: matcher},
+			CallbackCallsDeriver: patterns.CallbackCallsDeriver{Matcher: derivers},
 		}}
 	}
 
