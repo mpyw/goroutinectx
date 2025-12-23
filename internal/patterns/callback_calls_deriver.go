@@ -21,6 +21,12 @@ type CallbackCallsDeriver struct {
 	Matcher *deriver.Matcher
 }
 
+func (p *CallbackCallsDeriver) OrCtxDerived() *CallbackCallsDeriverOrCtxDerived {
+	return &CallbackCallsDeriverOrCtxDerived{
+		CallbackCallsDeriver: *p,
+	}
+}
+
 func (*CallbackCallsDeriver) Name() string {
 	return "CallbackCallsDeriver"
 }

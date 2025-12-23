@@ -194,10 +194,9 @@ func RegisterGotaskAPIs(reg *registry.Registry, derivers *deriver.Matcher) {
 	var deriverPatterns []patterns.CallArgPattern
 	var doAsyncPatterns []patterns.TaskSourcePattern
 	if derivers != nil {
-		deriverPatterns = []patterns.CallArgPattern{&patterns.CallbackCallsDeriver{Matcher: derivers}}
-		doAsyncPatterns = []patterns.TaskSourcePattern{&patterns.CallbackCallsDeriverOrCtxDerived{
-			CallbackCallsDeriver: patterns.CallbackCallsDeriver{Matcher: derivers},
-		}}
+		callbackCallsDeriver := &patterns.CallbackCallsDeriver{Matcher: derivers}
+		deriverPatterns = []patterns.CallArgPattern{callbackCallsDeriver}
+		doAsyncPatterns = []patterns.TaskSourcePattern{callbackCallsDeriver.OrCtxDerived()}
 	}
 
 	// DoAll, DoAllSettled, DoRace - variadic Task arguments
