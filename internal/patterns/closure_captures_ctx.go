@@ -6,14 +6,27 @@ import (
 	"go/token"
 
 	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 )
 
 // ClosureCapturesCtx checks that a closure captures the outer context.
 // Used by: errgroup.Group.Go, sync.WaitGroup.Go, sourcegraph/conc.Pool.Go, etc.
-type ClosureCapturesCtx struct{}
+type ClosureCapturesCtx struct {
+	// checkerName is the ignore checker name for this pattern instance.
+	checkerName ignore.CheckerName
+}
+
+// NewClosureCapturesCtx creates a new ClosureCapturesCtx with the given checker name.
+func NewClosureCapturesCtx(checkerName ignore.CheckerName) *ClosureCapturesCtx {
+	return &ClosureCapturesCtx{checkerName: checkerName}
+}
 
 func (*ClosureCapturesCtx) Name() string {
 	return "ClosureCapturesCtx"
+}
+
+func (p *ClosureCapturesCtx) CheckerName() ignore.CheckerName {
+	return p.checkerName
 }
 
 func (p *ClosureCapturesCtx) Check(cctx *context.CheckContext, arg ast.Expr, _ *TaskConstructorConfig) bool {

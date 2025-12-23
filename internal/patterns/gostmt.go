@@ -6,6 +6,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 )
 
 // GoStmtCapturesCtx checks that a go statement's closure captures the outer context.
@@ -13,6 +14,10 @@ type GoStmtCapturesCtx struct{}
 
 func (*GoStmtCapturesCtx) Name() string {
 	return "GoStmtCapturesCtx"
+}
+
+func (*GoStmtCapturesCtx) CheckerName() ignore.CheckerName {
+	return ignore.Goroutine
 }
 
 func (p *GoStmtCapturesCtx) Check(cctx *context.CheckContext, stmt *ast.GoStmt) GoStmtResult {
@@ -84,6 +89,10 @@ type GoStmtCallsDeriver struct {
 
 func (*GoStmtCallsDeriver) Name() string {
 	return "GoStmtCallsDeriver"
+}
+
+func (*GoStmtCallsDeriver) CheckerName() ignore.CheckerName {
+	return ignore.GoroutineDerive
 }
 
 func (p *GoStmtCallsDeriver) Check(cctx *context.CheckContext, stmt *ast.GoStmt) GoStmtResult {

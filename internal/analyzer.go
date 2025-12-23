@@ -21,38 +21,32 @@ import (
 
 // Runner is the unified SSA-based checker.
 type Runner struct {
-	registry     *registry.Registry
-	goPatterns   []patterns.GoStmtPattern
-	spawners     *spawner.Map
-	ssaProg      *internalssa.Program
-	tracer       *internalssa.Tracer
-	carriers     []carrier.Carrier
-	ignoreMaps   map[string]ignore.Map
-	skipFiles    map[string]bool
-	checkerNames map[string]ignore.CheckerName // pattern name -> checker name for ignore
+	registry   *registry.Registry
+	spawners   *spawner.Map
+	ssaProg    *internalssa.Program
+	tracer     *internalssa.Tracer
+	carriers   []carrier.Carrier
+	ignoreMaps map[string]ignore.Map
+	skipFiles  map[string]bool
 }
 
 // NewRunner creates a new unified checker.
 func NewRunner(
 	reg *registry.Registry,
-	goPatterns []patterns.GoStmtPattern,
 	spawners *spawner.Map,
 	ssaProg *internalssa.Program,
 	carriers []carrier.Carrier,
 	ignoreMaps map[string]ignore.Map,
 	skipFiles map[string]bool,
-	checkerNames map[string]ignore.CheckerName,
 ) *Runner {
 	return &Runner{
-		registry:     reg,
-		goPatterns:   goPatterns,
-		spawners:     spawners,
-		ssaProg:      ssaProg,
-		tracer:       internalssa.NewTracer(),
-		carriers:     carriers,
-		ignoreMaps:   ignoreMaps,
-		skipFiles:    skipFiles,
-		checkerNames: checkerNames,
+		registry:   reg,
+		spawners:   spawners,
+		ssaProg:    ssaProg,
+		tracer:     internalssa.NewTracer(),
+		carriers:   carriers,
+		ignoreMaps: ignoreMaps,
+		skipFiles:  skipFiles,
 	}
 }
 
@@ -106,9 +100,8 @@ func (c *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 
 // checkGoStmt checks a go statement against all registered go patterns.
 func (c *Runner) checkGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt, scope *contextScope) {
-	for _, pattern := range c.goPatterns {
-		checkerName := c.getCheckerName(pattern.Name())
-		if c.shouldIgnore(cctx.Pass, stmt.Pos(), checkerName) {
+	for _, pattern := range c.registry.GoStmtPatterns() {
+		if c.shouldIgnore(cctx.Pass, stmt.Pos(), pattern.CheckerName()) {
 			continue
 		}
 
@@ -162,20 +155,19 @@ func (c *Runner) checkCallArgPattern(cctx *context.CheckContext, call *ast.CallE
 	}
 
 	// Handle variadic APIs (e.g., DoAllFns(ctx, fn1, fn2, ...))
-	if entry.API.Variadic {
+	if entry.Variadic {
 		c.checkVariadicCallExpr(cctx, call, entry, scope)
 		return
 	}
 
 	// Check each pattern - all must be satisfied
 	for _, pattern := range entry.Patterns {
-		checkerName := c.getCheckerName(pattern.Name())
-		if c.shouldIgnore(cctx.Pass, call.Pos(), checkerName) {
+		if c.shouldIgnore(cctx.Pass, call.Pos(), pattern.CheckerName()) {
 			continue
 		}
 
-		if !pattern.Check(cctx, callbackArg, entry.API.TaskConstructor) {
-			msg := pattern.Message(entry.API.FullName(), scope.ctxName())
+		if !pattern.Check(cctx, callbackArg, entry.TaskConstructor) {
+			msg := pattern.Message(entry.Spec.FullName(), scope.ctxName())
 			// Report at method selector position for chained calls
 			reportPos := getCallReportPos(call)
 			cctx.Pass.Reportf(reportPos, "%s", msg)
@@ -198,18 +190,17 @@ func (c *Runner) checkTaskSourcePattern(cctx *context.CheckContext, call *ast.Ca
 	// Build TaskCheckContext
 	tcctx := &patterns.TaskCheckContext{
 		CheckContext: cctx,
-		Constructor:  entry.API.TaskConstructor,
+		Constructor:  entry.TaskConstructor,
 	}
 
 	// Check each pattern
 	for _, pattern := range entry.Patterns {
-		checkerName := c.getCheckerName(pattern.Name())
-		if c.shouldIgnore(cctx.Pass, call.Pos(), checkerName) {
+		if c.shouldIgnore(cctx.Pass, call.Pos(), pattern.CheckerName()) {
 			continue
 		}
 
 		if !pattern.Check(tcctx, call) {
-			msg := pattern.Message(entry.API.FullName(), scope.ctxName())
+			msg := pattern.Message(entry.Spec.FullName(), scope.ctxName())
 			reportPos := getCallReportPos(call)
 			cctx.Pass.Reportf(reportPos, "%s", msg)
 		}
@@ -259,7 +250,7 @@ func (c *Runner) checkVariadicCallExpr(
 	entry *registry.CallArgEntry,
 	scope *contextScope,
 ) {
-	startIdx := entry.API.CallbackArgIdx
+	startIdx := entry.CallbackArgIdx
 	if startIdx < 0 || startIdx >= len(call.Args) {
 		return
 	}
@@ -271,20 +262,19 @@ func (c *Runner) checkVariadicCallExpr(
 		arg := call.Args[i]
 		// Check each pattern for this argument
 		for _, pattern := range entry.Patterns {
-			checkerName := c.getCheckerName(pattern.Name())
-			if c.shouldIgnore(cctx.Pass, call.Pos(), checkerName) {
+			if c.shouldIgnore(cctx.Pass, call.Pos(), pattern.CheckerName()) {
 				continue
 			}
 
-			if !pattern.Check(cctx, arg, entry.API.TaskConstructor) {
+			if !pattern.Check(cctx, arg, entry.TaskConstructor) {
 				var msg string
 				if isVariadicExpansion {
 					// For variadic expansion, we can't determine the position
-					msg = entry.API.FullName() + "() variadic argument should call goroutine deriver"
+					msg = entry.Spec.FullName() + "() variadic argument should call goroutine deriver"
 				} else {
 					// Create message with argument position (1-based for human readability)
 					argNum := i + 1
-					msg = formatVariadicMessage(entry.API.FullName(), argNum)
+					msg = formatVariadicMessage(entry.Spec.FullName(), argNum)
 				}
 				// Report at the call position (where the // want comment is)
 				cctx.Pass.Reportf(call.Pos(), "%s", msg)
@@ -327,14 +317,6 @@ func (c *Runner) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName ig
 	}
 	line := pass.Fset.Position(pos).Line
 	return ignoreMap.ShouldIgnore(line, checkerName)
-}
-
-// getCheckerName maps pattern name to ignore checker name.
-func (c *Runner) getCheckerName(patternName string) ignore.CheckerName {
-	if name, ok := c.checkerNames[patternName]; ok {
-		return name
-	}
-	return ignore.CheckerName(patternName)
 }
 
 // contextScope holds context information for a function scope.

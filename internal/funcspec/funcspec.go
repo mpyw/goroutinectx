@@ -53,14 +53,25 @@ func Parse(s string) Spec {
 	return spec
 }
 
+// FullName returns the full API name for message formatting.
+// Format: "pkg.Func" or "pkg.Type.Method" where pkg is the short package name.
+func (s Spec) FullName() string {
+	shortPkg := typeutil.ShortPkgName(s.PkgPath)
+	if s.TypeName != "" {
+		return shortPkg + "." + s.TypeName + "." + s.FuncName
+	}
+	return shortPkg + "." + s.FuncName
+}
+
 // Matches checks if a types.Func matches this specification.
+// Uses MatchPkg to handle version suffixes (v2, v3, etc.).
 func (s Spec) Matches(fn *types.Func) bool {
 	if fn.Name() != s.FuncName {
 		return false
 	}
 
 	pkg := fn.Pkg()
-	if pkg == nil || pkg.Path() != s.PkgPath {
+	if pkg == nil || !typeutil.MatchPkg(pkg.Path(), s.PkgPath) {
 		return false
 	}
 

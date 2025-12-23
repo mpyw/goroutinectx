@@ -102,22 +102,22 @@ func (t *Tracer) collectDeriverCalls(fn *ssa.Function, inDefer bool, visited map
 			switch v := instr.(type) {
 			case *ssa.Call:
 				// Regular function call
-				if calledFn := t.extractCalledFunc(v); calledFn != nil {
+				if calledFn := ExtractCalledFunc(&v.Call); calledFn != nil {
 					calls = append(calls, deriverCall{fn: calledFn, inDefer: inDefer})
 				}
 				// Check for IIFE: call where the callee is a MakeClosure
-				if iifeFn := t.extractIIFE(v); iifeFn != nil {
+				if iifeFn := ExtractIIFE(&v.Call); iifeFn != nil {
 					// Traverse into the IIFE with the same defer status
 					calls = append(calls, t.collectDeriverCalls(iifeFn, inDefer, visited)...)
 				}
 
 			case *ssa.Defer:
 				// Deferred function call - mark as inDefer
-				if calledFn := t.extractCalledFuncFromCallCommon(&v.Call); calledFn != nil {
+				if calledFn := ExtractCalledFunc(&v.Call); calledFn != nil {
 					calls = append(calls, deriverCall{fn: calledFn, inDefer: true})
 				}
 				// Check for deferred IIFE
-				if iifeFn := t.extractIIFEFromCallCommon(&v.Call); iifeFn != nil {
+				if iifeFn := ExtractIIFE(&v.Call); iifeFn != nil {
 					// Traverse into the deferred IIFE with inDefer=true
 					calls = append(calls, t.collectDeriverCalls(iifeFn, true, visited)...)
 				}
@@ -126,58 +126,6 @@ func (t *Tracer) collectDeriverCalls(fn *ssa.Function, inDefer bool, visited map
 	}
 
 	return calls
-}
-
-// extractCalledFunc extracts the types.Func from a Call instruction.
-func (t *Tracer) extractCalledFunc(call *ssa.Call) *types.Func {
-	return t.extractCalledFuncFromCallCommon(&call.Call)
-}
-
-// extractCalledFuncFromCallCommon extracts the types.Func from a CallCommon.
-func (t *Tracer) extractCalledFuncFromCallCommon(call *ssa.CallCommon) *types.Func {
-	if call.IsInvoke() {
-		// Interface method call
-		return call.Method
-	}
-
-	// Static call
-	if fn := call.StaticCallee(); fn != nil {
-		if obj, ok := fn.Object().(*types.Func); ok {
-			return obj
-		}
-	}
-
-	return nil
-}
-
-// extractIIFE checks if a Call instruction is an IIFE (immediately invoked function expression).
-// Returns the called function if it's an IIFE, nil otherwise.
-func (t *Tracer) extractIIFE(call *ssa.Call) *ssa.Function {
-	return t.extractIIFEFromCallCommon(&call.Call)
-}
-
-// extractIIFEFromCallCommon checks if a CallCommon is an IIFE.
-func (t *Tracer) extractIIFEFromCallCommon(call *ssa.CallCommon) *ssa.Function {
-	if call.IsInvoke() {
-		return nil
-	}
-
-	// Check if the callee is a MakeClosure
-	if mc, ok := call.Value.(*ssa.MakeClosure); ok {
-		if fn, ok := mc.Fn.(*ssa.Function); ok {
-			return fn
-		}
-	}
-
-	// Check if the callee is a direct function reference
-	if fn, ok := call.Value.(*ssa.Function); ok {
-		// Only count as IIFE if it's an anonymous function (has no name in package scope)
-		if fn.Parent() != nil {
-			return fn
-		}
-	}
-
-	return nil
 }
 
 // checkAndGroup checks if all specs in an AND group are satisfied.

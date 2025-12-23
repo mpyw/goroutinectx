@@ -6,26 +6,39 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
+	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/patterns"
-	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // CallArgEntry represents a registered API with CallArgPatterns.
 // Used for: errgroup.Go, DoAllFns, DoAll (callback in call arguments).
 type CallArgEntry struct {
-	API      API
-	Patterns []patterns.CallArgPattern
+	Spec            funcspec.Spec
+	CallbackArgIdx  int
+	Variadic        bool
+	TaskConstructor *patterns.TaskConstructorConfig
+	Patterns        []patterns.CallArgPattern
 }
 
 // TaskSourceEntry represents a registered API with TaskSourcePatterns.
 // Used for: task.DoAsync (callback in constructor, task is receiver).
 type TaskSourceEntry struct {
-	API      API
-	Patterns []patterns.TaskSourcePattern
+	Spec            funcspec.Spec
+	TaskConstructor *patterns.TaskConstructorConfig
+	Patterns        []patterns.TaskSourcePattern
+}
+
+// FuncMatch contains information about a matched function.
+// Used by spawnerlabel to determine if a function is a spawner.
+type FuncMatch struct {
+	FullName       string
+	CallbackArgIdx int
+	AlwaysSpawns   bool // true for TaskSource APIs (method receiver is task)
 }
 
 // Registry holds registered APIs and their patterns.
 type Registry struct {
+	goStmtPatterns    []patterns.GoStmtPattern
 	callArgEntries    []CallArgEntry
 	taskSourceEntries []TaskSourceEntry
 }
@@ -35,20 +48,24 @@ func New() *Registry {
 	return &Registry{}
 }
 
-// RegisterCallArg adds an API with CallArgPatterns to the registry.
-func (r *Registry) RegisterCallArg(api API, patterns ...patterns.CallArgPattern) {
-	r.callArgEntries = append(r.callArgEntries, CallArgEntry{
-		API:      api,
-		Patterns: patterns,
-	})
+// RegisterGoStmt adds GoStmtPatterns to the registry.
+func (r *Registry) RegisterGoStmt(patterns ...patterns.GoStmtPattern) {
+	r.goStmtPatterns = append(r.goStmtPatterns, patterns...)
 }
 
-// RegisterTaskSource adds an API with TaskSourcePatterns to the registry.
-func (r *Registry) RegisterTaskSource(api API, patterns ...patterns.TaskSourcePattern) {
-	r.taskSourceEntries = append(r.taskSourceEntries, TaskSourceEntry{
-		API:      api,
-		Patterns: patterns,
-	})
+// GoStmtPatterns returns all registered GoStmtPatterns.
+func (r *Registry) GoStmtPatterns() []patterns.GoStmtPattern {
+	return r.goStmtPatterns
+}
+
+// RegisterCallArg adds a CallArgEntry to the registry.
+func (r *Registry) RegisterCallArg(entry CallArgEntry) {
+	r.callArgEntries = append(r.callArgEntries, entry)
+}
+
+// RegisterTaskSource adds a TaskSourceEntry to the registry.
+func (r *Registry) RegisterTaskSource(entry TaskSourceEntry) {
+	r.taskSourceEntries = append(r.taskSourceEntries, entry)
 }
 
 // CallArgEntries returns all registered CallArgEntries.
@@ -64,189 +81,71 @@ func (r *Registry) TaskSourceEntries() []TaskSourceEntry {
 // MatchCallArg attempts to match a call expression against registered CallArg APIs.
 // Returns the matched entry and callback argument, or nil if no match.
 func (r *Registry) MatchCallArg(pass *analysis.Pass, call *ast.CallExpr) (*CallArgEntry, ast.Expr) {
+	fn := funcspec.ExtractFunc(pass, call)
+	if fn == nil {
+		return nil, nil
+	}
+
 	for i := range r.callArgEntries {
 		entry := &r.callArgEntries[i]
-		if callbackArg := r.matchAPI(pass, call, entry.API); callbackArg != nil {
-			return entry, callbackArg
+		if entry.Spec.Matches(fn) {
+			return entry, getCallbackArg(call, entry.CallbackArgIdx)
 		}
 	}
+
 	return nil, nil
 }
 
 // MatchTaskSource attempts to match a call expression against registered TaskSource APIs.
 // Returns the matched entry, or nil if no match.
 func (r *Registry) MatchTaskSource(pass *analysis.Pass, call *ast.CallExpr) *TaskSourceEntry {
+	fn := funcspec.ExtractFunc(pass, call)
+	if fn == nil {
+		return nil
+	}
+
 	for i := range r.taskSourceEntries {
 		entry := &r.taskSourceEntries[i]
-		if r.matchAPI(pass, call, entry.API) != nil {
+		if entry.Spec.Matches(fn) {
 			return entry
 		}
 	}
+
 	return nil
 }
 
-// matchAPI checks if a call matches the given API.
-func (r *Registry) matchAPI(pass *analysis.Pass, call *ast.CallExpr, api API) ast.Expr {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return nil
-	}
-
-	// Check method/function name
-	if sel.Sel.Name != api.Name {
-		return nil
-	}
-
-	// Check package and type
-	switch api.Kind {
-	case KindMethod:
-		if !r.isMethodCall(pass, sel, api) {
-			return nil
-		}
-	case KindFunc:
-		if !r.isFuncCall(pass, sel, api) {
-			return nil
-		}
-	}
-
-	// Get callback argument
-	return r.getCallbackArg(call, api)
-}
-
-// isMethodCall checks if the selector is a method call on the specified type.
-func (r *Registry) isMethodCall(pass *analysis.Pass, sel *ast.SelectorExpr, api API) bool {
-	typ := pass.TypesInfo.TypeOf(sel.X)
-	if typ == nil {
-		return false
-	}
-
-	typ = typeutil.UnwrapPointer(typ)
-
-	named, ok := typ.(*types.Named)
-	if !ok {
-		return false
-	}
-
-	// Handle generic types
-	if origin := named.Origin(); origin != nil {
-		named = origin
-	}
-
-	obj := named.Obj()
-	if obj.Name() != api.Type {
-		return false
-	}
-
-	pkg := obj.Pkg()
-	if pkg == nil {
-		return false
-	}
-
-	return typeutil.MatchPkg(pkg.Path(), api.Pkg)
-}
-
-// isFuncCall checks if the selector is a package-level function call.
-func (r *Registry) isFuncCall(pass *analysis.Pass, sel *ast.SelectorExpr, api API) bool {
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-
-	obj := pass.TypesInfo.ObjectOf(ident)
-	if obj == nil {
-		return false
-	}
-
-	pkgName, ok := obj.(*types.PkgName)
-	if !ok {
-		return false
-	}
-
-	return typeutil.MatchPkg(pkgName.Imported().Path(), api.Pkg)
-}
-
-// getCallbackArg extracts the callback argument from the call.
-func (r *Registry) getCallbackArg(call *ast.CallExpr, api API) ast.Expr {
-	idx := api.CallbackArgIdx
-	if idx < 0 {
-		// Negative index means from end (for variadic)
-		idx = len(call.Args) + idx
-	}
-
+// getCallbackArg extracts the callback argument at the given index.
+func getCallbackArg(call *ast.CallExpr, idx int) ast.Expr {
 	if idx < 0 || idx >= len(call.Args) {
 		return nil
 	}
-
 	return call.Args[idx]
 }
 
 // MatchFunc attempts to match a types.Func against registered APIs.
-// Returns the matched API or nil if no match.
-// This is used for SSA-based analysis where we have types.Func instead of ast.CallExpr.
-func (r *Registry) MatchFunc(fn *types.Func) *API {
+// Returns FuncMatch for spawnerlabel detection, or nil if no match.
+func (r *Registry) MatchFunc(fn *types.Func) *FuncMatch {
 	for i := range r.callArgEntries {
 		entry := &r.callArgEntries[i]
-		if matchFuncToAPI(fn, entry.API) {
-			return &entry.API
+		if entry.Spec.Matches(fn) {
+			return &FuncMatch{
+				FullName:       entry.Spec.FullName(),
+				CallbackArgIdx: entry.CallbackArgIdx,
+				AlwaysSpawns:   false,
+			}
 		}
 	}
+
 	for i := range r.taskSourceEntries {
 		entry := &r.taskSourceEntries[i]
-		if matchFuncToAPI(fn, entry.API) {
-			return &entry.API
+		if entry.Spec.Matches(fn) {
+			return &FuncMatch{
+				FullName:       entry.Spec.FullName(),
+				CallbackArgIdx: 0,
+				AlwaysSpawns:   true,
+			}
 		}
 	}
+
 	return nil
-}
-
-// matchFuncToAPI checks if a types.Func matches the given API.
-func matchFuncToAPI(fn *types.Func, api API) bool {
-	if fn == nil {
-		return false
-	}
-
-	// Check function name
-	if fn.Name() != api.Name {
-		return false
-	}
-
-	// Get package path
-	pkg := fn.Pkg()
-	if pkg == nil {
-		return false
-	}
-
-	switch api.Kind {
-	case KindMethod:
-		// Check receiver type
-		sig, ok := fn.Type().(*types.Signature)
-		if !ok {
-			return false
-		}
-		recv := sig.Recv()
-		if recv == nil {
-			return false
-		}
-		recvType := typeutil.UnwrapPointer(recv.Type())
-		named, ok := recvType.(*types.Named)
-		if !ok {
-			return false
-		}
-		if origin := named.Origin(); origin != nil {
-			named = origin
-		}
-		if named.Obj().Name() != api.Type {
-			return false
-		}
-		return typeutil.MatchPkg(pkg.Path(), api.Pkg)
-
-	case KindFunc:
-		// Package-level function
-		if api.Type != "" {
-			return false // Not a package-level function
-		}
-		return typeutil.MatchPkg(pkg.Path(), api.Pkg)
-	}
-
-	return false
 }

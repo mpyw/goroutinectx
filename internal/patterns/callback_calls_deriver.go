@@ -6,6 +6,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/context"
 	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -22,6 +23,10 @@ type CallbackCallsDeriver struct {
 
 func (*CallbackCallsDeriver) Name() string {
 	return "CallbackCallsDeriver"
+}
+
+func (*CallbackCallsDeriver) CheckerName() ignore.CheckerName {
+	return ignore.Gotask
 }
 
 func (p *CallbackCallsDeriver) Check(cctx *context.CheckContext, arg ast.Expr, constructor *TaskConstructorConfig) bool {

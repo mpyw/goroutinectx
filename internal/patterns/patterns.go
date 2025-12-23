@@ -3,9 +3,10 @@ package patterns
 
 import (
 	"go/ast"
-	"strings"
 
 	"github.com/mpyw/goroutinectx/internal/context"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // TaskConstructorConfig defines how tasks are created for task-based APIs.
@@ -30,19 +31,11 @@ type TaskConstructorConfig struct {
 
 // FullName returns a human-readable name for the task constructor.
 func (c TaskConstructorConfig) FullName() string {
-	pkgName := shortPkgName(c.Pkg)
+	pkgName := typeutil.ShortPkgName(c.Pkg)
 	if c.Type == "" {
 		return pkgName + "." + c.Name
 	}
 	return pkgName + "." + c.Type + "." + c.Name
-}
-
-// shortPkgName returns the last component of a package path.
-func shortPkgName(pkgPath string) string {
-	if idx := strings.LastIndex(pkgPath, "/"); idx >= 0 {
-		return pkgPath[idx+1:]
-	}
-	return pkgPath
 }
 
 // TaskCheckContext provides context for task-source pattern checks.
@@ -59,6 +52,9 @@ type CallArgPattern interface {
 	// Name returns a human-readable name for the pattern.
 	Name() string
 
+	// CheckerName returns the ignore checker name for this pattern.
+	CheckerName() ignore.CheckerName
+
 	// Check checks if the callback argument satisfies the pattern.
 	// constructor is optional - nil for direct fn args (errgroup.Go, DoAllFns),
 	// non-nil for task args that need tracing (DoAll).
@@ -74,6 +70,9 @@ type CallArgPattern interface {
 type TaskSourcePattern interface {
 	// Name returns a human-readable name for the pattern.
 	Name() string
+
+	// CheckerName returns the ignore checker name for this pattern.
+	CheckerName() ignore.CheckerName
 
 	// Check checks if the task's callback (from constructor) satisfies the pattern.
 	// The task is always the method receiver.
@@ -96,6 +95,9 @@ type GoStmtResult struct {
 type GoStmtPattern interface {
 	// Name returns a human-readable name for the pattern.
 	Name() string
+
+	// CheckerName returns the ignore checker name for this pattern.
+	CheckerName() ignore.CheckerName
 
 	// Check checks if the pattern is satisfied for the given go statement.
 	Check(cctx *context.CheckContext, stmt *ast.GoStmt) GoStmtResult

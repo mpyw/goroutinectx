@@ -4,7 +4,7 @@ import (
 	"go/ast"
 
 	"github.com/mpyw/goroutinectx/internal/context"
-	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/directives/ignore"
 )
 
 // CallbackCallsDeriverOrCtxDerived checks that EITHER:
@@ -31,12 +31,18 @@ import (
 //	task := lib.NewTask(func(ctx context.Context) error { return nil })
 //	task.DoAsync(ctx, nil) // BAD - neither ctx is derived nor callback calls deriver
 type CallbackCallsDeriverOrCtxDerived struct {
-	// Matcher is the deriver function matcher (OR/AND semantics).
-	Matcher *deriver.Matcher
+	// CallbackCallsDeriver is embedded for callback checking logic.
+	// After tracing the task back to its constructor, we delegate to this
+	// for checking whether the callback calls the deriver.
+	CallbackCallsDeriver
 }
 
 func (*CallbackCallsDeriverOrCtxDerived) Name() string {
 	return "CallbackCallsDeriverOrCtxDerived"
+}
+
+func (*CallbackCallsDeriverOrCtxDerived) CheckerName() ignore.CheckerName {
+	return ignore.Gotask
 }
 
 func (p *CallbackCallsDeriverOrCtxDerived) Check(tcctx *TaskCheckContext, call *ast.CallExpr) bool {
@@ -112,7 +118,9 @@ func (p *CallbackCallsDeriverOrCtxDerived) taskCallbackCallsDeriver(tcctx *TaskC
 	}
 
 	callbackArg := constructorCall.Args[argIdx]
-	return p.callbackCallsDeriver(tcctx.CheckContext, callbackArg)
+	// Delegate to embedded CallbackCallsDeriver for callback checking.
+	// Pass nil as constructor since we've already traced to the callback arg.
+	return p.CallbackCallsDeriver.Check(tcctx.CheckContext, callbackArg, nil)
 }
 
 // getMethodReceiver extracts the receiver from a method call.
@@ -187,50 +195,6 @@ func (p *CallbackCallsDeriverOrCtxDerived) findConstructorFromIdent(cctx *contex
 	}
 
 	return p.findConstructorFromCall(cctx, call, tc)
-}
-
-// callbackCallsDeriver checks if a callback expression calls the deriver.
-func (p *CallbackCallsDeriverOrCtxDerived) callbackCallsDeriver(cctx *context.CheckContext, expr ast.Expr) bool {
-	switch e := expr.(type) {
-	case *ast.FuncLit:
-		// Try SSA-based check first
-		if result, ok := p.checkFromSSA(cctx, e); ok {
-			return result
-		}
-		// Fall back to AST-based check
-		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, e.Body)
-
-	case *ast.Ident:
-		// Variable: fn = func() { ... }
-		v := cctx.VarOf(e)
-		if v == nil {
-			return true // Can't trace, assume OK
-		}
-		funcLit := cctx.FuncLitAssignedTo(v, e.Pos())
-		if funcLit != nil {
-			return p.callbackCallsDeriver(cctx, funcLit)
-		}
-		return true // Can't trace
-
-	default:
-		return true // Can't trace, assume OK
-	}
-}
-
-// checkFromSSA uses SSA analysis to check deriver calls.
-func (p *CallbackCallsDeriverOrCtxDerived) checkFromSSA(cctx *context.CheckContext, lit *ast.FuncLit) (bool, bool) {
-	if cctx.SSAProg == nil || cctx.Tracer == nil {
-		return false, false
-	}
-
-	ssaFn := cctx.SSAProg.FindFuncLit(lit)
-	if ssaFn == nil {
-		return false, false
-	}
-
-	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, p.Matcher)
-	// Accept deriver calls at start (not in defer)
-	return result.FoundAtStart, true
 }
 
 // Message formats the error message.

@@ -69,6 +69,15 @@ func IsContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
 	return false
 }
 
+// ShortPkgName returns the last component of a package path.
+// Example: "github.com/foo/bar" -> "bar"
+func ShortPkgName(pkgPath string) string {
+	if idx := strings.LastIndex(pkgPath, "/"); idx >= 0 {
+		return pkgPath[idx+1:]
+	}
+	return pkgPath
+}
+
 // MatchPkg checks if pkgPath matches targetPkg, allowing version suffixes (/v2, /v3, etc.).
 // This handles Go module versioning where:
 //   - github.com/foo/bar matches github.com/foo/bar
