@@ -1,0 +1,21 @@
+{
+  "title": "Carrier captured directly - calls deriver",
+  "targets": [
+    "carrierderive"
+  ],
+  "level": "carrierderive",
+  "variants": {
+    "good": {
+      "description": "Carrier itself captured by closure, context extracted inside, deriver called.",
+      "functions": {
+        "carrierderive": "goodCarrierCapturedDirect"
+      }
+    },
+    "bad": {
+      "description": "Carrier itself captured by closure, but deriver not called.",
+      "functions": {
+        "carrierderive": "badCarrierCapturedDirectNoDeriver"
+      }
+    }
+  }
+}

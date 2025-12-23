@@ -174,8 +174,14 @@ func (p *GoStmtCallsDeriver) checkIdent(cctx *context.CheckContext, ident *ast.I
 // checkHigherOrder checks go fn()() patterns for deriver calls.
 // The deriver must be called in the returned function, not in the factory.
 func (p *GoStmtCallsDeriver) checkHigherOrder(cctx *context.CheckContext, innerCall *ast.CallExpr) bool {
+	// Unwrap ParenExpr if present: (func() func() { ... })()
+	fun := innerCall.Fun
+	if paren, ok := fun.(*ast.ParenExpr); ok {
+		fun = paren.X
+	}
+
 	// Check if the inner call's function is a func literal
-	if lit, ok := innerCall.Fun.(*ast.FuncLit); ok {
+	if lit, ok := fun.(*ast.FuncLit); ok {
 		// Skip if closure has its own context parameter
 		if cctx.FuncLitHasContextParam(lit) {
 			return true
@@ -185,7 +191,7 @@ func (p *GoStmtCallsDeriver) checkHigherOrder(cctx *context.CheckContext, innerC
 	}
 
 	// Check if the inner call's function is a variable pointing to a func literal
-	if ident, ok := innerCall.Fun.(*ast.Ident); ok {
+	if ident, ok := fun.(*ast.Ident); ok {
 		funcLit := cctx.FuncLitOfIdent(ident, token.NoPos)
 		if funcLit == nil {
 			return true // Can't trace
@@ -212,6 +218,11 @@ func (p *GoStmtCallsDeriver) factoryReturnsCallingFunc(cctx *context.CheckContex
 		}
 		// Skip nested func literals (they have their own returns)
 		if fl, ok := n.(*ast.FuncLit); ok && fl != factory {
+			// Skip if nested func has its own context parameter
+			if cctx.FuncLitHasContextParam(fl) {
+				callsDeriver = true // Has own ctx, no need to check for deriver
+				return false
+			}
 			// Check if this nested func lit calls the deriver - it might be the returned value
 			if p.Matcher.SatisfiesAnyGroup(cctx.Pass, fl.Body) {
 				callsDeriver = true
@@ -241,6 +252,10 @@ func (p *GoStmtCallsDeriver) factoryReturnsCallingFunc(cctx *context.CheckContex
 func (p *GoStmtCallsDeriver) returnedValueCalls(cctx *context.CheckContext, result ast.Expr) bool {
 	// If it's a func literal, check directly
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
+		// Skip if func has its own context parameter
+		if cctx.FuncLitHasContextParam(innerFuncLit) {
+			return true
+		}
 		return p.Matcher.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
 	}
 
@@ -255,6 +270,10 @@ func (p *GoStmtCallsDeriver) returnedValueCalls(cctx *context.CheckContext, resu
 		return false
 	}
 
+	// Skip if func has its own context parameter
+	if cctx.FuncLitHasContextParam(innerFuncLit) {
+		return true
+	}
 	return p.Matcher.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
 }
 

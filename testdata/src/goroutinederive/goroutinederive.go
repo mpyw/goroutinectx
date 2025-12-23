@@ -201,3 +201,50 @@ func goodDeriverAtStartWithDefer(ctx context.Context) {
 		_ = ctx
 	}()
 }
+
+// ===== IIFE FACTORY PATTERNS =====
+
+// [GOOD]: IIFE factory calls deriver
+//
+// Inline factory function returns a func that calls the required deriver.
+func goodIIFEFactoryCallsDeriver(ctx context.Context) {
+	go (func() func() {
+		return func() {
+			ctx := apm.NewGoroutineContext(ctx)
+			_ = ctx
+		}
+	})()()
+}
+
+// [BAD]: IIFE factory calls deriver
+//
+// Inline factory function returns a func that does not call the deriver.
+func badIIFEFactoryMissingDeriver(ctx context.Context) {
+	go (func() func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		return func() {
+			_ = ctx
+		}
+	})()()
+}
+
+// [NOTCHECKED]: IIFE factory has own context param
+//
+// Factory function has its own context parameter, so not checked.
+func notCheckedIIFEFactoryOwnCtxParam(ctx context.Context) {
+	go (func(ctx context.Context) func() {
+		return func() {
+			_ = ctx
+		}
+	})(ctx)()
+}
+
+// [NOTCHECKED]: IIFE factory returns func with context param
+//
+// Returned function has its own context parameter, so not checked.
+func notCheckedIIFEFactoryReturnsCtxParam(ctx context.Context) {
+	go (func() func(context.Context) {
+		return func(ctx context.Context) {
+			_ = ctx
+		}
+	})()(ctx)
+}

@@ -1,0 +1,15 @@
+{
+  "title": "IIFE factory has own context param",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "notChecked": {
+      "description": "Factory function has its own context parameter, so not checked.",
+      "functions": {
+        "goroutinederive": "notCheckedIIFEFactoryOwnCtxParam"
+      }
+    }
+  }
+}

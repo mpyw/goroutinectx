@@ -1,0 +1,15 @@
+{
+  "title": "IIFE factory returns func with context param",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "notChecked": {
+      "description": "Returned function has its own context parameter, so not checked.",
+      "functions": {
+        "goroutinederive": "notCheckedIIFEFactoryReturnsCtxParam"
+      }
+    }
+  }
+}

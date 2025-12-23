@@ -1,0 +1,21 @@
+{
+  "title": "Carrier context freevar - calls deriver",
+  "targets": [
+    "carrierderive"
+  ],
+  "level": "carrierderive",
+  "variants": {
+    "good": {
+      "description": "Context extracted outside, captured as freevar by closure, deriver called.",
+      "functions": {
+        "carrierderive": "goodCarrierContextFreeVar"
+      }
+    },
+    "bad": {
+      "description": "Context extracted outside, captured as freevar by closure, no deriver called.",
+      "functions": {
+        "carrierderive": "badCarrierContextFreeVarNoDeriver"
+      }
+    }
+  }
+}
