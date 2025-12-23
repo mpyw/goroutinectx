@@ -1,0 +1,15 @@
+{
+  "title": "Triple higher-order returns variable - missing ctx",
+  "targets": [
+    "goroutine"
+  ],
+  "level": "evil",
+  "variants": {
+    "bad": {
+      "description": "Triple higher-order with variable returns missing context.",
+      "functions": {
+        "goroutine": "badTripleHigherOrderVariableMissingCtx"
+      }
+    }
+  }
+}

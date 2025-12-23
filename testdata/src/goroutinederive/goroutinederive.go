@@ -289,3 +289,29 @@ func goodFactoryReturnsVariableWithCtxParam(ctx context.Context) {
 	}
 	go factory()()
 }
+
+// ===== TRACING LIMITATION PATTERNS =====
+
+// [LIMITATION]: Factory from function parameter - can't trace
+//
+// Factory function passed as parameter can't be traced.
+func limitationFactoryFromParam(ctx context.Context, factory func() func()) {
+	// factory can't be traced to a FuncLit - assumes OK
+	go factory()()
+}
+
+// [BAD]: Returned value from external func - can't trace
+//
+// Return value from external function can't be traced.
+func badReturnedFromExternal(ctx context.Context) {
+	factory := func() func() {
+		// Return from external function call - can't trace
+		return getExternalFunc()
+	}
+	go factory()() // want "goroutine does not propagate context \"ctx\"" "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+}
+
+//vt:helper
+func getExternalFunc() func() {
+	return func() {}
+}

@@ -669,3 +669,45 @@ func goodTripleHigherOrderVariableWithCtx(ctx context.Context) {
 	}
 	go makeMaker()()()
 }
+
+// [BAD]: Triple higher-order returns variable - missing ctx
+//
+// Triple higher-order with variable returns missing context.
+func badTripleHigherOrderVariableMissingCtx(ctx context.Context) {
+	makeMaker := func() func() func() {
+		maker := func() func() {
+			worker := func() {
+				fmt.Println("no ctx")
+			}
+			return worker
+		}
+		return maker
+	}
+	go makeMaker()()() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== PACKAGE-LEVEL FACTORY PATTERNS =====
+
+// [GOOD]: Package-level factory with ctx param
+//
+// Package-level factory function with context parameter.
+func goodPackageLevelFactoryWithCtxParam(ctx context.Context) {
+	go packageFactoryWithCtxParam(ctx)()
+}
+
+// [BAD]: Package-level factory with ctx param
+//
+// Package-level factory called without context propagation.
+func badPackageLevelFactoryWithoutCtx(ctx context.Context) {
+	go packageFactoryWithoutCtx()() // want `goroutine does not propagate context "ctx"`
+}
+
+//vt:helper
+func packageFactoryWithCtxParam(ctx context.Context) func() {
+	return func() { _ = ctx }
+}
+
+//vt:helper
+func packageFactoryWithoutCtx() func() {
+	return func() { fmt.Println("no ctx") }
+}

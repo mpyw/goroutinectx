@@ -1,0 +1,21 @@
+{
+  "title": "Struct field selector captures ctx",
+  "targets": [
+    "goroutine"
+  ],
+  "level": "advanced",
+  "variants": {
+    "good": {
+      "description": "Function in struct field captures context.",
+      "functions": {
+        "goroutine": "goodStructFieldCapturesCtx"
+      }
+    },
+    "bad": {
+      "description": "Function in struct field does not capture context.",
+      "functions": {
+        "goroutine": "badStructFieldMissingCtx"
+      }
+    }
+  }
+}

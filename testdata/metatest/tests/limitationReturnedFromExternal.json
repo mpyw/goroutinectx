@@ -1,0 +1,15 @@
+{
+  "title": "Returned value from external func - can't trace",
+  "targets": [
+    "goroutinederive"
+  ],
+  "level": "goroutinederive",
+  "variants": {
+    "bad": {
+      "description": "Return value from external function can't be traced.",
+      "functions": {
+        "goroutinederive": "badReturnedFromExternal"
+      }
+    }
+  }
+}

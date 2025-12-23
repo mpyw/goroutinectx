@@ -422,3 +422,47 @@ func badIndexExprMissingCtx(ctx context.Context) {
 	}
 	go handlers[0]() // want `goroutine does not propagate context "ctx"`
 }
+
+// ===== MAP INDEX EXPRESSION PATTERNS =====
+
+// [GOOD]: Map index expression captures ctx
+//
+// Function in map with string key captures context.
+func goodMapIndexCapturesCtx(ctx context.Context) {
+	handlers := map[string]func(){
+		"work": func() { _ = ctx },
+	}
+	go handlers["work"]()
+}
+
+// [BAD]: Map index expression captures ctx
+//
+// Function in map with string key does not capture context.
+func badMapIndexMissingCtx(ctx context.Context) {
+	handlers := map[string]func(){
+		"work": func() { fmt.Println("no ctx") },
+	}
+	go handlers["work"]() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== STRUCT FIELD SELECTOR PATTERNS =====
+
+// [GOOD]: Struct field selector captures ctx
+//
+// Function in struct field captures context.
+func goodStructFieldCapturesCtx(ctx context.Context) {
+	s := struct{ handler func() }{
+		handler: func() { _ = ctx },
+	}
+	go s.handler()
+}
+
+// [BAD]: Struct field selector captures ctx
+//
+// Function in struct field does not capture context.
+func badStructFieldMissingCtx(ctx context.Context) {
+	s := struct{ handler func() }{
+		handler: func() { fmt.Println("no ctx") },
+	}
+	go s.handler() // want `goroutine does not propagate context "ctx"`
+}

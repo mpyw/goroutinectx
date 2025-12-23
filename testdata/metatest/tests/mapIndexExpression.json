@@ -1,0 +1,21 @@
+{
+  "title": "Map index expression captures ctx",
+  "targets": [
+    "goroutine"
+  ],
+  "level": "advanced",
+  "variants": {
+    "good": {
+      "description": "Function in map with string key captures context.",
+      "functions": {
+        "goroutine": "goodMapIndexCapturesCtx"
+      }
+    },
+    "bad": {
+      "description": "Function in map with string key does not capture context.",
+      "functions": {
+        "goroutine": "badMapIndexMissingCtx"
+      }
+    }
+  }
+}
