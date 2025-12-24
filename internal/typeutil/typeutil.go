@@ -8,7 +8,7 @@ const contextPkgPath = "context"
 
 // IsContextType checks if the type is context.Context.
 func IsContextType(t types.Type) bool {
-	t = unwrapPointer(t)
+	t = UnwrapPointer(t)
 
 	named, ok := t.(*types.Named)
 	if !ok {
@@ -23,10 +23,26 @@ func IsContextType(t types.Type) bool {
 	return obj.Pkg().Path() == contextPkgPath && obj.Name() == "Context"
 }
 
-// unwrapPointer returns the element type if t is a pointer, otherwise returns t.
-func unwrapPointer(t types.Type) types.Type {
-	if ptr, ok := t.(*types.Pointer); ok {
-		return ptr.Elem()
+// UnwrapPointer recursively unwraps all pointer layers.
+//
+// This is critical for SSA-based carrier type matching. When a closure captures
+// a pointer variable, SSA represents it with an additional level of indirection:
+//
+//	func handler(ctx *CarrierType) {
+//	    go func() {
+//	        _ = ctx  // SSA FreeVars: **CarrierType (not *CarrierType)
+//	    }()
+//	}
+//
+// Therefore, we must unwrap ALL pointer layers to match against the registered
+// carrier type (CarrierType, no pointer). Single-layer unwrapping would leave
+// *CarrierType, which wouldn't match.
+func UnwrapPointer(t types.Type) types.Type {
+	for {
+		ptr, ok := t.(*types.Pointer)
+		if !ok {
+			return t
+		}
+		t = ptr.Elem()
 	}
-	return t
 }

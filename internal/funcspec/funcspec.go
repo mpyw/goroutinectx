@@ -8,6 +8,8 @@ import (
 	"unicode"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Spec holds parsed components of a function specification.
@@ -80,7 +82,7 @@ func (s Spec) Matches(fn *types.Func) bool {
 		return false
 	}
 
-	recvType := unwrapPointer(recv.Type())
+	recvType := typeutil.UnwrapPointer(recv.Type())
 
 	named, ok := recvType.(*types.Named)
 	if !ok {
@@ -114,14 +116,6 @@ func ExtractFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
 	}
 
 	return nil
-}
-
-// unwrapPointer returns the element type if t is a pointer.
-func unwrapPointer(t types.Type) types.Type {
-	if ptr, ok := t.(*types.Pointer); ok {
-		return ptr.Elem()
-	}
-	return t
 }
 
 // shortPkgName returns the last component of a package path.

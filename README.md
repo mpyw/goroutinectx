@@ -40,7 +40,7 @@ go run github.com/mpyw/goroutinectx/cmd/goroutinectx@latest ./...
 ```
 
 > [!CAUTION]
-> To prevent supply chain attacks, pin to a specific version tag instead of `@latest` in CI/CD pipelines (e.g., `@v0.7.2`).
+> To prevent supply chain attacks, pin to a specific version tag instead of `@latest` in CI/CD pipelines (e.g., `@v0.7.3`).
 
 ### As a Library
 

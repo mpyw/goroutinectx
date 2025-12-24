@@ -4,6 +4,8 @@ package carrier
 import (
 	"go/types"
 	"strings"
+
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Carrier represents a type that can carry context.
@@ -15,7 +17,7 @@ type Carrier struct {
 
 // Matches checks if the given type matches this carrier.
 func (c Carrier) Matches(t types.Type) bool {
-	t = unwrapPointer(t)
+	t = typeutil.UnwrapPointer(t)
 
 	named, ok := t.(*types.Named)
 	if !ok {
@@ -28,14 +30,6 @@ func (c Carrier) Matches(t types.Type) bool {
 	}
 
 	return matchPkg(obj.Pkg().Path(), c.PkgPath) && obj.Name() == c.TypeName
-}
-
-// unwrapPointer returns the element type if t is a pointer.
-func unwrapPointer(t types.Type) types.Type {
-	if ptr, ok := t.(*types.Pointer); ok {
-		return ptr.Elem()
-	}
-	return t
 }
 
 // matchPkg checks if pkgPath matches targetPkg, allowing version suffixes.
