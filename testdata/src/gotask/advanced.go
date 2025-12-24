@@ -230,3 +230,77 @@ func goodFilterThenMap(ctx context.Context) {
 			}
 		})...)
 }
+
+// ===== Callback Variable Patterns =====
+
+// [GOOD]: DoAsync with callback variable
+//
+// Callback assigned to variable then passed to NewTask, callback calls deriver.
+func goodDoAsyncCallbackVariable(ctx context.Context) {
+	callback := func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	}
+	task := gotask.NewTask(callback)
+	errChan := make(chan error, 1)
+	task.DoAsync(ctx, errChan) // OK - callback calls deriver
+}
+
+// [BAD]: DoAsync with callback variable
+//
+// Callback assigned to variable then passed to NewTask, callback doesn't call deriver.
+func badDoAsyncCallbackVariable(ctx context.Context) {
+	callback := func(ctx context.Context) error {
+		// No deriver call
+		return nil
+	}
+	task := gotask.NewTask(callback)
+	errChan := make(chan error, 1)
+	task.DoAsync(ctx, errChan) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [GOOD]: DoAllFnsSettled with callback variable
+//
+// Callback assigned to variable that calls deriver, used in variadic call.
+func goodDoAllFnsSettledCallbackVariable(ctx context.Context) {
+	fn := func(ctx context.Context) int {
+		_ = apm.NewGoroutineContext(ctx)
+		return 42
+	}
+	_ = gotask.DoAllFnsSettled(ctx, fn)
+}
+
+// [BAD]: DoAllFnsSettled with callback variable
+//
+// Callback assigned to variable without deriver call.
+func badDoAllFnsSettledCallbackVariable(ctx context.Context) {
+	fn := func(ctx context.Context) int {
+		// No deriver call
+		return 42
+	}
+	_ = gotask.DoAllFnsSettled(ctx, fn) // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+}
+
+// [GOOD]: DoAsync with derived context variable
+//
+// Derived context stored in variable and passed to DoAsync.
+func goodDoAsyncDerivedVariable(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	derivedCtx := apm.NewGoroutineContext(ctx)
+	errChan := make(chan error, 1)
+	task.DoAsync(derivedCtx, errChan) // OK - derivedCtx is a deriver call result
+}
+
+// [BAD]: DoAsync with derived context variable
+//
+// Non-deriver call result stored in variable and passed to DoAsync.
+func badDoAsyncNonDeriverVariable(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	nonDerivedCtx := context.Background()
+	errChan := make(chan error, 1)
+	task.DoAsync(nonDerivedCtx, errChan) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}

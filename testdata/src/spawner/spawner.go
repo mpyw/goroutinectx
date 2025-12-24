@@ -176,6 +176,42 @@ func goodFuncHasOwnCtx(ctx context.Context) {
 	_ = g
 }
 
+// ===== FACTORY FUNCTION PATTERNS =====
+
+//vt:helper
+func makeWorker() func() error {
+	return func() error {
+		fmt.Println("no ctx")
+		return nil
+	}
+}
+
+//vt:helper
+func makeWorkerWithCtx(ctx context.Context) func() error {
+	return func() error {
+		_ = ctx
+		return nil
+	}
+}
+
+// [GOOD]: Factory function with context
+//
+// Factory function that takes context and returns func using it.
+func goodFactoryFunctionWithCtx(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeWorkerWithCtx(ctx)) // OK - factory takes ctx and returns func using it
+	_ = g.Wait()
+}
+
+// [BAD]: Factory function with context
+//
+// Factory function returns func not using context.
+func badFactoryFunctionNoCtx(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeWorker()) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
 // ===== NON-SPAWNER FUNCTIONS (should not be checked) =====
 
 //vt:helper

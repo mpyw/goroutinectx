@@ -1,4 +1,4 @@
-// Package funcspec provides shared function specification parsing and matching.
+// Package funcspec provides function specification parsing and matching.
 package funcspec
 
 import (
@@ -8,8 +8,6 @@ import (
 	"unicode"
 
 	"golang.org/x/tools/go/analysis"
-
-	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Spec holds parsed components of a function specification.
@@ -20,15 +18,13 @@ type Spec struct {
 	FuncName string
 }
 
-// Parse parses a single function specification string into components.
-// Format: "pkg/path.Func" or "pkg/path.Type.Method".
+// Parse parses a single function specification string.
 func Parse(s string) Spec {
 	spec := Spec{}
 
 	lastDot := strings.LastIndex(s, ".")
 	if lastDot == -1 {
 		spec.FuncName = s
-
 		return spec
 	}
 
@@ -36,27 +32,23 @@ func Parse(s string) Spec {
 	prefix := s[:lastDot]
 
 	// Check if there's another dot (indicating Type.Method)
-	// Type names start with uppercase in Go.
 	secondLastDot := strings.LastIndex(prefix, ".")
 	if secondLastDot != -1 {
 		possibleType := prefix[secondLastDot+1:]
 		if len(possibleType) > 0 && unicode.IsUpper(rune(possibleType[0])) {
 			spec.TypeName = possibleType
 			spec.PkgPath = prefix[:secondLastDot]
-
 			return spec
 		}
 	}
 
 	spec.PkgPath = prefix
-
 	return spec
 }
 
 // FullName returns the full API name for message formatting.
-// Format: "pkg.Func" or "pkg.Type.Method" where pkg is the short package name.
 func (s Spec) FullName() string {
-	shortPkg := typeutil.ShortPkgName(s.PkgPath)
+	shortPkg := shortPkgName(s.PkgPath)
 	if s.TypeName != "" {
 		return shortPkg + "." + s.TypeName + "." + s.FuncName
 	}
@@ -64,14 +56,13 @@ func (s Spec) FullName() string {
 }
 
 // Matches checks if a types.Func matches this specification.
-// Uses MatchPkg to handle version suffixes (v2, v3, etc.).
 func (s Spec) Matches(fn *types.Func) bool {
 	if fn.Name() != s.FuncName {
 		return false
 	}
 
 	pkg := fn.Pkg()
-	if pkg == nil || !typeutil.MatchPkg(pkg.Path(), s.PkgPath) {
+	if pkg == nil || !matchPkg(pkg.Path(), s.PkgPath) {
 		return false
 	}
 
@@ -89,7 +80,7 @@ func (s Spec) Matches(fn *types.Func) bool {
 		return false
 	}
 
-	recvType := typeutil.UnwrapPointer(recv.Type())
+	recvType := unwrapPointer(recv.Type())
 
 	named, ok := recvType.(*types.Named)
 	if !ok {
@@ -100,7 +91,6 @@ func (s Spec) Matches(fn *types.Func) bool {
 }
 
 // ExtractFunc extracts the types.Func from a call expression.
-// Returns nil if the callee cannot be determined statically.
 func ExtractFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
@@ -124,4 +114,33 @@ func ExtractFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
 	}
 
 	return nil
+}
+
+// unwrapPointer returns the element type if t is a pointer.
+func unwrapPointer(t types.Type) types.Type {
+	if ptr, ok := t.(*types.Pointer); ok {
+		return ptr.Elem()
+	}
+	return t
+}
+
+// shortPkgName returns the last component of a package path.
+func shortPkgName(pkgPath string) string {
+	if idx := strings.LastIndex(pkgPath, "/"); idx >= 0 {
+		return pkgPath[idx+1:]
+	}
+	return pkgPath
+}
+
+// matchPkg checks if pkgPath matches targetPkg, allowing version suffixes.
+func matchPkg(pkgPath, targetPkg string) bool {
+	if pkgPath == targetPkg {
+		return true
+	}
+	prefix := targetPkg + "/v"
+	if !strings.HasPrefix(pkgPath, prefix) {
+		return false
+	}
+	rest := pkgPath[len(prefix):]
+	return len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9'
 }

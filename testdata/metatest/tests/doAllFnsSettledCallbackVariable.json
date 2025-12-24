@@ -1,0 +1,21 @@
+{
+  "title": "DoAllFnsSettled with callback variable",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Callback variable that calls deriver is traced",
+      "functions": {
+        "gotask": "goodDoAllFnsSettledCallbackVariable"
+      }
+    },
+    "bad": {
+      "description": "Callback variable without deriver is detected",
+      "functions": {
+        "gotask": "badDoAllFnsSettledCallbackVariable"
+      }
+    }
+  },
+  "level": "advanced"
+}

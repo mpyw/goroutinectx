@@ -437,3 +437,16 @@ func goodPointerDereferenceDoAsync(ctx context.Context) {
 	taskPtr := &task
 	(*taskPtr).DoAsync(apm.NewGoroutineContext(ctx), nil)
 }
+
+// [LIMITATION]: Pointer dereference with callback deriver
+//
+// Task pointer dereference - can't trace through &task to find constructor.
+func limitationPointerDereferenceCallbackDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})
+	taskPtr := &task
+	// Can't trace taskPtr → &task → task → NewTask
+	(*taskPtr).DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}

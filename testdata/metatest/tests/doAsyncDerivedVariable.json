@@ -1,0 +1,21 @@
+{
+  "title": "DoAsync with derived context variable",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "good": {
+      "description": "Derived context stored in variable and passed to DoAsync",
+      "functions": {
+        "gotask": "goodDoAsyncDerivedVariable"
+      }
+    },
+    "bad": {
+      "description": "Non-deriver call result stored in variable and passed to DoAsync",
+      "functions": {
+        "gotask": "badDoAsyncNonDeriverVariable"
+      }
+    }
+  },
+  "level": "advanced"
+}

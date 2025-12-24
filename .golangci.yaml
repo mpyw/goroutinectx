@@ -34,3 +34,6 @@ formatters:
         - default
         - prefix(github.com/mpyw/goroutinectx)
       custom-order: true
+  exclusions:
+    paths:
+      - "doc\\.go$"

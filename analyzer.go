@@ -13,13 +13,14 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/goroutinectx/internal"
-	"github.com/mpyw/goroutinectx/internal/directives/carrier"
-	"github.com/mpyw/goroutinectx/internal/directives/deriver"
-	"github.com/mpyw/goroutinectx/internal/directives/ignore"
-	"github.com/mpyw/goroutinectx/internal/directives/spawner"
+	"github.com/mpyw/goroutinectx/internal/checkers"
+	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
+	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/directive/carrier"
+	"github.com/mpyw/goroutinectx/internal/directive/ignore"
+	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
-	"github.com/mpyw/goroutinectx/internal/spawnerlabel"
-	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
+	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // Flags for the analyzer.
@@ -60,7 +61,7 @@ func init() {
 var Analyzer = &analysis.Analyzer{
 	Name:     "goroutinectx",
 	Doc:      "checks that context.Context is properly propagated to downstream calls",
-	Requires: []*analysis.Analyzer{inspect.Analyzer, internalssa.BuildSSAAnalyzer},
+	Requires: []*analysis.Analyzer{inspect.Analyzer, ssa.BuildSSAAnalyzer},
 	Run:      run,
 	Flags:    flag.FlagSet{},
 }
@@ -88,22 +89,22 @@ func run(pass *analysis.Pass) (any, error) {
 	// Build enabled checkers map
 	enabled := buildEnabledCheckers(spawners)
 
-	// Build registry
-	reg := buildRegistry()
-
 	// Build SSA program
-	ssaProg := internalssa.Build(pass)
+	ssaProg := ssa.Build(pass)
 
-	// Spawner map (nil if disabled)
-	var spawnerMap *spawner.Map
-	if enableSpawner {
-		spawnerMap = spawners
+	// Build derivers matcher
+	var derivers *deriver.Matcher
+	if goroutineDeriver != "" {
+		derivers = deriver.NewMatcher(goroutineDeriver)
 	}
 
-	// Create and run unified checker
+	// Build checkers
+	goStmtCheckers, callCheckers := buildCheckers(derivers, spawners)
+
+	// Create and run runner
 	runner := internal.NewRunner(
-		reg,
-		spawnerMap,
+		goStmtCheckers,
+		callCheckers,
 		ssaProg,
 		carriers,
 		ignoreMaps,
@@ -113,6 +114,14 @@ func run(pass *analysis.Pass) (any, error) {
 
 	// Run spawnerlabel checker if enabled
 	if enableSpawnerlabel {
+		reg := registry.New()
+
+		// Register APIs for spawnerlabel detection
+		internal.RegisterErrgroupAPIs(reg)
+		internal.RegisterWaitgroupAPIs(reg)
+		internal.RegisterConcAPIs(reg)
+		internal.RegisterGotaskAPIs(reg)
+
 		spawnerlabelChecker := spawnerlabel.New(spawners, reg, ssaProg)
 		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)
 	}
@@ -124,15 +133,12 @@ func run(pass *analysis.Pass) (any, error) {
 }
 
 // buildSkipFiles creates a set of filenames to skip.
-// Generated files are always skipped.
-// Test files can be skipped via the driver's built-in -test flag.
 func buildSkipFiles(pass *analysis.Pass) map[string]bool {
 	skipFiles := make(map[string]bool)
 
 	for _, file := range pass.Files {
 		filename := pass.Fset.Position(file.Pos()).Filename
 
-		// Always skip generated files
 		if ast.IsGenerated(file) {
 			skipFiles[filename] = true
 		}
@@ -156,34 +162,44 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	return ignoreMaps
 }
 
-// buildRegistry creates and populates the API registry.
-func buildRegistry() *registry.Registry {
-	reg := registry.New()
+// buildCheckers creates the checker instances.
+func buildCheckers(derivers *deriver.Matcher, spawners *spawner.Map) ([]internal.GoStmtChecker, []internal.CallChecker) {
+	var goStmtCheckers []internal.GoStmtChecker
+	var callCheckers []internal.CallChecker
 
-	// Create derivers matcher once if configured
-	var derivers *deriver.Matcher
-	if goroutineDeriver != "" {
-		derivers = deriver.NewMatcher(goroutineDeriver)
-	}
-
-	// Register patterns (pass derivers for deriver checking)
+	// Goroutine checkers
 	if enableGoroutine {
-		internal.RegisterGoroutinePatterns(reg, derivers)
-	}
-	if enableErrgroup {
-		internal.RegisterErrgroupAPIs(reg, derivers)
-	}
-	if enableWaitgroup {
-		internal.RegisterWaitgroupAPIs(reg, derivers)
-	}
-	if enableConc {
-		internal.RegisterConcAPIs(reg, derivers)
-	}
-	if enableGotask {
-		internal.RegisterGotaskAPIs(reg, derivers)
+		goStmtCheckers = append(goStmtCheckers, &checkers.Goroutine{Derivers: derivers})
 	}
 
-	return reg
+	if derivers != nil {
+		goStmtCheckers = append(goStmtCheckers, &checkers.GoroutineDerive{Derivers: derivers})
+	}
+
+	// Call checkers
+	if enableErrgroup {
+		callCheckers = append(callCheckers, checkers.NewErrgroupChecker(derivers))
+	}
+
+	if enableWaitgroup {
+		callCheckers = append(callCheckers, checkers.NewWaitgroupChecker(derivers))
+	}
+
+	if enableConc {
+		callCheckers = append(callCheckers, checkers.NewConcChecker(derivers))
+	}
+
+	if enableSpawner && spawners.Len() > 0 {
+		callCheckers = append(callCheckers, checkers.NewSpawnerChecker(spawners, derivers))
+	}
+
+	if enableGotask && derivers != nil {
+		if gotaskChecker := checkers.NewGotaskChecker(derivers); gotaskChecker != nil {
+			callCheckers = append(callCheckers, gotaskChecker)
+		}
+	}
+
+	return goStmtCheckers, callCheckers
 }
 
 // buildEnabledCheckers creates a map of which checkers are enabled.

@@ -1,0 +1,21 @@
+{
+  "title": "Factory function with context",
+  "targets": [
+    "spawner"
+  ],
+  "level": "spawner",
+  "variants": {
+    "good": {
+      "description": "Factory function takes context and returns func using it",
+      "functions": {
+        "spawner": "goodFactoryFunctionWithCtx"
+      }
+    },
+    "bad": {
+      "description": "Factory function returns func not using context",
+      "functions": {
+        "spawner": "badFactoryFunctionNoCtx"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "title": "Pointer dereference with callback deriver",
+  "targets": [
+    "gotask"
+  ],
+  "variants": {
+    "limitation": {
+      "description": "Can't trace through &task to find constructor",
+      "functions": {
+        "gotask": "limitationPointerDereferenceCallbackDeriver"
+      }
+    }
+  },
+  "level": "evil"
+}
