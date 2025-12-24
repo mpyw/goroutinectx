@@ -485,3 +485,23 @@ func (c *GotaskChecker) funcLitReturnCallsDeriver(cctx *probe.Context, funcLit *
 
 	return found
 }
+
+// ordinal converts a number to its ordinal string (1st, 2nd, 3rd, etc.).
+func ordinal(n int) string {
+	suffix := "th"
+	switch n % 10 {
+	case 1:
+		if n%100 != 11 {
+			suffix = "st"
+		}
+	case 2:
+		if n%100 != 12 {
+			suffix = "nd"
+		}
+	case 3:
+		if n%100 != 13 {
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
+}

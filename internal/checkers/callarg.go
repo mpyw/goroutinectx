@@ -25,7 +25,6 @@ type CallArgChecker struct {
 type CallArgEntry struct {
 	Spec           funcspec.Spec
 	CallbackArgIdx int
-	Variadic       bool
 }
 
 // NewCallArgChecker creates a new CallArgChecker.
@@ -68,10 +67,6 @@ func (c *CallArgChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *int
 		if !entry.Spec.Matches(fn) {
 			continue
 		}
-
-		if entry.Variadic {
-			return c.checkVariadic(cctx, call, entry)
-		}
 		return c.checkSingleArg(cctx, call, entry)
 	}
 
@@ -93,32 +88,6 @@ func (c *CallArgChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr,
 		ctxName = cctx.CtxNames[0]
 	}
 	return internal.Fail(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
-}
-
-func (c *CallArgChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry CallArgEntry) *internal.Result {
-	startIdx := entry.CallbackArgIdx
-	if startIdx >= len(call.Args) {
-		return internal.OK()
-	}
-
-	var failedIndices []int
-	for i := startIdx; i < len(call.Args); i++ {
-		if !c.checkArg(cctx, call.Args[i]) {
-			failedIndices = append(failedIndices, i-startIdx)
-		}
-	}
-
-	if len(failedIndices) == 0 {
-		return internal.OK()
-	}
-
-	ctxName := "ctx"
-	if len(cctx.CtxNames) > 0 {
-		ctxName = cctx.CtxNames[0]
-	}
-	msg := fmt.Sprintf("%s() %s callback should use context %q",
-		entry.Spec.FullName(), formatOrdinals(failedIndices), ctxName)
-	return internal.Fail(msg)
 }
 
 func (c *CallArgChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
@@ -163,45 +132,6 @@ func (c *CallArgChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr) bool
 	}
 
 	return true
-}
-
-// formatOrdinals formats indices as ordinal strings.
-func formatOrdinals(indices []int) string {
-	if len(indices) == 1 {
-		return ordinal(indices[0] + 1)
-	}
-
-	result := ""
-	for i, idx := range indices {
-		if i > 0 {
-			if i == len(indices)-1 {
-				result += " and "
-			} else {
-				result += ", "
-			}
-		}
-		result += ordinal(idx + 1)
-	}
-	return result
-}
-
-func ordinal(n int) string {
-	suffix := "th"
-	switch n % 10 {
-	case 1:
-		if n%100 != 11 {
-			suffix = "st"
-		}
-	case 2:
-		if n%100 != 12 {
-			suffix = "nd"
-		}
-	case 3:
-		if n%100 != 13 {
-			suffix = "rd"
-		}
-	}
-	return fmt.Sprintf("%d%s", n, suffix)
 }
 
 // =============================================================================
