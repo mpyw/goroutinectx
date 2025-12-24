@@ -41,6 +41,21 @@ type Entry struct {
 	used     map[CheckerName]bool // Track usage per checker
 }
 
+// Pos returns the position of the ignore comment.
+func (e *Entry) Pos() token.Pos {
+	return e.pos
+}
+
+// Checkers returns the list of checker names.
+func (e *Entry) Checkers() []CheckerName {
+	return e.checkers
+}
+
+// Used returns the usage tracking map.
+func (e *Entry) Used() map[CheckerName]bool {
+	return e.used
+}
+
 // Map tracks ignore entries by line number.
 type Map map[int]*Entry
 
@@ -53,7 +68,7 @@ func Build(fset *token.FileSet, file *ast.File) Map {
 
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
-			if checkers, ok := parseIgnoreComment(c.Text); ok {
+			if checkers, ok := parseComment(c.Text); ok {
 				line := fset.Position(c.Pos()).Line
 				m[line] = &Entry{
 					pos:      c.Pos(),
@@ -67,17 +82,10 @@ func Build(fset *token.FileSet, file *ast.File) Map {
 	return m
 }
 
-// parseIgnoreComment parses an ignore directive and returns the checker names.
+// parseComment parses an ignore directive and returns the checker names.
 // Returns nil slice if no specific checkers are specified (ignore all).
 // Returns false if not an ignore comment.
-//
-// Supported formats:
-//   - //goroutinectx:ignore                           -> ignore all checkers
-//   - //goroutinectx:ignore goroutine                 -> ignore specific checker
-//   - //goroutinectx:ignore goroutine,errgroup        -> ignore multiple checkers
-//   - //goroutinectx:ignore - reason                  -> ignore all with comment
-//   - //goroutinectx:ignore goroutine - reason        -> ignore specific with comment
-func parseIgnoreComment(text string) ([]CheckerName, bool) {
+func parseComment(text string) ([]CheckerName, bool) {
 	text = strings.TrimPrefix(text, "//")
 	text = strings.TrimSpace(text)
 
@@ -94,21 +102,20 @@ func parseIgnoreComment(text string) ([]CheckerName, bool) {
 	}
 
 	// Stop at comment markers: " - ", " // ", or " //"
-	// These indicate the start of a human-readable comment
 	if idx := strings.Index(rest, " - "); idx >= 0 {
 		rest = rest[:idx]
 	}
 	if idx := strings.Index(rest, " //"); idx >= 0 {
 		rest = rest[:idx]
 	}
-	// Also handle "- " at the start (no checkers specified, just comment)
+	// Handle "- " at the start (no checkers specified, just comment)
 	if strings.HasPrefix(rest, "- ") || rest == "-" {
 		return nil, true
 	}
 
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
-		return nil, true // No specific checkers after trimming = ignore all
+		return nil, true
 	}
 
 	// Parse comma-separated checker names
@@ -126,8 +133,6 @@ func parseIgnoreComment(text string) ([]CheckerName, bool) {
 }
 
 // ShouldIgnore returns true if the given line should be ignored for the specified checker.
-// It checks if the same line or the previous line has an ignore comment.
-// When an ignore is used, it marks the entry as used for that checker.
 func (m Map) ShouldIgnore(line int, checker CheckerName) bool {
 	if m.shouldIgnoreEntry(m[line], checker) {
 		return true
@@ -169,7 +174,6 @@ type UnusedIgnore struct {
 }
 
 // GetUnusedIgnores returns ignore directives that were not used.
-// It takes the enabled checkers to determine which unused specifications are valid to report.
 func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore {
 	var unused []UnusedIgnore
 

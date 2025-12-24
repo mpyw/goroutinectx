@@ -7,8 +7,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/directives/ignore"
-	"github.com/mpyw/goroutinectx/internal/directives/spawner"
+	"github.com/mpyw/goroutinectx/internal/directive/ignore"
+	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )

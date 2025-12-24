@@ -5,8 +5,8 @@ import (
 	"go/token"
 
 	"github.com/mpyw/goroutinectx/internal/context"
-	"github.com/mpyw/goroutinectx/internal/directives/deriver"
-	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 )
 
 // GoStmtCapturesCtx checks that a go statement's closure captures the outer context.

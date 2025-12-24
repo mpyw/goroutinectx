@@ -1,7 +1,9 @@
-package context
+// Package scope provides context scope detection for functions.
+package scope
 
 import (
 	"go/ast"
+	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
@@ -23,13 +25,12 @@ func (s *Scope) CtxName() string {
 	return "ctx"
 }
 
-// BuildFuncScopes identifies functions with context parameters.
-func BuildFuncScopes(
-	pass *analysis.Pass,
-	insp *inspector.Inspector,
-	carriers []carrier.Carrier,
-) map[ast.Node]*Scope {
-	funcScopes := make(map[ast.Node]*Scope)
+// Map maps AST nodes to their scopes.
+type Map map[ast.Node]*Scope
+
+// Build identifies functions with context parameters.
+func Build(pass *analysis.Pass, insp *inspector.Inspector, carriers []carrier.Carrier) Map {
+	m := make(Map)
 
 	insp.Preorder([]ast.Node{(*ast.FuncDecl)(nil), (*ast.FuncLit)(nil)}, func(n ast.Node) {
 		var fnType *ast.FuncType
@@ -42,11 +43,11 @@ func BuildFuncScopes(
 		}
 
 		if scope := findScope(pass, fnType, carriers); scope != nil {
-			funcScopes[n] = scope
+			m[n] = scope
 		}
 	})
 
-	return funcScopes
+	return m
 }
 
 // findScope checks if the function has context parameters.
@@ -63,7 +64,7 @@ func findScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Car
 			continue
 		}
 
-		if typeutil.IsContextOrCarrierType(typ, carriers) {
+		if isContextOrCarrierType(typ, carriers) {
 			for _, name := range field.Names {
 				ctxNames = append(ctxNames, name.Name)
 			}
@@ -77,10 +78,25 @@ func findScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Car
 	return &Scope{CtxNames: ctxNames}
 }
 
-// FindEnclosingScope finds the closest enclosing function with a context parameter.
-func FindEnclosingScope(funcScopes map[ast.Node]*Scope, stack []ast.Node) *Scope {
+// isContextOrCarrierType checks if a type is context.Context or a carrier type.
+func isContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
+	if typeutil.IsContextType(t) {
+		return true
+	}
+
+	for _, c := range carriers {
+		if c.Matches(t) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// FindEnclosing finds the closest enclosing function with a context parameter.
+func FindEnclosing(scopes Map, stack []ast.Node) *Scope {
 	for i := len(stack) - 1; i >= 0; i-- {
-		if scope, ok := funcScopes[stack[i]]; ok {
+		if scope, ok := scopes[stack[i]]; ok {
 			return scope
 		}
 	}

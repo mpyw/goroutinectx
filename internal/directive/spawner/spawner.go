@@ -12,10 +12,9 @@ import (
 )
 
 // Map tracks functions marked with //goroutinectx:spawner.
-// These functions are expected to spawn goroutines with their func arguments.
 type Map struct {
-	local    map[*types.Func]struct{} // from directives
-	external []funcspec.Spec          // from -external-spawner flag
+	local    map[*types.Func]struct{}
+	external []funcspec.Spec
 }
 
 // IsSpawner checks if a function is marked as a spawner.
@@ -24,21 +23,18 @@ func (m *Map) IsSpawner(fn *types.Func) bool {
 		return false
 	}
 
-	// Check local map first (directive-based)
 	if _, ok := m.local[fn]; ok {
 		return true
 	}
 
-	// Check external specs (flag-based)
 	return m.matchesExternal(fn)
 }
 
-// Len returns the total number of spawners (local + external).
+// Len returns the total number of spawners.
 func (m *Map) Len() int {
 	if m == nil {
 		return 0
 	}
-
 	return len(m.local) + len(m.external)
 }
 
@@ -49,7 +45,6 @@ func (m *Map) matchesExternal(fn *types.Func) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -62,37 +57,32 @@ func Build(pass *analysis.Pass, externalSpawners string) *Map {
 	}
 
 	for _, file := range pass.Files {
-		buildSpawnersForFile(pass, file, m.local)
+		buildForFile(pass, file, m.local)
 	}
 
 	return m
 }
 
 // parseExternal parses the -external-spawner flag value.
-// Format: comma-separated list of "pkg/path.Func" or "pkg/path.Type.Method".
 func parseExternal(s string) []funcspec.Spec {
 	if s == "" {
 		return nil
 	}
 
 	var specs []funcspec.Spec
-
-	for part := range strings.SplitSeq(s, ",") {
+	for _, part := range strings.Split(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-
-		spec := funcspec.Parse(part)
-		specs = append(specs, spec)
+		specs = append(specs, funcspec.Parse(part))
 	}
 
 	return specs
 }
 
-// buildSpawnersForFile scans a single file for spawner directives.
-func buildSpawnersForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{}) {
-	// Build a map of line -> comment for quick lookup
+// buildForFile scans a single file for spawner directives.
+func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{}) {
 	lineComments := make(map[int]string)
 
 	for _, cg := range file.Comments {
@@ -104,7 +94,6 @@ func buildSpawnersForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func
 		}
 	}
 
-	// Find function declarations that have the directive on the previous line
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok {
@@ -112,13 +101,10 @@ func buildSpawnersForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func
 		}
 
 		funcLine := pass.Fset.Position(funcDecl.Pos()).Line
-
-		// Check if directive is on previous line
 		if _, hasDirective := lineComments[funcLine-1]; !hasDirective {
 			continue
 		}
 
-		// Get the types.Func for this declaration
 		obj := pass.TypesInfo.ObjectOf(funcDecl.Name)
 		if obj == nil {
 			continue
@@ -137,18 +123,10 @@ func buildSpawnersForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func
 func isSpawnerComment(text string) bool {
 	text = strings.TrimPrefix(text, "//")
 	text = strings.TrimSpace(text)
-
 	return strings.HasPrefix(text, "goroutinectx:spawner")
 }
 
-// GetFuncFromCall extracts the *types.Func from a call expression if possible.
-// Returns nil if the callee cannot be determined statically.
-func GetFuncFromCall(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
-	return funcspec.ExtractFunc(pass, call)
-}
-
 // FindFuncArgs finds all arguments in a call that are func types.
-// Returns the indices and the arguments themselves.
 func FindFuncArgs(pass *analysis.Pass, call *ast.CallExpr) []ast.Expr {
 	var funcArgs []ast.Expr
 
@@ -158,7 +136,6 @@ func FindFuncArgs(pass *analysis.Pass, call *ast.CallExpr) []ast.Expr {
 			continue
 		}
 
-		// Check if argument is a function type
 		if _, isFunc := tv.Type.Underlying().(*types.Signature); isFunc {
 			funcArgs = append(funcArgs, arg)
 		}

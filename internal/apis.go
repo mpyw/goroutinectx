@@ -1,8 +1,8 @@
 package internal
 
 import (
-	"github.com/mpyw/goroutinectx/internal/directives/deriver"
-	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/patterns"
 	"github.com/mpyw/goroutinectx/internal/registry"

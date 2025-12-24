@@ -1,5 +1,4 @@
-// Package context provides CheckContext for pattern checking.
-package context
+package check
 
 import (
 	"go/ast"
@@ -10,29 +9,25 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
-	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
+	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
-// CheckContext provides context for pattern checking.
-type CheckContext struct {
-	Pass    *analysis.Pass
-	Tracer  *internalssa.Tracer
-	SSAProg *internalssa.Program
-	// CtxNames holds the context variable names from the enclosing scope (AST-based).
-	// This is used when SSA-based context detection fails.
+// Context provides context for pattern checking.
+type Context struct {
+	Pass     *analysis.Pass
+	Tracer   *ssa.Tracer
+	SSAProg  *ssa.Program
 	CtxNames []string
-	// Carriers holds the configured context carrier types.
 	Carriers []carrier.Carrier
 }
 
 // Report reports a diagnostic at the given position.
-func (c *CheckContext) Report(pos token.Pos, msg string) {
+func (c *Context) Report(pos token.Pos, msg string) {
 	c.Pass.Reportf(pos, "%s", msg)
 }
 
 // VarOf extracts *types.Var from an identifier.
-// Returns nil if the identifier doesn't refer to a variable.
-func (c *CheckContext) VarOf(ident *ast.Ident) *types.Var {
+func (c *Context) VarOf(ident *ast.Ident) *types.Var {
 	obj := c.Pass.TypesInfo.ObjectOf(ident)
 	if obj == nil {
 		return nil
@@ -45,8 +40,7 @@ func (c *CheckContext) VarOf(ident *ast.Ident) *types.Var {
 }
 
 // FileOf finds the file that contains the given position.
-// Returns nil if no file contains the position.
-func (c *CheckContext) FileOf(pos token.Pos) *ast.File {
+func (c *Context) FileOf(pos token.Pos) *ast.File {
 	for _, f := range c.Pass.Files {
 		if f.Pos() <= pos && pos < f.End() {
 			return f
@@ -56,8 +50,7 @@ func (c *CheckContext) FileOf(pos token.Pos) *ast.File {
 }
 
 // FuncDeclOf finds the FuncDecl for a types.Func.
-// Returns nil if the function declaration is not found in the analyzed files.
-func (c *CheckContext) FuncDeclOf(fn *types.Func) *ast.FuncDecl {
+func (c *Context) FuncDeclOf(fn *types.Func) *ast.FuncDecl {
 	pos := fn.Pos()
 	f := c.FileOf(pos)
 	if f == nil {
@@ -74,6 +67,6 @@ func (c *CheckContext) FuncDeclOf(fn *types.Func) *ast.FuncDecl {
 }
 
 // FuncOf extracts the types.Func from a call expression.
-func (c *CheckContext) FuncOf(call *ast.CallExpr) *types.Func {
+func (c *Context) FuncOf(call *ast.CallExpr) *types.Func {
 	return funcspec.ExtractFunc(c.Pass, call)
 }

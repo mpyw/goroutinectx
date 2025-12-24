@@ -1,4 +1,4 @@
-// Package deriver handles context derivation logic.
+// Package deriver handles context derivation function matching.
 package deriver
 
 import (
@@ -19,8 +19,8 @@ type Matcher struct {
 	Original string
 }
 
-// NewMatcher creates a DeriveMatcher from a derive function string.
-// The deriveFuncsStr supports OR (comma) and AND (plus) operators.
+// NewMatcher creates a Matcher from a derive function string.
+// Supports OR (comma) and AND (plus) operators.
 // Format: "pkg/path.Func" or "pkg/path.Type.Method".
 func NewMatcher(deriveFuncsStr string) *Matcher {
 	m := &Matcher{
@@ -43,8 +43,7 @@ func NewMatcher(deriveFuncsStr string) *Matcher {
 				continue
 			}
 
-			spec := funcspec.Parse(andPart)
-			andGroup = append(andGroup, spec)
+			andGroup = append(andGroup, funcspec.Parse(andPart))
 		}
 
 		if len(andGroup) > 0 {
@@ -74,7 +73,6 @@ func (m *Matcher) IsEmpty() bool {
 }
 
 // MatchesFunc checks if the given function matches ANY spec in ANY OR group.
-// This is used to check if a call IS a deriver call (not contains one).
 func (m *Matcher) MatchesFunc(fn *types.Func) bool {
 	for _, andGroup := range m.OrGroups {
 		for _, spec := range andGroup {
@@ -87,12 +85,11 @@ func (m *Matcher) MatchesFunc(fn *types.Func) bool {
 }
 
 // collectCalledFuncs collects all types.Func that are called within the node.
-// It does NOT traverse into nested function literals.
+// Does NOT traverse into nested function literals.
 func collectCalledFuncs(pass *analysis.Pass, node ast.Node) []*types.Func {
 	var funcs []*types.Func
 
 	ast.Inspect(node, func(n ast.Node) bool {
-		// Don't traverse into nested function literals
 		if _, ok := n.(*ast.FuncLit); ok {
 			return false
 		}
@@ -119,7 +116,6 @@ func groupSatisfied(calledFuncs []*types.Func, andGroup []funcspec.Spec) bool {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -130,6 +126,5 @@ func specSatisfied(calledFuncs []*types.Func, spec funcspec.Spec) bool {
 			return true
 		}
 	}
-
 	return false
 }

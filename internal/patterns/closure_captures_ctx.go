@@ -6,7 +6,7 @@ import (
 	"go/token"
 
 	"github.com/mpyw/goroutinectx/internal/context"
-	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 )
 
 // ClosureCapturesCtx checks that a closure captures the outer context.

@@ -4,7 +4,7 @@ import (
 	"go/ast"
 
 	"github.com/mpyw/goroutinectx/internal/context"
-	"github.com/mpyw/goroutinectx/internal/directives/ignore"
+	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 )
 
 // CallbackCallsDeriverOrCtxDerived checks that EITHER:

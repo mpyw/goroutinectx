@@ -5,13 +5,13 @@ import (
 
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/directives/carrier"
-	"github.com/mpyw/goroutinectx/internal/directives/deriver"
+	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
-// Tracer provides SSA-based value tracing for goroutinectx.
+// Tracer provides SSA-based value tracing.
 type Tracer struct{}
 
 // NewTracer creates a new SSA tracer.
@@ -19,20 +19,15 @@ func NewTracer() *Tracer {
 	return &Tracer{}
 }
 
-// =============================================================================
-// Closure Context Checking
-// =============================================================================
-
 // ClosureCapturesContext checks if a closure captures any context.Context variable
-// or a configured carrier type. It includes nested closures due to SSA's FreeVars propagation.
+// or a configured carrier type.
 func (t *Tracer) ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier) bool {
 	if closure == nil {
 		return false
 	}
 
-	// Check free variables (captured from enclosing scope)
 	for _, fv := range closure.FreeVars {
-		if typeutil.IsContextOrCarrierType(fv.Type(), carriers) {
+		if isContextOrCarrierType(fv.Type(), carriers) {
 			return true
 		}
 	}
@@ -40,41 +35,30 @@ func (t *Tracer) ClosureCapturesContext(closure *ssa.Function, carriers []carrie
 	return false
 }
 
-// =============================================================================
-// Deriver Function Detection
-// =============================================================================
-
 // DeriverResult represents the result of deriver function detection.
 type DeriverResult struct {
-	// FoundAtStart indicates the deriver is called at goroutine start (not in defer)
-	FoundAtStart bool
-	// FoundOnlyInDefer indicates the deriver is called, but only in defer statements
+	FoundAtStart     bool
 	FoundOnlyInDefer bool
 }
 
 // ClosureCallsDeriver checks if a closure calls any of the required deriver functions.
-// It traverses into immediately-invoked function expressions (IIFE) but tracks
-// whether calls are made in defer statements.
 func (t *Tracer) ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher) DeriverResult {
 	if closure == nil || matcher == nil || matcher.IsEmpty() {
-		return DeriverResult{FoundAtStart: true} // No check needed
+		return DeriverResult{FoundAtStart: true}
 	}
 
-	// Collect all function calls with their defer status
 	calls := t.collectDeriverCalls(closure, false, make(map[*ssa.Function]bool))
 
-	// Check if any OR group is satisfied
+	// Check if any OR group is satisfied at start
 	for _, andGroup := range matcher.OrGroups {
-		startResult := t.checkAndGroup(calls, andGroup, false)
-		if startResult {
+		if t.checkAndGroup(calls, andGroup, false) {
 			return DeriverResult{FoundAtStart: true}
 		}
 	}
 
 	// Check if deriver is only in defer
 	for _, andGroup := range matcher.OrGroups {
-		deferResult := t.checkAndGroup(calls, andGroup, true)
-		if deferResult {
+		if t.checkAndGroup(calls, andGroup, true) {
 			return DeriverResult{FoundOnlyInDefer: true}
 		}
 	}
@@ -82,13 +66,11 @@ func (t *Tracer) ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Mat
 	return DeriverResult{}
 }
 
-// deriverCall represents a function call with its context (defer or not).
 type deriverCall struct {
 	fn      *types.Func
 	inDefer bool
 }
 
-// collectDeriverCalls collects all function calls in a closure, including IIFE.
 func (t *Tracer) collectDeriverCalls(fn *ssa.Function, inDefer bool, visited map[*ssa.Function]bool) []deriverCall {
 	if fn == nil || visited[fn] {
 		return nil
@@ -101,24 +83,18 @@ func (t *Tracer) collectDeriverCalls(fn *ssa.Function, inDefer bool, visited map
 		for _, instr := range block.Instrs {
 			switch v := instr.(type) {
 			case *ssa.Call:
-				// Regular function call
 				if calledFn := ExtractCalledFunc(&v.Call); calledFn != nil {
 					calls = append(calls, deriverCall{fn: calledFn, inDefer: inDefer})
 				}
-				// Check for IIFE: call where the callee is a MakeClosure
 				if iifeFn := ExtractIIFE(&v.Call); iifeFn != nil {
-					// Traverse into the IIFE with the same defer status
 					calls = append(calls, t.collectDeriverCalls(iifeFn, inDefer, visited)...)
 				}
 
 			case *ssa.Defer:
-				// Deferred function call - mark as inDefer
 				if calledFn := ExtractCalledFunc(&v.Call); calledFn != nil {
 					calls = append(calls, deriverCall{fn: calledFn, inDefer: true})
 				}
-				// Check for deferred IIFE
 				if iifeFn := ExtractIIFE(&v.Call); iifeFn != nil {
-					// Traverse into the deferred IIFE with inDefer=true
 					calls = append(calls, t.collectDeriverCalls(iifeFn, true, visited)...)
 				}
 			}
@@ -128,9 +104,6 @@ func (t *Tracer) collectDeriverCalls(fn *ssa.Function, inDefer bool, visited map
 	return calls
 }
 
-// checkAndGroup checks if all specs in an AND group are satisfied.
-// If includeDefer is false, only non-defer calls are considered.
-// If includeDefer is true, all calls (including defer) are considered.
 func (t *Tracer) checkAndGroup(calls []deriverCall, andGroup []funcspec.Spec, includeDefer bool) bool {
 	for _, spec := range andGroup {
 		found := false
@@ -148,4 +121,85 @@ func (t *Tracer) checkAndGroup(calls []deriverCall, andGroup []funcspec.Spec, in
 		}
 	}
 	return true
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// ExtractCalledFunc extracts the types.Func from a CallCommon.
+func ExtractCalledFunc(call *ssa.CallCommon) *types.Func {
+	if call.IsInvoke() {
+		return call.Method
+	}
+
+	if fn := call.StaticCallee(); fn != nil {
+		if obj, ok := fn.Object().(*types.Func); ok {
+			return obj
+		}
+		if origin := fn.Origin(); origin != nil {
+			if obj, ok := origin.Object().(*types.Func); ok {
+				return obj
+			}
+		}
+	}
+
+	return nil
+}
+
+// ExtractIIFE checks if a CallCommon is an IIFE.
+func ExtractIIFE(call *ssa.CallCommon) *ssa.Function {
+	if call.IsInvoke() {
+		return nil
+	}
+
+	if mc, ok := call.Value.(*ssa.MakeClosure); ok {
+		if fn, ok := mc.Fn.(*ssa.Function); ok {
+			return fn
+		}
+	}
+
+	if fn, ok := call.Value.(*ssa.Function); ok {
+		if fn.Parent() != nil {
+			return fn
+		}
+	}
+
+	return nil
+}
+
+// HasFuncArgs checks if the call has func-typed arguments starting from startIdx.
+func HasFuncArgs(call *ssa.CallCommon, startIdx int) bool {
+	args := call.Args
+	if startIdx < 0 || startIdx >= len(args) {
+		return false
+	}
+
+	for i := startIdx; i < len(args); i++ {
+		underlying := args[i].Type().Underlying()
+		if _, isFunc := underlying.(*types.Signature); isFunc {
+			return true
+		}
+		if slice, ok := underlying.(*types.Slice); ok {
+			if _, isFunc := slice.Elem().Underlying().(*types.Signature); isFunc {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isContextOrCarrierType checks if the type is context.Context or a carrier type.
+func isContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
+	if typeutil.IsContextType(t) {
+		return true
+	}
+
+	for _, c := range carriers {
+		if c.Matches(t) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
-	"github.com/mpyw/goroutinectx/internal/directives/carrier"
+	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 )
 
 const contextPkgPath = "context"
