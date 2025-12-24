@@ -1,4 +1,4 @@
-package context
+package probe
 
 import (
 	"go/ast"
@@ -7,14 +7,17 @@ import (
 )
 
 // FuncLitOfIdent is a convenience method that combines VarOf and FuncLitAssignedTo.
-// Returns nil if the identifier doesn't refer to a variable or no func literal assignment is found.
-//
-// Example:
-//
-//	fn := func() { doWork(ctx) }
-//	g.Go(fn)  // fn is an identifier
-//	// FuncLitOfIdent(ast_of_fn, pos_of_g.Go) returns the func literal
-func (c *CheckContext) FuncLitOfIdent(ident *ast.Ident, beforePos token.Pos) *ast.FuncLit {
+// Returns the last func literal assignment found.
+func (c *Context) FuncLitOfIdent(ident *ast.Ident) *ast.FuncLit {
+	v := c.VarOf(ident)
+	if v == nil {
+		return nil
+	}
+	return c.FuncLitAssignedTo(v, token.NoPos)
+}
+
+// FuncLitOfIdentBefore is like FuncLitOfIdent but only considers assignments before beforePos.
+func (c *Context) FuncLitOfIdentBefore(ident *ast.Ident, beforePos token.Pos) *ast.FuncLit {
 	v := c.VarOf(ident)
 	if v == nil {
 		return nil
@@ -25,19 +28,7 @@ func (c *CheckContext) FuncLitOfIdent(ident *ast.Ident, beforePos token.Pos) *as
 // FuncLitAssignedTo searches for the func literal assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
-//
-// Example:
-//
-//	fn := func() { doWork(ctx) }  // <-- returns this FuncLit
-//	g.Go(fn)
-//	// FuncLitAssignedTo(v_of_fn, pos_of_g.Go) returns the func literal
-//
-// Example (multiple assignments):
-//
-//	fn := func() { doA(ctx) }  // first assignment
-//	fn = func() { doB(ctx) }   // second assignment  <-- returns this one
-//	g.Go(fn)
-func (c *CheckContext) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit {
+func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit {
 	f := c.FileOf(v.Pos())
 	if f == nil {
 		return nil
@@ -49,12 +40,11 @@ func (c *CheckContext) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast
 		if !ok {
 			return true
 		}
-		// Skip assignments at or after beforePos
 		if beforePos != token.NoPos && assign.Pos() >= beforePos {
 			return true
 		}
 		if fl := c.funcLitInAssignment(assign, v); fl != nil {
-			result = fl // Keep updating - we want the LAST assignment
+			result = fl
 		}
 		return true
 	})
@@ -63,7 +53,7 @@ func (c *CheckContext) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast
 }
 
 // funcLitInAssignment checks if the assignment assigns a func literal to v.
-func (c *CheckContext) funcLitInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.FuncLit {
+func (c *Context) funcLitInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.FuncLit {
 	for i, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {
@@ -82,16 +72,18 @@ func (c *CheckContext) funcLitInAssignment(assign *ast.AssignStmt, v *types.Var)
 	return nil
 }
 
+// CallExprAssignedToIdent is a convenience method that combines VarOf and CallExprAssignedTo.
+// Returns the last call expression assignment found.
+func (c *Context) CallExprAssignedToIdent(ident *ast.Ident) *ast.CallExpr {
+	v := c.VarOf(ident)
+	if v == nil {
+		return nil
+	}
+	return c.CallExprAssignedTo(v, token.NoPos)
+}
+
 // CallExprAssignedTo searches for the call expression assigned to the variable.
-// If beforePos is token.NoPos, returns the LAST assignment found.
-// If beforePos is set, returns the last assignment BEFORE that position.
-//
-// Example:
-//
-//	task := gotask.NewTask(fn)  // <-- returns this CallExpr
-//	gotask.DoAll(ctx, task)
-//	// CallExprAssignedTo(v_of_task, pos_of_DoAll) returns gotask.NewTask(fn)
-func (c *CheckContext) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.CallExpr {
+func (c *Context) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.CallExpr {
 	f := c.FileOf(v.Pos())
 	if f == nil {
 		return nil
@@ -103,12 +95,11 @@ func (c *CheckContext) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *as
 		if !ok {
 			return true
 		}
-		// Skip assignments at or after beforePos
 		if beforePos != token.NoPos && assign.Pos() >= beforePos {
 			return true
 		}
 		if call := c.callExprInAssignment(assign, v); call != nil {
-			result = call // Keep updating - we want the LAST assignment
+			result = call
 		}
 		return true
 	})
@@ -117,7 +108,7 @@ func (c *CheckContext) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *as
 }
 
 // callExprInAssignment checks if the assignment assigns a call expression to v.
-func (c *CheckContext) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.CallExpr {
+func (c *Context) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.CallExpr {
 	for i, lhs := range assign.Lhs {
 		ident, ok := lhs.(*ast.Ident)
 		if !ok {

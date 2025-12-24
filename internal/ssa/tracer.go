@@ -27,7 +27,7 @@ func (t *Tracer) ClosureCapturesContext(closure *ssa.Function, carriers []carrie
 	}
 
 	for _, fv := range closure.FreeVars {
-		if isContextOrCarrierType(fv.Type(), carriers) {
+		if typeutil.IsContextType(fv.Type()) || carrier.IsCarrierType(fv.Type(), carriers) {
 			return true
 		}
 	}
@@ -186,20 +186,5 @@ func HasFuncArgs(call *ssa.CallCommon, startIdx int) bool {
 			}
 		}
 	}
-	return false
-}
-
-// isContextOrCarrierType checks if the type is context.Context or a carrier type.
-func isContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
-	if typeutil.IsContextType(t) {
-		return true
-	}
-
-	for _, c := range carriers {
-		if c.Matches(t) {
-			return true
-		}
-	}
-
 	return false
 }

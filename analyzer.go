@@ -14,12 +14,12 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/checkers"
+	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
-	"github.com/mpyw/goroutinectx/internal/spawnerlabel"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
@@ -117,10 +117,10 @@ func run(pass *analysis.Pass) (any, error) {
 		reg := registry.New()
 
 		// Register APIs for spawnerlabel detection
-		internal.RegisterErrgroupAPIs(reg, derivers)
-		internal.RegisterWaitgroupAPIs(reg, derivers)
-		internal.RegisterConcAPIs(reg, derivers)
-		internal.RegisterGotaskAPIs(reg, derivers)
+		internal.RegisterErrgroupAPIs(reg)
+		internal.RegisterWaitgroupAPIs(reg)
+		internal.RegisterConcAPIs(reg)
+		internal.RegisterGotaskAPIs(reg)
 
 		spawnerlabelChecker := spawnerlabel.New(spawners, reg, ssaProg)
 		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)

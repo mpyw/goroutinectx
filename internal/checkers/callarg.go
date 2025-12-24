@@ -8,10 +8,10 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	internal "github.com/mpyw/goroutinectx/internal"
-	"github.com/mpyw/goroutinectx/internal/check"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
+	"github.com/mpyw/goroutinectx/internal/probe"
 )
 
 // CallArgChecker checks function calls that take callback arguments.
@@ -58,7 +58,7 @@ func (c *CallArgChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 }
 
 // CheckCall checks the call expression.
-func (c *CallArgChecker) CheckCall(cctx *check.Context, call *ast.CallExpr) *internal.Result {
+func (c *CallArgChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
 		return internal.OK()
@@ -78,7 +78,7 @@ func (c *CallArgChecker) CheckCall(cctx *check.Context, call *ast.CallExpr) *int
 	return internal.OK()
 }
 
-func (c *CallArgChecker) checkSingleArg(cctx *check.Context, call *ast.CallExpr, entry CallArgEntry) *internal.Result {
+func (c *CallArgChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry CallArgEntry) *internal.Result {
 	if entry.CallbackArgIdx >= len(call.Args) {
 		return internal.OK()
 	}
@@ -95,7 +95,7 @@ func (c *CallArgChecker) checkSingleArg(cctx *check.Context, call *ast.CallExpr,
 	return internal.Fail(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
 }
 
-func (c *CallArgChecker) checkVariadic(cctx *check.Context, call *ast.CallExpr, entry CallArgEntry) *internal.Result {
+func (c *CallArgChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry CallArgEntry) *internal.Result {
 	startIdx := entry.CallbackArgIdx
 	if startIdx >= len(call.Args) {
 		return internal.OK()
@@ -121,7 +121,7 @@ func (c *CallArgChecker) checkVariadic(cctx *check.Context, call *ast.CallExpr, 
 	return internal.Fail(msg)
 }
 
-func (c *CallArgChecker) checkArg(cctx *check.Context, arg ast.Expr) bool {
+func (c *CallArgChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
 	if len(cctx.CtxNames) == 0 {
 		return true
 	}
@@ -137,7 +137,7 @@ func (c *CallArgChecker) checkArg(cctx *check.Context, arg ast.Expr) bool {
 	return c.checkArgFromAST(cctx, arg)
 }
 
-func (c *CallArgChecker) checkArgFromAST(cctx *check.Context, arg ast.Expr) bool {
+func (c *CallArgChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr) bool {
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		return cctx.FuncLitCapturesContext(lit)
 	}
@@ -299,7 +299,7 @@ func (c *SpawnerChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 
 // CheckCall checks the call expression.
 // Note: This checker reports directly to pass because it may have multiple failing arguments.
-func (c *SpawnerChecker) CheckCall(cctx *check.Context, call *ast.CallExpr) *internal.Result {
+func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
 	if len(cctx.CtxNames) == 0 {
 		return internal.OK()
 	}
@@ -332,7 +332,7 @@ func (c *SpawnerChecker) CheckCall(cctx *check.Context, call *ast.CallExpr) *int
 	return internal.OK()
 }
 
-func (c *SpawnerChecker) checkFuncArg(cctx *check.Context, arg ast.Expr) bool {
+func (c *SpawnerChecker) checkFuncArg(cctx *probe.Context, arg ast.Expr) bool {
 	// Try SSA-based check first
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {

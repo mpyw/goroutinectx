@@ -8,10 +8,10 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	internal "github.com/mpyw/goroutinectx/internal"
-	"github.com/mpyw/goroutinectx/internal/check"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
+	"github.com/mpyw/goroutinectx/internal/probe"
 )
 
 // gotaskConstructor defines how gotask tasks are created.
@@ -92,7 +92,7 @@ func (c *GotaskChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool 
 
 // CheckCall checks the call expression.
 // Note: This checker may report multiple diagnostics directly to pass.
-func (c *GotaskChecker) CheckCall(cctx *check.Context, call *ast.CallExpr) *internal.Result {
+func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
 		return internal.OK()
@@ -115,7 +115,7 @@ func (c *GotaskChecker) CheckCall(cctx *check.Context, call *ast.CallExpr) *inte
 	return internal.OK()
 }
 
-func (c *GotaskChecker) checkDoAsync(cctx *check.Context, call *ast.CallExpr, entry gotaskEntry) *internal.Result {
+func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) *internal.Result {
 	if len(call.Args) == 0 {
 		return internal.OK()
 	}
@@ -163,7 +163,7 @@ func splitAPIName(name string) []string {
 	return parts
 }
 
-func (c *GotaskChecker) checkVariadic(cctx *check.Context, call *ast.CallExpr, entry gotaskEntry) {
+func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) {
 	startIdx := entry.CallbackArgIdx
 	if startIdx >= len(call.Args) {
 		return
@@ -189,7 +189,7 @@ func (c *GotaskChecker) checkVariadic(cctx *check.Context, call *ast.CallExpr, e
 }
 
 // argIsDeriverCall checks if the argument expression IS a call to the deriver.
-func (c *GotaskChecker) argIsDeriverCall(cctx *check.Context, expr ast.Expr) bool {
+func (c *GotaskChecker) argIsDeriverCall(cctx *probe.Context, expr ast.Expr) bool {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
 		// Not a call expression - check if it's a variable assigned a deriver call
@@ -205,7 +205,7 @@ func (c *GotaskChecker) argIsDeriverCall(cctx *check.Context, expr ast.Expr) boo
 }
 
 // identIsDeriverCall checks if a variable holds a deriver call result.
-func (c *GotaskChecker) identIsDeriverCall(cctx *check.Context, ident *ast.Ident) bool {
+func (c *GotaskChecker) identIsDeriverCall(cctx *probe.Context, ident *ast.Ident) bool {
 	call := cctx.CallExprAssignedToIdent(ident)
 	if call == nil {
 		return false
@@ -216,7 +216,7 @@ func (c *GotaskChecker) identIsDeriverCall(cctx *check.Context, ident *ast.Ident
 }
 
 // taskCallbackCallsDeriver checks if the task's callback (from constructor) calls the deriver.
-func (c *GotaskChecker) taskCallbackCallsDeriver(cctx *check.Context, call *ast.CallExpr) bool {
+func (c *GotaskChecker) taskCallbackCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
 	// Task is always the method receiver (e.g., task.DoAsync)
 	taskExpr := getMethodReceiver(call)
 	if taskExpr == nil {
@@ -249,7 +249,7 @@ func getMethodReceiver(call *ast.CallExpr) ast.Expr {
 }
 
 // findConstructorCall traces the receiver back to find the constructor call.
-func (c *GotaskChecker) findConstructorCall(cctx *check.Context, receiver ast.Expr) *ast.CallExpr {
+func (c *GotaskChecker) findConstructorCall(cctx *probe.Context, receiver ast.Expr) *ast.CallExpr {
 	switch r := receiver.(type) {
 	case *ast.CallExpr:
 		return c.findConstructorFromCall(cctx, r)
@@ -270,7 +270,7 @@ func (c *GotaskChecker) findConstructorCall(cctx *check.Context, receiver ast.Ex
 }
 
 // findConstructorFromCall handles call expressions in the receiver chain.
-func (c *GotaskChecker) findConstructorFromCall(cctx *check.Context, call *ast.CallExpr) *ast.CallExpr {
+func (c *GotaskChecker) findConstructorFromCall(cctx *probe.Context, call *ast.CallExpr) *ast.CallExpr {
 	if c.isTaskConstructorCall(cctx, call) {
 		return call
 	}
@@ -286,7 +286,7 @@ func (c *GotaskChecker) findConstructorFromCall(cctx *check.Context, call *ast.C
 }
 
 // findConstructorFromIdent traces a variable back to its constructor assignment.
-func (c *GotaskChecker) findConstructorFromIdent(cctx *check.Context, ident *ast.Ident) *ast.CallExpr {
+func (c *GotaskChecker) findConstructorFromIdent(cctx *probe.Context, ident *ast.Ident) *ast.CallExpr {
 	call := cctx.CallExprAssignedToIdent(ident)
 	if call == nil {
 		return nil
@@ -296,7 +296,7 @@ func (c *GotaskChecker) findConstructorFromIdent(cctx *check.Context, ident *ast
 }
 
 // isTaskConstructorCall checks if call matches the gotask task constructor.
-func (c *GotaskChecker) isTaskConstructorCall(cctx *check.Context, call *ast.CallExpr) bool {
+func (c *GotaskChecker) isTaskConstructorCall(cctx *probe.Context, call *ast.CallExpr) bool {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
 		return false
@@ -310,7 +310,7 @@ func (c *GotaskChecker) isTaskConstructorCall(cctx *check.Context, call *ast.Cal
 }
 
 // callbackCallsDeriver checks if a callback expression calls the deriver.
-func (c *GotaskChecker) callbackCallsDeriver(cctx *check.Context, arg ast.Expr) bool {
+func (c *GotaskChecker) callbackCallsDeriver(cctx *probe.Context, arg ast.Expr) bool {
 	// For function literals, check if body calls deriver
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		// Try SSA-based check first
@@ -338,7 +338,7 @@ func (c *GotaskChecker) callbackCallsDeriver(cctx *check.Context, arg ast.Expr) 
 }
 
 // argCallsDeriver checks if a variadic argument calls deriver.
-func (c *GotaskChecker) argCallsDeriver(cctx *check.Context, arg ast.Expr, entry gotaskEntry) bool {
+func (c *GotaskChecker) argCallsDeriver(cctx *probe.Context, arg ast.Expr, entry gotaskEntry) bool {
 	// For function literals, check if body calls deriver
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		// Try SSA-based check first
@@ -368,7 +368,7 @@ func (c *GotaskChecker) argCallsDeriver(cctx *check.Context, arg ast.Expr, entry
 }
 
 // checkIdent checks if a variable contains a deriver by tracing its assignment.
-func (c *GotaskChecker) checkIdent(cctx *check.Context, ident *ast.Ident) bool {
+func (c *GotaskChecker) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
 	v := cctx.VarOf(ident)
 	if v == nil {
 		return true // Can't trace (not a variable)
@@ -396,7 +396,7 @@ func (c *GotaskChecker) checkIdent(cctx *check.Context, ident *ast.Ident) bool {
 }
 
 // checkCallExpr checks if a call expression contains a deriver.
-func (c *GotaskChecker) checkCallExpr(cctx *check.Context, call *ast.CallExpr) bool {
+func (c *GotaskChecker) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) bool {
 	// Case 1: Task constructor (e.g., NewTask(fn)) - check fn
 	if c.isTaskConstructorCall(cctx, call) {
 		argIdx := gotaskConstructor.CallbackArgIdx
@@ -420,7 +420,7 @@ func (c *GotaskChecker) checkCallExpr(cctx *check.Context, call *ast.CallExpr) b
 }
 
 // factoryReturnCallsDeriver traces a factory call to its FuncLit and checks returns.
-func (c *GotaskChecker) factoryReturnCallsDeriver(cctx *check.Context, call *ast.CallExpr) bool {
+func (c *GotaskChecker) factoryReturnCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
 	ident, ok := call.Fun.(*ast.Ident)
 	if !ok {
 		return false
@@ -435,7 +435,7 @@ func (c *GotaskChecker) factoryReturnCallsDeriver(cctx *check.Context, call *ast
 }
 
 // callbackReturnCallsDeriver checks if any FuncLit argument returns a deriver-calling func.
-func (c *GotaskChecker) callbackReturnCallsDeriver(cctx *check.Context, call *ast.CallExpr) bool {
+func (c *GotaskChecker) callbackReturnCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
 	for _, arg := range call.Args {
 		funcLit, ok := arg.(*ast.FuncLit)
 		if !ok {
@@ -449,7 +449,7 @@ func (c *GotaskChecker) callbackReturnCallsDeriver(cctx *check.Context, call *as
 }
 
 // funcLitReturnCallsDeriver checks if any return statement returns a deriver-calling expr.
-func (c *GotaskChecker) funcLitReturnCallsDeriver(cctx *check.Context, funcLit *ast.FuncLit) bool {
+func (c *GotaskChecker) funcLitReturnCallsDeriver(cctx *probe.Context, funcLit *ast.FuncLit) bool {
 	var found bool
 
 	ast.Inspect(funcLit.Body, func(n ast.Node) bool {

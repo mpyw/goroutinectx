@@ -7,9 +7,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/check"
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
+	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/scope"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
@@ -74,7 +74,7 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 			return true // No context in scope
 		}
 
-		cctx := &check.Context{
+		cctx := &probe.Context{
 			Pass:     pass,
 			Tracer:   r.tracer,
 			SSAProg:  r.ssaProg,
@@ -94,7 +94,7 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 }
 
 // checkGoStmt runs all GoStmt checkers.
-func (r *Runner) checkGoStmt(cctx *check.Context, stmt *ast.GoStmt) {
+func (r *Runner) checkGoStmt(cctx *probe.Context, stmt *ast.GoStmt) {
 	for _, checker := range r.goStmtCheckers {
 		if r.shouldIgnore(cctx.Pass, stmt.Pos(), checker.Name()) {
 			continue
@@ -117,7 +117,7 @@ func (r *Runner) checkGoStmt(cctx *check.Context, stmt *ast.GoStmt) {
 }
 
 // checkCallExpr runs all Call checkers.
-func (r *Runner) checkCallExpr(cctx *check.Context, call *ast.CallExpr) {
+func (r *Runner) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) {
 	for _, checker := range r.callCheckers {
 		if !checker.MatchCall(cctx.Pass, call) {
 			continue

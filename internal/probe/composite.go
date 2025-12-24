@@ -1,4 +1,4 @@
-package check
+package probe
 
 import (
 	"fmt"

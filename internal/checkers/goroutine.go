@@ -4,9 +4,9 @@ import (
 	"go/ast"
 
 	internal "github.com/mpyw/goroutinectx/internal"
-	"github.com/mpyw/goroutinectx/internal/check"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
+	"github.com/mpyw/goroutinectx/internal/probe"
 )
 
 // Goroutine checks that go statements propagate context.
@@ -20,7 +20,7 @@ func (*Goroutine) Name() ignore.CheckerName {
 }
 
 // CheckGoStmt checks a go statement for context propagation.
-func (c *Goroutine) CheckGoStmt(cctx *check.Context, stmt *ast.GoStmt) *internal.Result {
+func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.Result {
 	if len(cctx.CtxNames) == 0 {
 		return internal.OK()
 	}
@@ -42,7 +42,7 @@ func (c *Goroutine) CheckGoStmt(cctx *check.Context, stmt *ast.GoStmt) *internal
 	return internal.Fail(c.message(cctx))
 }
 
-func (c *Goroutine) message(cctx *check.Context) string {
+func (c *Goroutine) message(cctx *probe.Context) string {
 	ctxName := "ctx"
 	if len(cctx.CtxNames) > 0 {
 		ctxName = cctx.CtxNames[0]
@@ -51,7 +51,7 @@ func (c *Goroutine) message(cctx *check.Context) string {
 }
 
 // checkFromAST falls back to AST-based analysis for go statements.
-func (*Goroutine) checkFromAST(cctx *check.Context, stmt *ast.GoStmt) bool {
+func (*Goroutine) checkFromAST(cctx *probe.Context, stmt *ast.GoStmt) bool {
 	call := stmt.Call
 
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
@@ -92,7 +92,7 @@ func (*GoroutineDerive) Name() ignore.CheckerName {
 }
 
 // CheckGoStmt checks a go statement for deriver function calls.
-func (c *GoroutineDerive) CheckGoStmt(cctx *check.Context, stmt *ast.GoStmt) *internal.Result {
+func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.Result {
 	if c.Derivers == nil || c.Derivers.IsEmpty() {
 		return internal.OK()
 	}
@@ -139,7 +139,7 @@ func (c *GoroutineDerive) deferMessage() string {
 	return "goroutine calls " + c.Derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
-func (c *GoroutineDerive) checkFromSSA(cctx *check.Context, lit *ast.FuncLit) (*internal.Result, bool) {
+func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*internal.Result, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return nil, false
 	}
@@ -162,7 +162,7 @@ func (c *GoroutineDerive) checkFromSSA(cctx *check.Context, lit *ast.FuncLit) (*
 	return internal.Fail(c.message()), true
 }
 
-func (c *GoroutineDerive) checkIdent(cctx *check.Context, ident *ast.Ident) bool {
+func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
 	funcLit := cctx.FuncLitOfIdent(ident)
 	if funcLit == nil {
 		return true
@@ -175,7 +175,7 @@ func (c *GoroutineDerive) checkIdent(cctx *check.Context, ident *ast.Ident) bool
 	return c.Derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 }
 
-func (c *GoroutineDerive) checkHigherOrder(cctx *check.Context, innerCall *ast.CallExpr) bool {
+func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.CallExpr) bool {
 	fun := innerCall.Fun
 	if paren, ok := fun.(*ast.ParenExpr); ok {
 		fun = paren.X
@@ -202,7 +202,7 @@ func (c *GoroutineDerive) checkHigherOrder(cctx *check.Context, innerCall *ast.C
 	return true
 }
 
-func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *check.Context, factory *ast.FuncLit) bool {
+func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *probe.Context, factory *ast.FuncLit) bool {
 	callsDeriver := false
 
 	ast.Inspect(factory.Body, func(n ast.Node) bool {
@@ -238,7 +238,7 @@ func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *check.Context, factory
 	return callsDeriver
 }
 
-func (c *GoroutineDerive) returnedValueCalls(cctx *check.Context, result ast.Expr) bool {
+func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Expr) bool {
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
 		if cctx.FuncLitHasContextParam(innerFuncLit) {
 			return true

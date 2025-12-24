@@ -3,7 +3,6 @@ package scope
 
 import (
 	"go/ast"
-	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
@@ -64,7 +63,7 @@ func findScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Car
 			continue
 		}
 
-		if isContextOrCarrierType(typ, carriers) {
+		if typeutil.IsContextType(typ) || carrier.IsCarrierType(typ, carriers) {
 			for _, name := range field.Names {
 				ctxNames = append(ctxNames, name.Name)
 			}
@@ -76,21 +75,6 @@ func findScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Car
 	}
 
 	return &Scope{CtxNames: ctxNames}
-}
-
-// isContextOrCarrierType checks if a type is context.Context or a carrier type.
-func isContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
-	if typeutil.IsContextType(t) {
-		return true
-	}
-
-	for _, c := range carriers {
-		if c.Matches(t) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // FindEnclosing finds the closest enclosing function with a context parameter.

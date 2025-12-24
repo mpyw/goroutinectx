@@ -1,8 +1,7 @@
-package check
+package probe
 
 import (
 	"go/ast"
-	"go/types"
 
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
@@ -37,7 +36,7 @@ func (c *Context) FuncTypeHasContextParam(fnType *ast.FuncType) bool {
 		if typ == nil {
 			continue
 		}
-		if isContextType(typ) {
+		if typeutil.IsContextType(typ) {
 			return true
 		}
 	}
@@ -96,31 +95,11 @@ func (c *Context) nodeReferencesContext(node ast.Node, skipNestedFuncLit bool) b
 		if obj == nil {
 			return true
 		}
-		if isContextOrCarrierType(obj.Type(), c.Carriers) {
+		if typeutil.IsContextType(obj.Type()) || carrier.IsCarrierType(obj.Type(), c.Carriers) {
 			found = true
 			return false
 		}
 		return true
 	})
 	return found
-}
-
-// isContextType checks if the type is context.Context.
-func isContextType(t types.Type) bool {
-	return typeutil.IsContextType(t)
-}
-
-// isContextOrCarrierType checks if the type is context.Context or a carrier type.
-func isContextOrCarrierType(t types.Type, carriers []carrier.Carrier) bool {
-	if isContextType(t) {
-		return true
-	}
-
-	for _, c := range carriers {
-		if c.Matches(t) {
-			return true
-		}
-	}
-
-	return false
 }

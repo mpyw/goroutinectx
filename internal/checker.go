@@ -5,8 +5,8 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
-	"github.com/mpyw/goroutinectx/internal/check"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
+	"github.com/mpyw/goroutinectx/internal/probe"
 )
 
 // Checker is the unified interface for all checkers.
@@ -19,7 +19,7 @@ type Checker interface {
 // GoStmtChecker checks go statements (go func()...).
 type GoStmtChecker interface {
 	Checker
-	CheckGoStmt(cctx *check.Context, stmt *ast.GoStmt) *Result
+	CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *Result
 }
 
 // CallChecker checks function call expressions.
@@ -28,7 +28,7 @@ type CallChecker interface {
 	// MatchCall returns true if this checker should handle the call.
 	MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 	// CheckCall checks the call expression.
-	CheckCall(cctx *check.Context, call *ast.CallExpr) *Result
+	CheckCall(cctx *probe.Context, call *ast.CallExpr) *Result
 }
 
 // Result represents the outcome of a check.

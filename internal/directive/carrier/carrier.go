@@ -52,6 +52,16 @@ func matchPkg(pkgPath, targetPkg string) bool {
 	return len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9'
 }
 
+// IsCarrierType checks if the type matches any of the carriers.
+func IsCarrierType(t types.Type, carriers []Carrier) bool {
+	for _, c := range carriers {
+		if c.Matches(t) {
+			return true
+		}
+	}
+	return false
+}
+
 // Parse parses a comma-separated list of context carriers.
 func Parse(s string) []Carrier {
 	if s == "" {
