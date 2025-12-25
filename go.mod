@@ -7,6 +7,11 @@ go 1.24.0
 // - v0.1.0-v0.4.0: -test flag conflicted with singlechecker's built-in flag
 retract [v0.1.0, v0.4.0]
 
+// Retract v0.7.2-v0.7.3 due to:
+// - -goroutine-deriver flag didn't work with errgroup/waitgroup/conc/spawner checkers
+//   (deriver checking logic was lost during refactoring)
+retract [v0.7.2, v0.7.3]
+
 require golang.org/x/tools v0.40.0
 
 require (
