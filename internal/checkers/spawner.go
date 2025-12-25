@@ -14,22 +14,22 @@ import (
 	"github.com/mpyw/goroutinectx/internal/probe"
 )
 
-// CallArgChecker checks function calls that take callback arguments.
-type CallArgChecker struct {
+// SpawnCallbackChecker checks function calls that take callbacks spawned as goroutines.
+type SpawnCallbackChecker struct {
 	checkerName ignore.CheckerName
-	entries     []CallArgEntry
+	entries     []SpawnCallbackEntry
 	derivers    *deriver.Matcher
 }
 
-// CallArgEntry defines a function that takes a callback argument.
-type CallArgEntry struct {
+// SpawnCallbackEntry defines a function that spawns its callback argument as a goroutine.
+type SpawnCallbackEntry struct {
 	Spec           funcspec.Spec
 	CallbackArgIdx int
 }
 
-// NewCallArgChecker creates a new CallArgChecker.
-func NewCallArgChecker(name ignore.CheckerName, entries []CallArgEntry, derivers *deriver.Matcher) *CallArgChecker {
-	return &CallArgChecker{
+// NewSpawnCallbackChecker creates a new SpawnCallbackChecker.
+func NewSpawnCallbackChecker(name ignore.CheckerName, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
+	return &SpawnCallbackChecker{
 		checkerName: name,
 		entries:     entries,
 		derivers:    derivers,
@@ -37,12 +37,12 @@ func NewCallArgChecker(name ignore.CheckerName, entries []CallArgEntry, derivers
 }
 
 // Name returns the checker name for ignore directive matching.
-func (c *CallArgChecker) Name() ignore.CheckerName {
+func (c *SpawnCallbackChecker) Name() ignore.CheckerName {
 	return c.checkerName
 }
 
 // MatchCall returns true if this checker should handle the call.
-func (c *CallArgChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool {
+func (c *SpawnCallbackChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool {
 	fn := funcspec.ExtractFunc(pass, call)
 	if fn == nil {
 		return false
@@ -57,7 +57,7 @@ func (c *CallArgChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 }
 
 // CheckCall checks the call expression.
-func (c *CallArgChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
+func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
 		return internal.OK()
@@ -73,7 +73,7 @@ func (c *CallArgChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *int
 	return internal.OK()
 }
 
-func (c *CallArgChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry CallArgEntry) *internal.Result {
+func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry SpawnCallbackEntry) *internal.Result {
 	if entry.CallbackArgIdx >= len(call.Args) {
 		return internal.OK()
 	}
@@ -95,7 +95,7 @@ func (c *CallArgChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr,
 	return internal.Fail(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
 }
 
-func (c *CallArgChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
+func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
 	if len(cctx.CtxNames) == 0 {
 		return true
 	}
@@ -113,7 +113,7 @@ func (c *CallArgChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
 
 // checkFuncLitSSA checks a func literal using SSA analysis.
 // Returns (result, true) if SSA succeeded, or (false, false) if SSA failed.
-func (c *CallArgChecker) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
+func (c *SpawnCallbackChecker) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return false, false
 	}
@@ -144,7 +144,7 @@ func (c *CallArgChecker) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) 
 	return false, true
 }
 
-func (c *CallArgChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr) bool {
+func (c *SpawnCallbackChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr) bool {
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		return c.checkFuncLitAST(cctx, lit)
 	}
@@ -173,7 +173,7 @@ func (c *CallArgChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr) bool
 }
 
 // checkFuncLitAST checks a func literal using AST-based analysis.
-func (c *CallArgChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) bool {
+func (c *SpawnCallbackChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) bool {
 	// Check context capture
 	if cctx.FuncLitCapturesContext(lit) {
 		return true
@@ -194,23 +194,23 @@ func (c *CallArgChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) 
 // =============================================================================
 
 // NewErrgroupChecker creates the errgroup checker.
-func NewErrgroupChecker(derivers *deriver.Matcher) *CallArgChecker {
-	return NewCallArgChecker(ignore.Errgroup, []CallArgEntry{
+func NewErrgroupChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
+	return NewSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"}, CallbackArgIdx: 0},
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "TryGo"}, CallbackArgIdx: 0},
 	}, derivers)
 }
 
 // NewWaitgroupChecker creates the waitgroup checker (Go 1.25+).
-func NewWaitgroupChecker(derivers *deriver.Matcher) *CallArgChecker {
-	return NewCallArgChecker(ignore.Waitgroup, []CallArgEntry{
+func NewWaitgroupChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
+	return NewSpawnCallbackChecker(ignore.Waitgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, CallbackArgIdx: 0},
 	}, derivers)
 }
 
 // NewConcChecker creates the conc checker.
-func NewConcChecker(derivers *deriver.Matcher) *CallArgChecker {
-	return NewCallArgChecker(ignore.Errgroup, []CallArgEntry{
+func NewConcChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
+	return NewSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
 		// conc.Pool.Go
 		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
 		// conc.WaitGroup.Go

@@ -169,11 +169,11 @@ func buildCheckers(derivers *deriver.Matcher, spawners *spawner.Map) ([]internal
 
 	// Goroutine checkers
 	if enableGoroutine {
-		goStmtCheckers = append(goStmtCheckers, &checkers.Goroutine{Derivers: derivers})
+		goStmtCheckers = append(goStmtCheckers, &checkers.Goroutine{})
 	}
 
 	if derivers != nil {
-		goStmtCheckers = append(goStmtCheckers, &checkers.GoroutineDerive{Derivers: derivers})
+		goStmtCheckers = append(goStmtCheckers, checkers.NewGoroutineDerive(derivers))
 	}
 
 	// Call checkers

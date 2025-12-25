@@ -42,7 +42,7 @@
 //
 //	goStmtCheckers := []GoStmtChecker{
 //	    &checkers.Goroutine{},
-//	    &checkers.GoroutineDerive{Derivers: deriveMatcher},
+//	    checkers.NewGoroutineDerive(deriveMatcher),
 //	}
 //	callCheckers := []CallChecker{
 //	    checkers.NewErrgroupChecker(deriveMatcher),

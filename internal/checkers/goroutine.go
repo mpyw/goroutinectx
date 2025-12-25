@@ -10,9 +10,7 @@ import (
 )
 
 // Goroutine checks that go statements propagate context.
-type Goroutine struct {
-	Derivers *deriver.Matcher
-}
+type Goroutine struct{}
 
 // Name returns the checker name for ignore directive matching.
 func (*Goroutine) Name() ignore.CheckerName {
@@ -83,7 +81,12 @@ func (*Goroutine) checkFromAST(cctx *probe.Context, stmt *ast.GoStmt) bool {
 
 // GoroutineDerive checks that go statements call a deriver function.
 type GoroutineDerive struct {
-	Derivers *deriver.Matcher
+	derivers *deriver.Matcher
+}
+
+// NewGoroutineDerive creates a new GoroutineDerive checker.
+func NewGoroutineDerive(derivers *deriver.Matcher) *GoroutineDerive {
+	return &GoroutineDerive{derivers: derivers}
 }
 
 // Name returns the checker name for ignore directive matching.
@@ -93,7 +96,7 @@ func (*GoroutineDerive) Name() ignore.CheckerName {
 
 // CheckGoStmt checks a go statement for deriver function calls.
 func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.Result {
-	if c.Derivers == nil || c.Derivers.IsEmpty() {
+	if c.derivers == nil || c.derivers.IsEmpty() {
 		return internal.OK()
 	}
 
@@ -108,7 +111,7 @@ func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *in
 			return result
 		}
 
-		if c.Derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
+		if c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
 			return internal.OK()
 		}
 		return internal.Fail(c.message())
@@ -132,11 +135,11 @@ func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *in
 }
 
 func (c *GoroutineDerive) message() string {
-	return "goroutine should call " + c.Derivers.Original + " to derive context"
+	return "goroutine should call " + c.derivers.Original + " to derive context"
 }
 
 func (c *GoroutineDerive) deferMessage() string {
-	return "goroutine calls " + c.Derivers.Original + " in defer, but it should be called at goroutine start"
+	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
 func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*internal.Result, bool) {
@@ -149,7 +152,7 @@ func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*
 		return nil, false
 	}
 
-	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.Derivers)
+	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
 
 	if result.FoundAtStart {
 		return internal.OK(), true
@@ -172,7 +175,7 @@ func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool
 		return true
 	}
 
-	return c.Derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
+	return c.derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 }
 
 func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.CallExpr) bool {
@@ -214,7 +217,7 @@ func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *probe.Context, factory
 				callsDeriver = true
 				return false
 			}
-			if c.Derivers.SatisfiesAnyGroup(cctx.Pass, fl.Body) {
+			if c.derivers.SatisfiesAnyGroup(cctx.Pass, fl.Body) {
 				callsDeriver = true
 				return false
 			}
@@ -243,7 +246,7 @@ func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Exp
 		if cctx.FuncLitHasContextParam(innerFuncLit) {
 			return true
 		}
-		return c.Derivers.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
+		return c.derivers.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
 	}
 
 	ident, ok := result.(*ast.Ident)
@@ -259,5 +262,5 @@ func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Exp
 	if cctx.FuncLitHasContextParam(innerFuncLit) {
 		return true
 	}
-	return c.Derivers.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
+	return c.derivers.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
 }
