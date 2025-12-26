@@ -61,11 +61,11 @@ func (*Goroutine) checkFromAST(cctx *probe.Context, stmt *ast.GoStmt) bool {
 	}
 
 	if ident, ok := call.Fun.(*ast.Ident); ok {
-		funcLit := cctx.FuncLitOfIdent(ident)
-		if funcLit == nil {
+		assigns := cctx.FuncLitAssignmentsOfIdent(ident)
+		if len(assigns) == 0 {
 			return true
 		}
-		return cctx.FuncLitCapturesContext(funcLit)
+		return cctx.FuncLitsAllCaptureContext(assigns)
 	}
 
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
@@ -166,16 +166,35 @@ func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*
 }
 
 func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
-	funcLit := cctx.FuncLitOfIdent(ident)
-	if funcLit == nil {
+	assigns := cctx.FuncLitAssignmentsOfIdent(ident)
+	if len(assigns) == 0 {
 		return true
 	}
 
-	if cctx.FuncLitHasContextParam(funcLit) {
-		return true
+	// Find the index of the last unconditional assignment
+	lastUnconditionalIdx := -1
+	for i := len(assigns) - 1; i >= 0; i-- {
+		if !assigns[i].Conditional {
+			lastUnconditionalIdx = i
+			break
+		}
 	}
 
-	return c.derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
+	// Determine the starting point for checks
+	startIdx := 0
+	if lastUnconditionalIdx >= 0 {
+		startIdx = lastUnconditionalIdx
+	}
+
+	// Check all assignments from startIdx onwards
+	for i := startIdx; i < len(assigns); i++ {
+		lit := assigns[i].Lit
+		if !cctx.FuncLitHasContextParam(lit) && !c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.CallExpr) bool {
@@ -192,14 +211,34 @@ func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.C
 	}
 
 	if ident, ok := fun.(*ast.Ident); ok {
-		funcLit := cctx.FuncLitOfIdent(ident)
-		if funcLit == nil {
+		assigns := cctx.FuncLitAssignmentsOfIdent(ident)
+		if len(assigns) == 0 {
 			return true
 		}
-		if cctx.FuncLitHasContextParam(funcLit) {
-			return true
+
+		// Find the index of the last unconditional assignment
+		lastUnconditionalIdx := -1
+		for i := len(assigns) - 1; i >= 0; i-- {
+			if !assigns[i].Conditional {
+				lastUnconditionalIdx = i
+				break
+			}
 		}
-		return c.factoryReturnsCallingFunc(cctx, funcLit)
+
+		// Determine the starting point for checks
+		startIdx := 0
+		if lastUnconditionalIdx >= 0 {
+			startIdx = lastUnconditionalIdx
+		}
+
+		// Check all assignments from startIdx onwards
+		for i := startIdx; i < len(assigns); i++ {
+			lit := assigns[i].Lit
+			if !cctx.FuncLitHasContextParam(lit) && !c.factoryReturnsCallingFunc(cctx, lit) {
+				return false
+			}
+		}
+		return true
 	}
 
 	return true
@@ -254,13 +293,32 @@ func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Exp
 		return false
 	}
 
-	innerFuncLit := cctx.FuncLitOfIdent(ident)
-	if innerFuncLit == nil {
+	assigns := cctx.FuncLitAssignmentsOfIdent(ident)
+	if len(assigns) == 0 {
 		return false
 	}
 
-	if cctx.FuncLitHasContextParam(innerFuncLit) {
-		return true
+	// Find the index of the last unconditional assignment
+	lastUnconditionalIdx := -1
+	for i := len(assigns) - 1; i >= 0; i-- {
+		if !assigns[i].Conditional {
+			lastUnconditionalIdx = i
+			break
+		}
 	}
-	return c.derivers.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
+
+	// Determine the starting point for checks
+	startIdx := 0
+	if lastUnconditionalIdx >= 0 {
+		startIdx = lastUnconditionalIdx
+	}
+
+	// Check all assignments from startIdx onwards
+	for i := startIdx; i < len(assigns); i++ {
+		lit := assigns[i].Lit
+		if !cctx.FuncLitHasContextParam(lit) && !c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
+			return false
+		}
+	}
+	return true
 }

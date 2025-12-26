@@ -53,6 +53,41 @@ func (c *Context) FuncLitCapturesContext(lit *ast.FuncLit) bool {
 	return c.FuncLitHasContextParam(lit) || c.FuncLitUsesContext(lit)
 }
 
+// FuncLitsAllCaptureContext checks if func literals properly capture context.
+// Uses conditionality information to determine the correct check:
+// - Find the last unconditional assignment
+// - Check all assignments from that point onwards (including conditional ones)
+// - ALL must capture context for the check to pass
+func (c *Context) FuncLitsAllCaptureContext(assigns []FuncLitAssignment) bool {
+	if len(assigns) == 0 {
+		return true
+	}
+
+	// Find the index of the last unconditional assignment
+	lastUnconditionalIdx := -1
+	for i := len(assigns) - 1; i >= 0; i-- {
+		if !assigns[i].Conditional {
+			lastUnconditionalIdx = i
+			break
+		}
+	}
+
+	// Determine the starting point for checks
+	startIdx := 0
+	if lastUnconditionalIdx >= 0 {
+		startIdx = lastUnconditionalIdx
+	}
+
+	// Check all assignments from startIdx onwards
+	// ALL must capture context (because conditional assignments may override)
+	for i := startIdx; i < len(assigns); i++ {
+		if !c.FuncLitCapturesContext(assigns[i].Lit) {
+			return false
+		}
+	}
+	return true
+}
+
 // FuncLitUsesContext checks if a function literal references any context variable.
 // Does NOT descend into nested func literals.
 func (c *Context) FuncLitUsesContext(lit *ast.FuncLit) bool {

@@ -711,3 +711,47 @@ func packageFactoryWithCtxParam(ctx context.Context) func() {
 func packageFactoryWithoutCtx() func() {
 	return func() { fmt.Println("no ctx") }
 }
+
+// ===== CONDITIONAL REASSIGNMENT PATTERNS =====
+// These test the analyzer's handling of variable reassignment in conditionals.
+// All paths must propagate context - if ANY assignment doesn't use ctx, warn.
+
+//vt:helper
+var conditionFlag bool
+
+// [BAD]: Conditional reassignment - first uses ctx, conditional doesn't
+//
+// First assignment uses context, but conditional reassignment doesn't.
+// If condition is true, goroutine won't propagate context.
+// All paths must be safe, so this should warn.
+func badConditionalReassignFirstUsesCtx(ctx context.Context) {
+	fn := func() { _ = ctx } // First assignment uses ctx
+	if conditionFlag {
+		fn = func() { fmt.Println("no ctx") } // Conditional reassignment without ctx
+	}
+	go fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Conditional reassignment - first doesn't use ctx, conditional does
+//
+// First assignment ignores context, conditional reassignment uses it.
+// If condition is false, goroutine won't propagate context.
+// All paths must be safe, so this should warn.
+func badConditionalReassignFirstNoCtx(ctx context.Context) {
+	fn := func() { fmt.Println("no ctx") } // First assignment without ctx
+	if conditionFlag {
+		fn = func() { _ = ctx } // Conditional reassignment with ctx
+	}
+	go fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Conditional reassignment - all paths use ctx
+//
+// All assignments use context, so all paths propagate it.
+func goodConditionalReassignAllUseCtx(ctx context.Context) {
+	fn := func() { _ = ctx } // First assignment uses ctx
+	if conditionFlag {
+		fn = func() { _ = ctx } // Conditional reassignment also uses ctx
+	}
+	go fn() // All paths safe
+}

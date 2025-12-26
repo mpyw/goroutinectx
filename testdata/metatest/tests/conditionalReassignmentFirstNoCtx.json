@@ -1,0 +1,16 @@
+{
+  "title": "Conditional reassignment - first doesn't use ctx, conditional does",
+  "targets": [
+    "goroutine"
+  ],
+  "variants": {
+    "bad": {
+      "description": "First assignment ignores context, conditional reassignment uses it.",
+      "functions": {
+        "goroutine": "badConditionalReassignFirstNoCtx"
+      }
+    },
+    "good": null
+  },
+  "level": "evil"
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Conditional reassignment - all paths use ctx",
+  "targets": [
+    "goroutine"
+  ],
+  "variants": {
+    "bad": null,
+    "good": {
+      "description": "All assignments use context, so all paths propagate it.",
+      "functions": {
+        "goroutine": "goodConditionalReassignAllUseCtx"
+      }
+    }
+  },
+  "level": "evil"
+}
