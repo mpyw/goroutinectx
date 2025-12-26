@@ -1,0 +1,16 @@
+{
+  "title": "Factory returns conditionally reassigned variable - all use ctx",
+  "targets": [
+    "errgroup"
+  ],
+  "variants": {
+    "bad": null,
+    "good": {
+      "description": "Factory function returns a variable that is conditionally reassigned. All assignments use context, so all paths propagate it.",
+      "functions": {
+        "errgroup": "goodFactoryConditionalReassignAllUseCtx"
+      }
+    }
+  },
+  "level": "evil"
+}

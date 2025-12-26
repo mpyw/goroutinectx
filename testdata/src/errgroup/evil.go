@@ -684,6 +684,92 @@ func goodHigherOrderReturnsReassignedVariableWithCtx(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== FACTORY RETURN CONDITIONAL REASSIGNMENT =====
+// These patterns test conditional reassignment of variables returned by factory functions.
+
+var factoryConditionFlag bool
+
+// [BAD]: Factory returns conditionally reassigned variable - first uses ctx
+//
+// Factory function returns a variable that is conditionally reassigned.
+// First assignment uses context, but conditional reassignment doesn't.
+//
+// See also:
+//   goroutine: badFactoryConditionalReassignFirstUsesCtx
+//   waitgroup: badFactoryConditionalReassignFirstUsesCtx
+func badFactoryConditionalReassignFirstUsesCtx(ctx context.Context) {
+	g := new(errgroup.Group)
+	makeWorker := func() func() error {
+		worker := func() error {
+			_ = ctx // First uses ctx
+			return nil
+		}
+		if factoryConditionFlag {
+			worker = func() error {
+				fmt.Println("no ctx") // Conditional doesn't use ctx
+				return nil
+			}
+		}
+		return worker
+	}
+	g.Go(makeWorker()) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Factory returns conditionally reassigned variable - first doesn't use ctx
+//
+// Factory function returns a variable that is conditionally reassigned.
+// First assignment ignores context, conditional reassignment uses it.
+//
+// See also:
+//   goroutine: badFactoryConditionalReassignFirstNoCtx
+//   waitgroup: badFactoryConditionalReassignFirstNoCtx
+func badFactoryConditionalReassignFirstNoCtx(ctx context.Context) {
+	g := new(errgroup.Group)
+	makeWorker := func() func() error {
+		worker := func() error {
+			fmt.Println("no ctx") // First doesn't use ctx
+			return nil
+		}
+		if factoryConditionFlag {
+			worker = func() error {
+				_ = ctx // Conditional uses ctx
+				return nil
+			}
+		}
+		return worker
+	}
+	g.Go(makeWorker()) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory returns conditionally reassigned variable - all use ctx
+//
+// Factory function returns a variable that is conditionally reassigned.
+// All assignments use context, so all paths propagate it.
+//
+// See also:
+//   goroutine: goodFactoryConditionalReassignAllUseCtx
+//   waitgroup: goodFactoryConditionalReassignAllUseCtx
+func goodFactoryConditionalReassignAllUseCtx(ctx context.Context) {
+	g := new(errgroup.Group)
+	makeWorker := func() func() error {
+		worker := func() error {
+			_ = ctx // First uses ctx
+			return nil
+		}
+		if factoryConditionFlag {
+			worker = func() error {
+				_ = ctx // Conditional also uses ctx
+				return nil
+			}
+		}
+		return worker
+	}
+	g.Go(makeWorker()) // OK - all assignments use ctx
+	_ = g.Wait()
+}
+
 // ===== UNTRACEABLE PATTERNS (FUNCTION PARAMETERS) =====
 
 // [LIMITATION]: Function from parameter - cannot trace

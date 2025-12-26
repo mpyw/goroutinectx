@@ -8,6 +8,7 @@ import (
 
 // BlockReturnsContextUsingFunc checks if a block's return statements
 // return functions that use context.
+// Only checks what's actually returned, not all nested func literals.
 func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
 	if body == nil {
 		return true
@@ -19,15 +20,8 @@ func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncL
 		if usesContext {
 			return false
 		}
+		// Skip descending into nested func literals (except excludeFuncLit which is the factory itself)
 		if fl, ok := n.(*ast.FuncLit); ok && fl != excludeFuncLit {
-			if c.FuncLitUsesContext(fl) {
-				usesContext = true
-				return false
-			}
-			if c.BlockReturnsContextUsingFunc(fl.Body, fl) {
-				usesContext = true
-				return false
-			}
 			return false
 		}
 
@@ -111,9 +105,11 @@ func (c *Context) IdentFactoryReturnsContextUsingFunc(ident *ast.Ident) bool {
 }
 
 // returnedValueUsesContext checks if a returned value is a func that uses context.
+// For identifiers, checks ALL assignments from last unconditional onwards.
 func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
-		return c.FuncLitUsesContext(innerFuncLit)
+		// Check if the func lit directly uses context OR returns a context-using func
+		return c.FuncLitUsesContext(innerFuncLit) || c.BlockReturnsContextUsingFunc(innerFuncLit.Body, innerFuncLit)
 	}
 
 	ident, ok := result.(*ast.Ident)
@@ -121,10 +117,40 @@ func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
 		return false
 	}
 
-	innerFuncLit := c.FuncLitOfIdent(ident)
-	if innerFuncLit == nil {
+	assigns := c.FuncLitAssignmentsOfIdent(ident)
+	if len(assigns) == 0 {
 		return false
 	}
 
-	return c.FuncLitUsesContext(innerFuncLit)
+	return c.funcLitAssignmentsAllUseOrReturnContext(assigns)
+}
+
+// funcLitAssignmentsAllUseOrReturnContext checks if ALL func literal assignments from
+// last unconditional onwards use context OR return a context-using func.
+func (c *Context) funcLitAssignmentsAllUseOrReturnContext(assigns []FuncLitAssignment) bool {
+	// Find the index of the last unconditional assignment
+	lastUnconditionalIdx := -1
+	for i := len(assigns) - 1; i >= 0; i-- {
+		if !assigns[i].Conditional {
+			lastUnconditionalIdx = i
+			break
+		}
+	}
+
+	// Determine the starting point for checks
+	startIdx := 0
+	if lastUnconditionalIdx >= 0 {
+		startIdx = lastUnconditionalIdx
+	}
+
+	// Check all assignments from startIdx onwards
+	// ALL must use context OR return context-using func
+	for i := startIdx; i < len(assigns); i++ {
+		lit := assigns[i].Lit
+		// Check if the func lit directly uses context OR returns a context-using func
+		if !c.FuncLitUsesContext(lit) && !c.BlockReturnsContextUsingFunc(lit.Body, lit) {
+			return false
+		}
+	}
+	return true
 }

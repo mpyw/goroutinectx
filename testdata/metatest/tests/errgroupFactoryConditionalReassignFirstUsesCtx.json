@@ -1,0 +1,16 @@
+{
+  "title": "Factory returns conditionally reassigned variable - first uses ctx",
+  "targets": [
+    "errgroup"
+  ],
+  "variants": {
+    "bad": {
+      "description": "Factory function returns a variable that is conditionally reassigned. First assignment uses context, but conditional reassignment doesn't.",
+      "functions": {
+        "errgroup": "badFactoryConditionalReassignFirstUsesCtx"
+      }
+    },
+    "good": null
+  },
+  "level": "evil"
+}
