@@ -1,9 +1,7 @@
-package carrier_test
+package carrier
 
 import (
 	"testing"
-
-	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 )
 
 func TestMatchPkg(t *testing.T) {
@@ -69,7 +67,7 @@ func TestMatchPkg(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := carrier.MatchPkg(tt.pkgPath, tt.targetPkg); got != tt.want {
+			if got := matchPkg(tt.pkgPath, tt.targetPkg); got != tt.want {
 				t.Errorf("matchPkg(%q, %q) = %v, want %v", tt.pkgPath, tt.targetPkg, got, tt.want)
 			}
 		})
@@ -82,7 +80,7 @@ func TestParse(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		want  []carrier.Carrier
+		want  []Carrier
 	}{
 		{
 			name:  "empty string",
@@ -92,27 +90,27 @@ func TestParse(t *testing.T) {
 		{
 			name:  "single carrier",
 			input: "github.com/example/pkg.Type",
-			want:  []carrier.Carrier{{PkgPath: "github.com/example/pkg", TypeName: "Type"}},
+			want:  []Carrier{{PkgPath: "github.com/example/pkg", TypeName: "Type"}},
 		},
 		{
 			name:  "multiple carriers",
 			input: "pkg1.Type1,pkg2.Type2",
-			want:  []carrier.Carrier{{PkgPath: "pkg1", TypeName: "Type1"}, {PkgPath: "pkg2", TypeName: "Type2"}},
+			want:  []Carrier{{PkgPath: "pkg1", TypeName: "Type1"}, {PkgPath: "pkg2", TypeName: "Type2"}},
 		},
 		{
 			name:  "with spaces",
 			input: " pkg1.Type1 , pkg2.Type2 ",
-			want:  []carrier.Carrier{{PkgPath: "pkg1", TypeName: "Type1"}, {PkgPath: "pkg2", TypeName: "Type2"}},
+			want:  []Carrier{{PkgPath: "pkg1", TypeName: "Type1"}, {PkgPath: "pkg2", TypeName: "Type2"}},
 		},
 		{
 			name:  "invalid format - no dot",
 			input: "invalid",
-			want:  []carrier.Carrier{},
+			want:  []Carrier{},
 		},
 		{
 			name:  "empty parts are skipped",
 			input: "pkg.Type,,other.Type",
-			want:  []carrier.Carrier{{PkgPath: "pkg", TypeName: "Type"}, {PkgPath: "other", TypeName: "Type"}},
+			want:  []Carrier{{PkgPath: "pkg", TypeName: "Type"}, {PkgPath: "other", TypeName: "Type"}},
 		},
 	}
 
@@ -120,7 +118,7 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := carrier.Parse(tt.input)
+			got := Parse(tt.input)
 			if len(got) != len(tt.want) {
 				t.Errorf("Parse(%q) returned %d carriers, want %d", tt.input, len(got), len(tt.want))
 				return
