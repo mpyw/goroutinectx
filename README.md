@@ -1,8 +1,9 @@
 # goroutinectx
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/mpyw/goroutinectx.svg)](https://pkg.go.dev/github.com/mpyw/goroutinectx)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mpyw/goroutinectx)](https://goreportcard.com/report/github.com/mpyw/goroutinectx)
+[![CI](https://github.com/mpyw/goroutinectx/actions/workflows/ci.yml/badge.svg)](https://github.com/mpyw/goroutinectx/actions/workflows/ci.yml)
 [![Codecov](https://codecov.io/gh/mpyw/goroutinectx/graph/badge.svg)](https://codecov.io/gh/mpyw/goroutinectx)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mpyw/goroutinectx)](https://goreportcard.com/report/github.com/mpyw/goroutinectx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > [!NOTE]
