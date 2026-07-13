@@ -29,6 +29,3 @@ TASKS.md
 # Build artifacts
 /goroutinectx
 /bin/
-
-# MCP
-.mcp.json
