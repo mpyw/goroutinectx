@@ -474,32 +474,6 @@ Continue the cycle until:
 - Newbie questions are answered in documentation
 - Both reference and tutorial docs are current
 
-## Serena MCP Server Usage Guidelines
-
-When using Serena for code analysis, avoid excessive parallel searches to prevent server freezing.
-
-**Best Practices:**
-- Use sequential symbol searches when analyzing broad code areas
-- Start with `get_symbols_overview` before diving into `find_symbol` calls
-- Prefer single `find_symbol` calls over parallel searches for the same file
-- When exploring multiple checkers, analyze them one at a time
-
-**Sequential Pattern (Recommended):**
-```
-1. get_symbols_overview for file A
-2. find_symbol for specific symbol in A
-3. get_symbols_overview for file B
-4. find_symbol for specific symbol in B
-```
-
-**Avoid:**
-- Launching multiple parallel `find_symbol` calls across many files
-- Running broad searches (e.g., searching entire codebase) in parallel
-- Using `search_for_pattern` with very broad patterns in parallel
-
-**Throughput vs Latency:**
-When search scope is large, prioritize reliability over speed by executing searches sequentially rather than in parallel.
-
 ## Related Projects
 
 - [zerologlintctx](https://github.com/mpyw/zerologlintctx) - Zerolog context propagation linter
