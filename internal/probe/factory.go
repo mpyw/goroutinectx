@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 )
 
 // BlockReturnsContextUsingFunc checks if a block's return statements
@@ -30,11 +31,9 @@ func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncL
 			return true
 		}
 
-		for _, result := range ret.Results {
-			if c.returnedValueUsesContext(result) {
-				usesContext = true
-				return false
-			}
+		if slices.ContainsFunc(ret.Results, c.returnedValueUsesContext) {
+			usesContext = true
+			return false
 		}
 		return true
 	})
@@ -130,18 +129,15 @@ func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
 func (c *Context) funcLitAssignmentsAllUseOrReturnContext(assigns []FuncLitAssignment) bool {
 	// Find the index of the last unconditional assignment
 	lastUnconditionalIdx := -1
-	for i := len(assigns) - 1; i >= 0; i-- {
-		if !assigns[i].Conditional {
+	for i, assign := range slices.Backward(assigns) {
+		if !assign.Conditional {
 			lastUnconditionalIdx = i
 			break
 		}
 	}
 
 	// Determine the starting point for checks
-	startIdx := 0
-	if lastUnconditionalIdx >= 0 {
-		startIdx = lastUnconditionalIdx
-	}
+	startIdx := max(lastUnconditionalIdx, 0)
 
 	// Check all assignments from startIdx onwards
 	// ALL must use context OR return context-using func

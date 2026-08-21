@@ -40,8 +40,7 @@ func hasFuncParams(fn *types.Func) bool {
 	}
 
 	params := sig.Params()
-	for i := 0; i < params.Len(); i++ {
-		param := params.At(i)
+	for param := range params.Variables() {
 		paramType := param.Type()
 
 		// Handle variadic parameters: ...func() is represented as []func()

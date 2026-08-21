@@ -4,6 +4,7 @@ package ignore
 import (
 	"go/ast"
 	"go/token"
+	"slices"
 	"strings"
 )
 
@@ -129,11 +130,9 @@ func (m Map) shouldIgnoreEntry(entry *Entry, checker CheckerName) bool {
 	}
 
 	// Check if the specified checker is in the list
-	for _, c := range entry.checkers {
-		if c == checker {
-			entry.used[checker] = true
-			return true
-		}
+	if slices.Contains(entry.checkers, checker) {
+		entry.used[checker] = true
+		return true
 	}
 
 	return false

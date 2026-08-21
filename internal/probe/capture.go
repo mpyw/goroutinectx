@@ -2,6 +2,7 @@ package probe
 
 import (
 	"go/ast"
+	"slices"
 
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
@@ -65,18 +66,15 @@ func (c *Context) FuncLitsAllCaptureContext(assigns []FuncLitAssignment) bool {
 
 	// Find the index of the last unconditional assignment
 	lastUnconditionalIdx := -1
-	for i := len(assigns) - 1; i >= 0; i-- {
-		if !assigns[i].Conditional {
+	for i, assign := range slices.Backward(assigns) {
+		if !assign.Conditional {
 			lastUnconditionalIdx = i
 			break
 		}
 	}
 
 	// Determine the starting point for checks
-	startIdx := 0
-	if lastUnconditionalIdx >= 0 {
-		startIdx = lastUnconditionalIdx
-	}
+	startIdx := max(lastUnconditionalIdx, 0)
 
 	// Check all assignments from startIdx onwards
 	// ALL must capture context (because conditional assignments may override)
@@ -102,12 +100,7 @@ func (c *Context) ArgUsesContext(expr ast.Expr) bool {
 
 // ArgsUseContext checks if any argument references a context variable.
 func (c *Context) ArgsUseContext(args []ast.Expr) bool {
-	for _, arg := range args {
-		if c.ArgUsesContext(arg) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(args, c.ArgUsesContext)
 }
 
 // nodeReferencesContext checks if a node references any context variable.

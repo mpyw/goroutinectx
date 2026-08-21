@@ -4,6 +4,7 @@ package deriver
 import (
 	"go/ast"
 	"go/types"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -121,10 +122,5 @@ func groupSatisfied(calledFuncs []*types.Func, andGroup []funcspec.Spec) bool {
 
 // specSatisfied checks if the spec is satisfied by any of the called functions.
 func specSatisfied(calledFuncs []*types.Func, spec funcspec.Spec) bool {
-	for _, fn := range calledFuncs {
-		if spec.Matches(fn) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(calledFuncs, spec.Matches)
 }

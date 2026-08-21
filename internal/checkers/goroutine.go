@@ -2,6 +2,7 @@ package checkers
 
 import (
 	"go/ast"
+	"slices"
 
 	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/deriver"
@@ -173,18 +174,15 @@ func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool
 
 	// Find the index of the last unconditional assignment
 	lastUnconditionalIdx := -1
-	for i := len(assigns) - 1; i >= 0; i-- {
-		if !assigns[i].Conditional {
+	for i, assign := range slices.Backward(assigns) {
+		if !assign.Conditional {
 			lastUnconditionalIdx = i
 			break
 		}
 	}
 
 	// Determine the starting point for checks
-	startIdx := 0
-	if lastUnconditionalIdx >= 0 {
-		startIdx = lastUnconditionalIdx
-	}
+	startIdx := max(lastUnconditionalIdx, 0)
 
 	// Check all assignments from startIdx onwards
 	for i := startIdx; i < len(assigns); i++ {
@@ -218,18 +216,15 @@ func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.C
 
 		// Find the index of the last unconditional assignment
 		lastUnconditionalIdx := -1
-		for i := len(assigns) - 1; i >= 0; i-- {
-			if !assigns[i].Conditional {
+		for i, assign := range slices.Backward(assigns) {
+			if !assign.Conditional {
 				lastUnconditionalIdx = i
 				break
 			}
 		}
 
 		// Determine the starting point for checks
-		startIdx := 0
-		if lastUnconditionalIdx >= 0 {
-			startIdx = lastUnconditionalIdx
-		}
+		startIdx := max(lastUnconditionalIdx, 0)
 
 		// Check all assignments from startIdx onwards
 		for i := startIdx; i < len(assigns); i++ {
@@ -300,18 +295,15 @@ func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Exp
 
 	// Find the index of the last unconditional assignment
 	lastUnconditionalIdx := -1
-	for i := len(assigns) - 1; i >= 0; i-- {
-		if !assigns[i].Conditional {
+	for i, assign := range slices.Backward(assigns) {
+		if !assign.Conditional {
 			lastUnconditionalIdx = i
 			break
 		}
 	}
 
 	// Determine the starting point for checks
-	startIdx := 0
-	if lastUnconditionalIdx >= 0 {
-		startIdx = lastUnconditionalIdx
-	}
+	startIdx := max(lastUnconditionalIdx, 0)
 
 	// Check all assignments from startIdx onwards
 	for i := startIdx; i < len(assigns); i++ {

@@ -3,6 +3,7 @@ package scope
 
 import (
 	"go/ast"
+	"slices"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
@@ -71,8 +72,8 @@ func findScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Car
 
 // FindEnclosing finds the closest enclosing function with a context parameter.
 func FindEnclosing(scopes Map, stack []ast.Node) *Scope {
-	for i := len(stack) - 1; i >= 0; i-- {
-		if scope, ok := scopes[stack[i]]; ok {
+	for _, s := range slices.Backward(stack) {
+		if scope, ok := scopes[s]; ok {
 			return scope
 		}
 	}
