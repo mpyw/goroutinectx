@@ -2,7 +2,6 @@ package checkers
 
 import (
 	"go/ast"
-	"slices"
 
 	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/deriver"
@@ -172,21 +171,8 @@ func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool
 		return true
 	}
 
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := max(lastUnconditionalIdx, 0)
-
-	// Check all assignments from startIdx onwards
-	for i := startIdx; i < len(assigns); i++ {
-		lit := assigns[i].Lit
+	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
+		lit := assign.Lit
 		if !cctx.FuncLitHasContextParam(lit) && !c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
 			return false
 		}
@@ -214,21 +200,8 @@ func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.C
 			return true
 		}
 
-		// Find the index of the last unconditional assignment
-		lastUnconditionalIdx := -1
-		for i, assign := range slices.Backward(assigns) {
-			if !assign.Conditional {
-				lastUnconditionalIdx = i
-				break
-			}
-		}
-
-		// Determine the starting point for checks
-		startIdx := max(lastUnconditionalIdx, 0)
-
-		// Check all assignments from startIdx onwards
-		for i := startIdx; i < len(assigns); i++ {
-			lit := assigns[i].Lit
+		for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
+			lit := assign.Lit
 			if !cctx.FuncLitHasContextParam(lit) && !c.factoryReturnsCallingFunc(cctx, lit) {
 				return false
 			}
@@ -293,21 +266,8 @@ func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Exp
 		return false
 	}
 
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := max(lastUnconditionalIdx, 0)
-
-	// Check all assignments from startIdx onwards
-	for i := startIdx; i < len(assigns); i++ {
-		lit := assigns[i].Lit
+	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
+		lit := assign.Lit
 		if !cctx.FuncLitHasContextParam(lit) && !c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
 			return false
 		}

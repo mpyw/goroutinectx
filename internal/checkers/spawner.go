@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"slices"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -176,22 +175,9 @@ func (c *SpawnCallbackChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr
 // checkFuncLitAssignments checks all func literal assignments from last unconditional onwards.
 // ALL must pass for the check to succeed.
 func (c *SpawnCallbackChecker) checkFuncLitAssignments(cctx *probe.Context, assigns []probe.FuncLitAssignment) bool {
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := max(lastUnconditionalIdx, 0)
-
-	// Check all assignments from startIdx onwards
 	// ALL must pass (because conditional assignments may override)
-	for i := startIdx; i < len(assigns); i++ {
-		if !c.checkFuncLitAST(cctx, assigns[i].Lit) {
+	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
+		if !c.checkFuncLitAST(cctx, assign.Lit) {
 			return false
 		}
 	}
@@ -376,22 +362,9 @@ func (c *SpawnerChecker) checkFuncArg(cctx *probe.Context, arg ast.Expr) bool {
 // checkFuncLitAssignments checks all func literal assignments from last unconditional onwards.
 // ALL must pass for the check to succeed.
 func (c *SpawnerChecker) checkFuncLitAssignments(cctx *probe.Context, assigns []probe.FuncLitAssignment) bool {
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := max(lastUnconditionalIdx, 0)
-
-	// Check all assignments from startIdx onwards
 	// ALL must pass (because conditional assignments may override)
-	for i := startIdx; i < len(assigns); i++ {
-		if !c.checkFuncLitAST(cctx, assigns[i].Lit) {
+	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
+		if !c.checkFuncLitAST(cctx, assign.Lit) {
 			return false
 		}
 	}

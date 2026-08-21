@@ -64,22 +64,9 @@ func (c *Context) FuncLitsAllCaptureContext(assigns []FuncLitAssignment) bool {
 		return true
 	}
 
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := max(lastUnconditionalIdx, 0)
-
-	// Check all assignments from startIdx onwards
 	// ALL must capture context (because conditional assignments may override)
-	for i := startIdx; i < len(assigns); i++ {
-		if !c.FuncLitCapturesContext(assigns[i].Lit) {
+	for _, assign := range EffectiveFuncLitAssignments(assigns) {
+		if !c.FuncLitCapturesContext(assign.Lit) {
 			return false
 		}
 	}

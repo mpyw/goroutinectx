@@ -127,22 +127,9 @@ func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
 // funcLitAssignmentsAllUseOrReturnContext checks if ALL func literal assignments from
 // last unconditional onwards use context OR return a context-using func.
 func (c *Context) funcLitAssignmentsAllUseOrReturnContext(assigns []FuncLitAssignment) bool {
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := max(lastUnconditionalIdx, 0)
-
-	// Check all assignments from startIdx onwards
 	// ALL must use context OR return context-using func
-	for i := startIdx; i < len(assigns); i++ {
-		lit := assigns[i].Lit
+	for _, assign := range EffectiveFuncLitAssignments(assigns) {
+		lit := assign.Lit
 		// Check if the func lit directly uses context OR returns a context-using func
 		if !c.FuncLitUsesContext(lit) && !c.BlockReturnsContextUsingFunc(lit.Body, lit) {
 			return false
