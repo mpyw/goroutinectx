@@ -9,6 +9,7 @@
     "spawner",
     "errgroupderive",
     "waitgroupderive",
-    "spawnerderive"
+    "spawnerderive",
+    "genericmethod"
   ]
 }

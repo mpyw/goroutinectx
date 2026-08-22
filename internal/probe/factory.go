@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 )
 
 // BlockReturnsContextUsingFunc checks if a block's return statements
@@ -30,11 +31,9 @@ func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncL
 			return true
 		}
 
-		for _, result := range ret.Results {
-			if c.returnedValueUsesContext(result) {
-				usesContext = true
-				return false
-			}
+		if slices.ContainsFunc(ret.Results, c.returnedValueUsesContext) {
+			usesContext = true
+			return false
 		}
 		return true
 	})
@@ -128,25 +127,9 @@ func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
 // funcLitAssignmentsAllUseOrReturnContext checks if ALL func literal assignments from
 // last unconditional onwards use context OR return a context-using func.
 func (c *Context) funcLitAssignmentsAllUseOrReturnContext(assigns []FuncLitAssignment) bool {
-	// Find the index of the last unconditional assignment
-	lastUnconditionalIdx := -1
-	for i := len(assigns) - 1; i >= 0; i-- {
-		if !assigns[i].Conditional {
-			lastUnconditionalIdx = i
-			break
-		}
-	}
-
-	// Determine the starting point for checks
-	startIdx := 0
-	if lastUnconditionalIdx >= 0 {
-		startIdx = lastUnconditionalIdx
-	}
-
-	// Check all assignments from startIdx onwards
 	// ALL must use context OR return context-using func
-	for i := startIdx; i < len(assigns); i++ {
-		lit := assigns[i].Lit
+	for _, assign := range EffectiveFuncLitAssignments(assigns) {
+		lit := assign.Lit
 		// Check if the func lit directly uses context OR returns a context-using func
 		if !c.FuncLitUsesContext(lit) && !c.BlockReturnsContextUsingFunc(lit.Body, lit) {
 			return false

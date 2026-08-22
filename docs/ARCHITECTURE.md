@@ -62,6 +62,7 @@ goroutinectx/
 ├── analyzer.go                # Main analyzer (orchestration, flags)
 ├── analyzer_test.go           # Integration tests using analysistest
 ├── waitgroup_test.go          # Waitgroup tests (Go 1.25+ build tag)
+├── genericmethod_test.go      # Generic method tests (Go 1.27+ build tag)
 ├── internal/
 │   ├── checkers/              # Checker implementations
 │   │   ├── checker.go         # CallChecker, GoStmtChecker interfaces
@@ -290,10 +291,22 @@ Tests are documented in `testdata/metatest/structure.json`:
 
 ### Build Tags
 
-Waitgroup tests require Go 1.25+ (`sync.WaitGroup.Go()` was added in Go 1.25):
-- `waitgroup_test.go` has `//go:build go1.25` tag
+Some fixtures exercise language or stdlib features newer than the module's
+minimum Go version, so they are gated by build tags.
+
+`sync.WaitGroup.Go()` was added in Go 1.25:
+- `waitgroup_test.go` has a `//go:build go1.25` tag
 - `testdata/src/waitgroup/*.go` files have build tags
-- CI runs tests on both Go 1.24 and 1.25
+
+Generic methods were added in Go 1.27:
+- `genericmethod_test.go` has a `//go:build go1.27` tag
+- `testdata/src/genericmethod/genericmethod.go` has a build tag
+- Generic methods are new *syntax*, and `validation_test.go` parses every
+  fixture with `go/parser` regardless of build tags. `genericmethod` is
+  therefore listed in `excludeDirs` in `testdata/metatest/options.json`, so
+  metatest keeps working on toolchains older than 1.27.
+
+CI runs the test suite on Go 1.24, 1.25, 1.26 and 1.27.
 
 ## Comparison with Related Tools
 

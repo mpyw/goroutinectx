@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/ast/inspector"
 )
@@ -12,6 +13,21 @@ import (
 type FuncLitAssignment struct {
 	Lit         *ast.FuncLit
 	Conditional bool // true if inside if/for/switch/select
+}
+
+// EffectiveFuncLitAssignments returns the suffix of assigns that a check must
+// consider: everything from the last unconditional assignment onwards.
+//
+// Assignments before that point are always overwritten, so they cannot affect
+// the value observed at the spawn site. Conditional assignments after it may or
+// may not run, so every one of them has to satisfy the check independently.
+func EffectiveFuncLitAssignments(assigns []FuncLitAssignment) []FuncLitAssignment {
+	for i, assign := range slices.Backward(assigns) {
+		if !assign.Conditional {
+			return assigns[i:]
+		}
+	}
+	return assigns
 }
 
 // FuncLitOfIdent is a convenience method that combines VarOf and FuncLitAssignedTo.

@@ -70,7 +70,7 @@ func parseExternal(s string) []funcspec.Spec {
 	}
 
 	var specs []funcspec.Spec
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
