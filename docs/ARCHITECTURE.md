@@ -306,7 +306,7 @@ Generic methods were added in Go 1.27:
   therefore listed in `excludeDirs` in `testdata/metatest/options.json`, so
   metatest keeps working on toolchains older than 1.27.
 
-CI runs the test suite on Go 1.24, 1.25, 1.26 and 1.27.
+CI runs the test suite on Go 1.25, 1.26 and 1.27.
 
 ## Comparison with Related Tools
 

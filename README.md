@@ -23,7 +23,7 @@ go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
 goroutinectx ./...
 ```
 
-### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool) (Go 1.24+)
+### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool) (Go 1.25+)
 
 ```bash
 # Add to go.mod as a tool dependency
