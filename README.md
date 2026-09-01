@@ -16,12 +16,24 @@ A Go linter that checks goroutine context propagation.
 
 ## Installation & Usage
 
-### Using [`go install`](https://pkg.go.dev/cmd/go#hdr-Compile_and_install_packages_and_dependencies)
+### <a href="https://mise.jdx.dev/"><img src="https://mise.jdx.dev/logo.svg" height="28" alt=""></a> Using [mise](https://mise.jdx.dev/) (macOS/Linux/Windows)
+
+**Recommended.** goroutinectx is installable directly from GitHub Releases via mise's `github` backend — no extra registry required, and no Go toolchain needed because the binaries are prebuilt:
 
 ```bash
-go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
+mise use -g "github:mpyw/goroutinectx"
 goroutinectx ./...
 ```
+
+Or pin it per project in `mise.toml`:
+
+```toml
+[tools]
+"github:mpyw/goroutinectx" = "latest"
+```
+
+> [!IMPORTANT]
+> The `go`-based methods below build goroutinectx from source, which requires Go 1.25 or later. With an older toolchain installed, the `go` command downloads a matching toolchain automatically unless `GOTOOLCHAIN=local` is set.
 
 ### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool) (Go 1.25+)
 
@@ -33,6 +45,13 @@ go get -tool github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
 go tool goroutinectx ./...
 ```
 
+### Using [`go install`](https://pkg.go.dev/cmd/go#hdr-Compile_and_install_packages_and_dependencies)
+
+```bash
+go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
+goroutinectx ./...
+```
+
 ### Using [`go run`](https://pkg.go.dev/cmd/go#hdr-Compile_and_run_Go_program)
 
 ```bash
@@ -40,7 +59,33 @@ go run github.com/mpyw/goroutinectx/cmd/goroutinectx@latest ./...
 ```
 
 > [!CAUTION]
-> To prevent supply chain attacks, pin to a specific version tag instead of `@latest` in CI/CD pipelines (e.g., `@v0.7.5`).
+> To prevent supply chain attacks, pin to a specific version tag instead of `@latest` in CI/CD pipelines (e.g., `@v0.9.0`).
+
+<details>
+<summary><a href="https://curl.se/"><img src="https://cdn.simpleicons.org/curl" height="20" alt=""></a> Downloading the tarball directly (macOS/Linux/Windows)</summary>
+
+No package manager? Grab the archive for your platform from [GitHub Releases](https://github.com/mpyw/goroutinectx/releases):
+
+```bash
+export VERSION=0.0.0
+export OS=linux    # or darwin
+export ARCH=amd64  # or arm64
+export BASE_URL="https://github.com/mpyw/goroutinectx/releases/download/v${VERSION}"
+
+# Download the archive and the release's checksum list
+curl -LO "${BASE_URL}/goroutinectx_${VERSION}_${OS}_${ARCH}.tar.gz"
+curl -LO "${BASE_URL}/checksums.txt"
+
+# Verify before installing (use `shasum -a 256 -c` on macOS)
+sha256sum --ignore-missing -c checksums.txt
+
+tar xzf "goroutinectx_${VERSION}_${OS}_${ARCH}.tar.gz"
+sudo mv goroutinectx /usr/local/bin/
+```
+
+On Windows, download `goroutinectx_${VERSION}_windows_${ARCH}.zip` and extract `goroutinectx.exe` somewhere on your `PATH`.
+
+</details>
 
 ### As a Library
 
