@@ -29,3 +29,4 @@ TASKS.md
 # Build artifacts
 /goroutinectx
 /bin/
+/dist/
