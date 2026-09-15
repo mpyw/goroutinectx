@@ -1,5 +1,3 @@
-//declscope:core
-
 // Package ignore handles //goroutinectx:ignore directives.
 package ignore
 

@@ -1,5 +1,3 @@
-//declscope:core
-
 // Package scope provides context scope detection for functions.
 package scope
 

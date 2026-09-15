@@ -1,5 +1,3 @@
-//declscope:core
-
 // Package funcspec provides function specification parsing and matching.
 package funcspec
 
