@@ -61,7 +61,7 @@ func init() {
 var Analyzer = &analysis.Analyzer{
 	Name:     "goroutinectx",
 	Doc:      "checks that context.Context is properly propagated to downstream calls",
-	Requires: []*analysis.Analyzer{inspect.Analyzer, ssa.BuildSSAAnalyzer},
+	Requires: []*analysis.Analyzer{inspect.Analyzer, ssa.ProgramAnalyzer},
 	Run:      run,
 	Flags:    flag.FlagSet{},
 }
@@ -90,7 +90,7 @@ func run(pass *analysis.Pass) (any, error) {
 	enabled := buildEnabledCheckers(spawners)
 
 	// Build SSA program
-	ssaProg := ssa.Build(pass)
+	ssaProg := ssa.BuildProgram(pass)
 
 	// Build derivers matcher
 	var derivers *deriver.Matcher
