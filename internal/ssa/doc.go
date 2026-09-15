@@ -93,6 +93,6 @@
 // The package exports helper functions for SSA analysis:
 //
 //   - [ExtractCalledFunc]: Get types.Func from CallCommon
-//   - [ExtractIIFE]: Detect immediately-invoked function expressions
-//   - [HasFuncArgs]: Check if call has function-typed arguments
+//   - [ExtractIIFECallee]: Detect immediately-invoked function expressions
+//   - [CallHasFuncArgs]: Check if call has function-typed arguments
 package ssa

@@ -75,7 +75,7 @@
 //
 // The [Matcher.Original] field preserves the flag value for error messages:
 //
-//	return internal.Fail(
+//	return internal.CheckFailed(
 //	    "goroutine should call " + matcher.Original + " to derive context",
 //	)
 //
@@ -84,6 +84,6 @@
 // Use [Matcher.IsEmpty] to check if no derivers are configured:
 //
 //	if matcher == nil || matcher.IsEmpty() {
-//	    return internal.OK()  // No derive check required
+//	    return internal.CheckPassed()  // No derive check required
 //	}
 package deriver

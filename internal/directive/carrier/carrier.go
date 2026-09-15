@@ -1,3 +1,5 @@
+//declscope:core
+
 // Package carrier provides context carrier type parsing.
 package carrier
 

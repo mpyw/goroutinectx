@@ -26,7 +26,7 @@
 //	│ Context Capture      │ FuncLitCapturesContext, FuncLitUsesContext   │
 //	│ Parameter Detection  │ FuncLitHasContextParam, FuncTypeHasContextParam│
 //	│ Factory Functions    │ FactoryCallReturnsContextUsingFunc           │
-//	│ Variable Resolution  │ FuncLitOfIdent                               │
+//	│ Variable Resolution  │ FuncLitAssignedToIdent                       │
 //	│ SSA Analysis         │ FuncLitCapturesContextSSA                    │
 //	└──────────────────────┴──────────────────────────────────────────────┘
 //

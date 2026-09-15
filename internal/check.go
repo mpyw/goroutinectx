@@ -19,7 +19,7 @@ type Checker interface {
 // GoStmtChecker checks go statements (go func()...).
 type GoStmtChecker interface {
 	Checker
-	CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *Result
+	CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *CheckResult
 }
 
 // CallChecker checks function call expressions.
@@ -28,27 +28,27 @@ type CallChecker interface {
 	// MatchCall returns true if this checker should handle the call.
 	MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 	// CheckCall checks the call expression.
-	CheckCall(cctx *probe.Context, call *ast.CallExpr) *Result
+	CheckCall(cctx *probe.Context, call *ast.CallExpr) *CheckResult
 }
 
-// Result represents the outcome of a check.
-type Result struct {
+// CheckResult represents the outcome of a check.
+type CheckResult struct {
 	OK       bool   // Check passed
 	Message  string // Error message if not OK
 	DeferMsg string // Alternative message if only defer has the check
 }
 
-// OK returns a passing result.
-func OK() *Result {
-	return &Result{OK: true}
+// CheckPassed returns a passing result.
+func CheckPassed() *CheckResult {
+	return &CheckResult{OK: true}
 }
 
-// Fail returns a failing result with message.
-func Fail(msg string) *Result {
-	return &Result{OK: false, Message: msg}
+// CheckFailed returns a failing result with message.
+func CheckFailed(msg string) *CheckResult {
+	return &CheckResult{OK: false, Message: msg}
 }
 
-// FailWithDefer returns a failing result with defer-specific message.
-func FailWithDefer(msg, deferMsg string) *Result {
-	return &Result{OK: false, Message: msg, DeferMsg: deferMsg}
+// CheckFailedWithDefer returns a failing result with defer-specific message.
+func CheckFailedWithDefer(msg, deferMsg string) *CheckResult {
+	return &CheckResult{OK: false, Message: msg, DeferMsg: deferMsg}
 }

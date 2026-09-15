@@ -18,26 +18,26 @@ func (*Goroutine) Name() ignore.CheckerName {
 }
 
 // CheckGoStmt checks a go statement for context propagation.
-func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.Result {
+func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.CheckResult {
 	if len(cctx.CtxNames) == 0 {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	// Try SSA-based check first
 	if lit, ok := stmt.Call.Fun.(*ast.FuncLit); ok {
 		if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {
 			if result {
-				return internal.OK()
+				return internal.CheckPassed()
 			}
-			return internal.Fail(c.message(cctx))
+			return internal.CheckFailed(c.message(cctx))
 		}
 	}
 
 	// Fall back to AST-based check
 	if c.checkFromAST(cctx, stmt) {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
-	return internal.Fail(c.message(cctx))
+	return internal.CheckFailed(c.message(cctx))
 }
 
 func (c *Goroutine) message(cctx *probe.Context) string {
@@ -95,16 +95,16 @@ func (*GoroutineDerive) Name() ignore.CheckerName {
 }
 
 // CheckGoStmt checks a go statement for deriver function calls.
-func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.Result {
+func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.CheckResult {
 	if c.derivers == nil || c.derivers.IsEmpty() {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	call := stmt.Call
 
 	if lit, ok := call.Fun.(*ast.FuncLit); ok {
 		if cctx.FuncLitHasContextParam(lit) {
-			return internal.OK()
+			return internal.CheckPassed()
 		}
 
 		if result, ok := c.checkFromSSA(cctx, lit); ok {
@@ -112,26 +112,26 @@ func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *in
 		}
 
 		if c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
-			return internal.OK()
+			return internal.CheckPassed()
 		}
-		return internal.Fail(c.message())
+		return internal.CheckFailed(c.message())
 	}
 
 	if innerCall, ok := call.Fun.(*ast.CallExpr); ok {
 		if c.checkHigherOrder(cctx, innerCall) {
-			return internal.OK()
+			return internal.CheckPassed()
 		}
-		return internal.Fail(c.message())
+		return internal.CheckFailed(c.message())
 	}
 
 	if ident, ok := call.Fun.(*ast.Ident); ok {
 		if c.checkIdent(cctx, ident) {
-			return internal.OK()
+			return internal.CheckPassed()
 		}
-		return internal.Fail(c.message())
+		return internal.CheckFailed(c.message())
 	}
 
-	return internal.OK()
+	return internal.CheckPassed()
 }
 
 func (c *GoroutineDerive) message() string {
@@ -142,7 +142,7 @@ func (c *GoroutineDerive) deferMessage() string {
 	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
-func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*internal.Result, bool) {
+func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*internal.CheckResult, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return nil, false
 	}
@@ -155,14 +155,14 @@ func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*
 	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
 
 	if result.FoundAtStart {
-		return internal.OK(), true
+		return internal.CheckPassed(), true
 	}
 
 	if result.FoundOnlyInDefer {
-		return internal.FailWithDefer(c.message(), c.deferMessage()), true
+		return internal.CheckFailedWithDefer(c.message(), c.deferMessage()), true
 	}
 
-	return internal.Fail(c.message()), true
+	return internal.CheckFailed(c.message()), true
 }
 
 func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {

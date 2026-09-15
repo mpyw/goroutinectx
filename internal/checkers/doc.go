@@ -42,9 +42,9 @@
 //
 // Factory functions create checkers for specific APIs:
 //
-//	checker := NewErrgroupChecker(deriveMatcher)
-//	checker := NewWaitgroupChecker(deriveMatcher)
-//	checker := NewConcChecker(deriveMatcher)
+//	checker := NewErrgroupSpawnChecker(deriveMatcher)
+//	checker := NewWaitgroupSpawnChecker(deriveMatcher)
+//	checker := NewConcSpawnChecker(deriveMatcher)
 //
 // Example detection:
 //

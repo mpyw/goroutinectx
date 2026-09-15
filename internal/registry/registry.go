@@ -1,3 +1,5 @@
+//declscope:core
+
 package registry
 
 import (
