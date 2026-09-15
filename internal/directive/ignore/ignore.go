@@ -1,4 +1,3 @@
-// Package ignore handles //goroutinectx:ignore directives.
 package ignore
 
 import (

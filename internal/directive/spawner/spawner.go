@@ -1,4 +1,3 @@
-// Package spawner handles //goroutinectx:spawner directives and -external-spawner flag.
 package spawner
 
 import (

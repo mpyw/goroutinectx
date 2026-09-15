@@ -1,4 +1,3 @@
-// Package deriver handles context derivation function matching.
 package deriver
 
 import (
