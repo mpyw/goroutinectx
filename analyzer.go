@@ -61,7 +61,7 @@ func init() {
 var Analyzer = &analysis.Analyzer{
 	Name:     "goroutinectx",
 	Doc:      "checks that context.Context is properly propagated to downstream calls",
-	Requires: []*analysis.Analyzer{inspect.Analyzer, ssa.BuildSSAAnalyzer},
+	Requires: []*analysis.Analyzer{inspect.Analyzer, ssa.ProgramAnalyzer},
 	Run:      run,
 	Flags:    flag.FlagSet{},
 }
@@ -90,7 +90,7 @@ func run(pass *analysis.Pass) (any, error) {
 	enabled := buildEnabledCheckers(spawners)
 
 	// Build SSA program
-	ssaProg := ssa.Build(pass)
+	ssaProg := ssa.BuildProgram(pass)
 
 	// Build derivers matcher
 	var derivers *deriver.Matcher
@@ -178,15 +178,15 @@ func buildCheckers(derivers *deriver.Matcher, spawners *spawner.Map) ([]internal
 
 	// Call checkers
 	if enableErrgroup {
-		callCheckers = append(callCheckers, checkers.NewErrgroupChecker(derivers))
+		callCheckers = append(callCheckers, checkers.NewErrgroupSpawnChecker(derivers))
 	}
 
 	if enableWaitgroup {
-		callCheckers = append(callCheckers, checkers.NewWaitgroupChecker(derivers))
+		callCheckers = append(callCheckers, checkers.NewWaitgroupSpawnChecker(derivers))
 	}
 
 	if enableConc {
-		callCheckers = append(callCheckers, checkers.NewConcChecker(derivers))
+		callCheckers = append(callCheckers, checkers.NewConcSpawnChecker(derivers))
 	}
 
 	if enableSpawner && spawners.Len() > 0 {

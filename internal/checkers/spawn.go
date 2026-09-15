@@ -57,10 +57,10 @@ func (c *SpawnCallbackChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr
 }
 
 // CheckCall checks the call expression.
-func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
+func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	for _, entry := range c.entries {
@@ -70,17 +70,17 @@ func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr
 		return c.checkSingleArg(cctx, call, entry)
 	}
 
-	return internal.OK()
+	return internal.CheckPassed()
 }
 
-func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry SpawnCallbackEntry) *internal.Result {
+func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry SpawnCallbackEntry) *internal.CheckResult {
 	if entry.CallbackArgIdx >= len(call.Args) {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	arg := call.Args[entry.CallbackArgIdx]
 	if c.checkArg(cctx, arg) {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	ctxName := "ctx"
@@ -90,9 +90,9 @@ func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.Cal
 
 	// Format error message based on whether deriver is configured
 	if c.derivers != nil && !c.derivers.IsEmpty() {
-		return internal.Fail(fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName))
+		return internal.CheckFailed(fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName))
 	}
-	return internal.Fail(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
+	return internal.CheckFailed(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
 }
 
 func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
@@ -205,23 +205,23 @@ func (c *SpawnCallbackChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.Fun
 // Specific Checker Factories
 // =============================================================================
 
-// NewErrgroupChecker creates the errgroup checker.
-func NewErrgroupChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
+// NewErrgroupSpawnChecker creates the errgroup checker.
+func NewErrgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return NewSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"}, CallbackArgIdx: 0},
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "TryGo"}, CallbackArgIdx: 0},
 	}, derivers)
 }
 
-// NewWaitgroupChecker creates the waitgroup checker (Go 1.25+).
-func NewWaitgroupChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
+// NewWaitgroupSpawnChecker creates the waitgroup checker (Go 1.25+).
+func NewWaitgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return NewSpawnCallbackChecker(ignore.Waitgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, CallbackArgIdx: 0},
 	}, derivers)
 }
 
-// NewConcChecker creates the conc checker.
-func NewConcChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
+// NewConcSpawnChecker creates the conc checker.
+func NewConcSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return NewSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
 		// conc.Pool.Go
 		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
@@ -296,21 +296,21 @@ func (c *SpawnerChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 
 // CheckCall checks the call expression.
 // Note: This checker reports directly to pass because it may have multiple failing arguments.
-func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
+func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
 	if len(cctx.CtxNames) == 0 {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	// Get the function being called
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	// Find func-typed arguments
-	funcArgs := findFuncArgs(cctx.Pass, call)
+	funcArgs := findSpawnableFuncArgs(cctx.Pass, call)
 	if len(funcArgs) == 0 {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	ctxName := "ctx"
@@ -332,7 +332,7 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *int
 	}
 
 	// Return OK because we handled reporting ourselves
-	return internal.OK()
+	return internal.CheckPassed()
 }
 
 func (c *SpawnerChecker) checkFuncArg(cctx *probe.Context, arg ast.Expr) bool {
@@ -415,8 +415,8 @@ func (c *SpawnerChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) 
 	return false
 }
 
-// findFuncArgs finds all arguments in a call that are func types.
-func findFuncArgs(pass *analysis.Pass, call *ast.CallExpr) []ast.Expr {
+// findSpawnableFuncArgs finds all arguments in a call that are func types.
+func findSpawnableFuncArgs(pass *analysis.Pass, call *ast.CallExpr) []ast.Expr {
 	var funcArgs []ast.Expr
 
 	for _, arg := range call.Args {

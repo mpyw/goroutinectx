@@ -15,14 +15,14 @@ import (
 )
 
 // gotaskConstructor defines how gotask tasks are created.
-var gotaskConstructor = &taskConstructorConfig{
+var gotaskConstructor = &gotaskConstructorConfig{
 	PkgPath:        "github.com/siketyan/gotask",
 	FuncName:       "NewTask",
 	CallbackArgIdx: 0,
 }
 
-// taskConstructorConfig defines how tasks are created for task-based APIs.
-type taskConstructorConfig struct {
+// gotaskConstructorConfig defines how tasks are created for task-based APIs.
+type gotaskConstructorConfig struct {
 	PkgPath        string
 	FuncName       string
 	CallbackArgIdx int
@@ -92,10 +92,10 @@ func (c *GotaskChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool 
 
 // CheckCall checks the call expression.
 // Note: This checker may report multiple diagnostics directly to pass.
-func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.Result {
+func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	for _, entry := range c.entries {
@@ -109,47 +109,47 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *inte
 
 		// For variadic APIs, we report each failing argument separately
 		c.checkVariadic(cctx, call, entry)
-		return internal.OK() // We handle reporting ourselves
+		return internal.CheckPassed() // We handle reporting ourselves
 	}
 
-	return internal.OK()
+	return internal.CheckPassed()
 }
 
-func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) *internal.Result {
+func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) *internal.CheckResult {
 	if len(call.Args) == 0 {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	ctxArg := call.Args[0]
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
 	if c.argIsDeriverCall(cctx, ctxArg) {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	// Check 2: Does the task's callback call the deriver?
 	if c.taskCallbackCallsDeriver(cctx, call) {
-		return internal.OK()
+		return internal.CheckPassed()
 	}
 
 	// Neither condition satisfied - report error with pointer receiver format
-	msg := formatMethodMessage(entry.Spec.FullName())
-	return internal.Fail(msg)
+	msg := formatGotaskMethodMessage(entry.Spec.FullName())
+	return internal.CheckFailed(msg)
 }
 
-// formatMethodMessage formats a method name with pointer receiver.
+// formatGotaskMethodMessage formats a method name with pointer receiver.
 // Input: "gotask.Task.DoAsync"
 // Output: "gotask.(*Task).DoAsync() 1st argument should call goroutine deriver"
-func formatMethodMessage(apiName string) string {
-	parts := splitAPIName(apiName)
+func formatGotaskMethodMessage(apiName string) string {
+	parts := splitGotaskAPIName(apiName)
 	if len(parts) == 3 {
 		return parts[0] + ".(*" + parts[1] + ")." + parts[2] + "() 1st argument should call goroutine deriver"
 	}
 	return apiName + "() 1st argument should call goroutine deriver"
 }
 
-// splitAPIName splits an API name like "pkg.Type.Method" into parts.
-func splitAPIName(name string) []string {
+// splitGotaskAPIName splits an API name like "pkg.Type.Method" into parts.
+func splitGotaskAPIName(name string) []string {
 	var parts []string
 	for i := len(name) - 1; i >= 0; i-- {
 		if name[i] == '.' {
@@ -181,7 +181,7 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 				// Report each failing argument with 1-based position
 				argNum := i + 1
 				msg = fmt.Sprintf("%s() %s argument should call goroutine deriver",
-					entry.Spec.FullName(), ordinal(argNum))
+					entry.Spec.FullName(), gotaskArgOrdinal(argNum))
 			}
 			cctx.Pass.Reportf(call.Pos(), "%s", msg)
 		}
@@ -218,7 +218,7 @@ func (c *GotaskChecker) identIsDeriverCall(cctx *probe.Context, ident *ast.Ident
 // taskCallbackCallsDeriver checks if the task's callback (from constructor) calls the deriver.
 func (c *GotaskChecker) taskCallbackCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
 	// Task is always the method receiver (e.g., task.DoAsync)
-	taskExpr := getMethodReceiver(call)
+	taskExpr := gotaskMethodReceiver(call)
 	if taskExpr == nil {
 		return false
 	}
@@ -239,8 +239,8 @@ func (c *GotaskChecker) taskCallbackCallsDeriver(cctx *probe.Context, call *ast.
 	return c.callbackCallsDeriver(cctx, callbackArg)
 }
 
-// getMethodReceiver extracts the receiver from a method call.
-func getMethodReceiver(call *ast.CallExpr) ast.Expr {
+// gotaskMethodReceiver extracts the receiver from a method call.
+func gotaskMethodReceiver(call *ast.CallExpr) ast.Expr {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return nil
@@ -330,7 +330,7 @@ func (c *GotaskChecker) callbackCallsDeriver(cctx *probe.Context, arg ast.Expr) 
 
 	// For identifiers, try to trace to FuncLit
 	if ident, ok := arg.(*ast.Ident); ok {
-		funcLit := cctx.FuncLitOfIdent(ident)
+		funcLit := cctx.FuncLitAssignedToIdent(ident)
 		if funcLit != nil {
 			return c.derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 		}
@@ -383,7 +383,7 @@ func (c *GotaskChecker) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
 	}
 
 	// Try to find FuncLit assignment
-	funcLit := cctx.FuncLitOfIdent(ident)
+	funcLit := cctx.FuncLitAssignedToIdent(ident)
 	if funcLit != nil {
 		return c.derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
 	}
@@ -429,7 +429,7 @@ func (c *GotaskChecker) factoryReturnCallsDeriver(cctx *probe.Context, call *ast
 		return false
 	}
 
-	funcLit := cctx.FuncLitOfIdent(ident)
+	funcLit := cctx.FuncLitAssignedToIdent(ident)
 	if funcLit == nil {
 		return false
 	}
@@ -489,8 +489,8 @@ func (c *GotaskChecker) funcLitReturnCallsDeriver(cctx *probe.Context, funcLit *
 	return found
 }
 
-// ordinal converts a number to its ordinal string (1st, 2nd, 3rd, etc.).
-func ordinal(n int) string {
+// gotaskArgOrdinal converts an argument number to its ordinal string (1st, 2nd, 3rd, etc.).
+func gotaskArgOrdinal(n int) string {
 	suffix := "th"
 	switch n % 10 {
 	case 1:

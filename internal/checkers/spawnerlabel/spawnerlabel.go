@@ -173,7 +173,7 @@ func (c *Checker) checkInstrForSpawn(instr ssa.Instruction, visited map[*ssa.Fun
 		}
 
 		// Check for IIFE - traverse into immediately invoked functions
-		if iifeFn := internalssa.ExtractIIFE(&v.Call); iifeFn != nil {
+		if iifeFn := internalssa.ExtractIIFECallee(&v.Call); iifeFn != nil {
 			if info := c.findSpawnCallSSA(iifeFn, visited); info != nil {
 				return info
 			}
@@ -186,7 +186,7 @@ func (c *Checker) checkInstrForSpawn(instr ssa.Instruction, visited map[*ssa.Fun
 		}
 
 		// Check for deferred IIFE
-		if iifeFn := internalssa.ExtractIIFE(&v.Call); iifeFn != nil {
+		if iifeFn := internalssa.ExtractIIFECallee(&v.Call); iifeFn != nil {
 			if info := c.findSpawnCallSSA(iifeFn, visited); info != nil {
 				return info
 			}
@@ -221,7 +221,7 @@ func (c *Checker) checkCallForSpawn(call *ssa.CallCommon, visited map[*ssa.Funct
 	// Check against registry
 	if match := c.registry.MatchFunc(calledFn); match != nil {
 		// For spawnerlabel, we need func arguments
-		if internalssa.HasFuncArgs(call, match.CallbackArgIdx) {
+		if internalssa.CallHasFuncArgs(call, match.CallbackArgIdx) {
 			return &spawnCallInfo{methodName: match.FullName}
 		}
 		// TaskSource APIs (e.g., DoAsync) always spawn
@@ -231,7 +231,7 @@ func (c *Checker) checkCallForSpawn(call *ssa.CallCommon, visited map[*ssa.Funct
 	}
 
 	// Check if calling a spawner-marked function
-	if c.spawners.IsSpawner(calledFn) && internalssa.HasFuncArgs(call, 0) {
+	if c.spawners.IsSpawner(calledFn) && internalssa.CallHasFuncArgs(call, 0) {
 		return &spawnCallInfo{methodName: calledFn.Name()}
 	}
 

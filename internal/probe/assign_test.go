@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestFuncLitOfLiteralKey(t *testing.T) {
+func TestFuncLitAssignedToLiteralKey(t *testing.T) {
 	t.Parallel()
 
 	// Helper to create a FuncLit
@@ -27,7 +27,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.INT, Value: "1"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != fl1 {
 			t.Errorf("expected fl1, got %v", result)
 		}
@@ -42,7 +42,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.INT, Value: "0"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != fl0 {
 			t.Errorf("expected fl0, got %v", result)
 		}
@@ -56,7 +56,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.INT, Value: "-1"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil for negative index, got %v", result)
 		}
@@ -70,7 +70,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.INT, Value: "5"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil for out of range index, got %v", result)
 		}
@@ -84,7 +84,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.INT, Value: "abc"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil for invalid int format, got %v", result)
 		}
@@ -98,7 +98,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.INT, Value: "0"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil when element is not FuncLit, got %v", result)
 		}
@@ -118,7 +118,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.STRING, Value: `"mykey"`}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != fl {
 			t.Errorf("expected fl, got %v", result)
 		}
@@ -137,7 +137,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.STRING, Value: `"mykey"`}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil when key not found, got %v", result)
 		}
@@ -156,7 +156,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.STRING, Value: `"mykey"`}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil when value is not FuncLit, got %v", result)
 		}
@@ -170,7 +170,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.STRING, Value: `"mykey"`}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil when element is not KeyValueExpr, got %v", result)
 		}
@@ -189,7 +189,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.STRING, Value: `"mykey"`}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil when key is not BasicLit, got %v", result)
 		}
@@ -203,7 +203,7 @@ func TestFuncLitOfLiteralKey(t *testing.T) {
 		}
 		lit := &ast.BasicLit{Kind: token.FLOAT, Value: "1.5"}
 
-		result := funcLitOfLiteralKey(compLit, lit)
+		result := funcLitAssignedToLiteralKey(compLit, lit)
 		if result != nil {
 			t.Errorf("expected nil for unsupported token kind, got %v", result)
 		}

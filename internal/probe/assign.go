@@ -1,10 +1,12 @@
 package probe
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"slices"
+	"strings"
 
 	"golang.org/x/tools/go/ast/inspector"
 )
@@ -30,9 +32,9 @@ func EffectiveFuncLitAssignments(assigns []FuncLitAssignment) []FuncLitAssignmen
 	return assigns
 }
 
-// FuncLitOfIdent is a convenience method that combines VarOf and FuncLitAssignedTo.
+// FuncLitAssignedToIdent is a convenience method that combines VarOf and FuncLitAssignedTo.
 // Returns the last func literal assignment found.
-func (c *Context) FuncLitOfIdent(ident *ast.Ident) *ast.FuncLit {
+func (c *Context) FuncLitAssignedToIdent(ident *ast.Ident) *ast.FuncLit {
 	v := c.VarOf(ident)
 	if v == nil {
 		return nil
@@ -40,10 +42,10 @@ func (c *Context) FuncLitOfIdent(ident *ast.Ident) *ast.FuncLit {
 	return c.FuncLitAssignedTo(v, token.NoPos)
 }
 
-// FuncLitsOfIdent returns ALL func literals assigned to the identifier's variable.
+// FuncLitsAssignedToIdent returns ALL func literals assigned to the identifier's variable.
 // This is needed for conditional reassignment patterns where different branches
 // assign different closures to the same variable.
-func (c *Context) FuncLitsOfIdent(ident *ast.Ident) []*ast.FuncLit {
+func (c *Context) FuncLitsAssignedToIdent(ident *ast.Ident) []*ast.FuncLit {
 	v := c.VarOf(ident)
 	if v == nil {
 		return nil
@@ -139,7 +141,7 @@ func (c *Context) FuncLitAssignmentsTo(v *types.Var, beforePos token.Pos) []Func
 		}
 
 		// Check if assignment is inside a control structure
-		conditional := isInControlStructure(stack)
+		conditional := assignedInControlStructure(stack)
 
 		results = append(results, FuncLitAssignment{
 			Lit:         fl,
@@ -151,8 +153,9 @@ func (c *Context) FuncLitAssignmentsTo(v *types.Var, beforePos token.Pos) []Func
 	return results
 }
 
-// isInControlStructure checks if the stack contains a control structure.
-func isInControlStructure(stack []ast.Node) bool {
+// assignedInControlStructure reports whether an assignment whose ancestors are
+// stack sits inside a control structure.
+func assignedInControlStructure(stack []ast.Node) bool {
 	for _, node := range stack {
 		switch node.(type) {
 		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
@@ -234,5 +237,146 @@ func (c *Context) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *as
 			return call
 		}
 	}
+	return nil
+}
+
+// FuncLitAssignedToStructField finds a func literal assigned to a struct field.
+func (c *Context) FuncLitAssignedToStructField(v *types.Var, fieldName string) *ast.FuncLit {
+	f := c.FileOf(v.Pos())
+	if f == nil {
+		return nil
+	}
+
+	var result *ast.FuncLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if result != nil {
+			return false
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		result = c.funcLitOfFieldAssignment(assign, v, fieldName)
+		return result == nil
+	})
+
+	return result
+}
+
+// FuncLitAssignedToIndex finds a func literal at a specific index in a composite literal.
+func (c *Context) FuncLitAssignedToIndex(v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
+	f := c.FileOf(v.Pos())
+	if f == nil {
+		return nil
+	}
+
+	var result *ast.FuncLit
+	ast.Inspect(f, func(n ast.Node) bool {
+		if result != nil {
+			return false
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		result = c.funcLitOfIndexAssignment(assign, v, indexExpr)
+		return result == nil
+	})
+
+	return result
+}
+
+// funcLitOfFieldAssignment extracts a func literal from a struct field assignment.
+func (c *Context) funcLitOfFieldAssignment(assign *ast.AssignStmt, v *types.Var, fieldName string) *ast.FuncLit {
+	for i, lhs := range assign.Lhs {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if c.Pass.TypesInfo.ObjectOf(ident) != v {
+			continue
+		}
+		if i >= len(assign.Rhs) {
+			continue
+		}
+		compLit, ok := assign.Rhs[i].(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		for _, elt := range compLit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != fieldName {
+				continue
+			}
+			if fl, ok := kv.Value.(*ast.FuncLit); ok {
+				return fl
+			}
+		}
+	}
+	return nil
+}
+
+// funcLitOfIndexAssignment extracts a func literal at a specific index from an assignment.
+func (c *Context) funcLitOfIndexAssignment(assign *ast.AssignStmt, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
+	for i, lhs := range assign.Lhs {
+		ident, ok := lhs.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if c.Pass.TypesInfo.ObjectOf(ident) != v {
+			continue
+		}
+		if i >= len(assign.Rhs) {
+			continue
+		}
+		compLit, ok := assign.Rhs[i].(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		if lit, ok := indexExpr.(*ast.BasicLit); ok {
+			return funcLitAssignedToLiteralKey(compLit, lit)
+		}
+	}
+	return nil
+}
+
+// funcLitAssignedToLiteralKey extracts a func literal by literal index/key from a composite literal.
+func funcLitAssignedToLiteralKey(compLit *ast.CompositeLit, lit *ast.BasicLit) *ast.FuncLit {
+	switch lit.Kind {
+	case token.INT:
+		index := 0
+		if _, err := fmt.Sscanf(lit.Value, "%d", &index); err != nil {
+			return nil
+		}
+		if index < 0 || index >= len(compLit.Elts) {
+			return nil
+		}
+		if fl, ok := compLit.Elts[index].(*ast.FuncLit); ok {
+			return fl
+		}
+
+	case token.STRING:
+		key := strings.Trim(lit.Value, `"`)
+		for _, elt := range compLit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			keyLit, ok := kv.Key.(*ast.BasicLit)
+			if !ok {
+				continue
+			}
+			if strings.Trim(keyLit.Value, `"`) == key {
+				if fl, ok := kv.Value.(*ast.FuncLit); ok {
+					return fl
+				}
+			}
+		}
+	}
+
 	return nil
 }

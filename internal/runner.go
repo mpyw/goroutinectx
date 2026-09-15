@@ -133,14 +133,14 @@ func (r *Runner) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) {
 		}
 
 		if result.Message != "" {
-			reportPos := getCallReportPos(call)
+			reportPos := r.callReportPos(call)
 			cctx.Pass.Reportf(reportPos, "%s", result.Message)
 		}
 	}
 }
 
-// getCallReportPos returns the best position to report for a call expression.
-func getCallReportPos(call *ast.CallExpr) token.Pos {
+// callReportPos returns the best position to report for a call expression.
+func (r *Runner) callReportPos(call *ast.CallExpr) token.Pos {
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 		return sel.Sel.Pos()
 	}

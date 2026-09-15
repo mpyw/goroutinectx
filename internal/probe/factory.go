@@ -7,10 +7,10 @@ import (
 	"slices"
 )
 
-// BlockReturnsContextUsingFunc checks if a block's return statements
+// FactoryBodyReturnsContextUsingFunc checks if a factory body's return statements
 // return functions that use context.
 // Only checks what's actually returned, not all nested func literals.
-func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
+func (c *Context) FactoryBodyReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncLit *ast.FuncLit) bool {
 	if body == nil {
 		return true
 	}
@@ -31,7 +31,7 @@ func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncL
 			return true
 		}
 
-		if slices.ContainsFunc(ret.Results, c.returnedValueUsesContext) {
+		if slices.ContainsFunc(ret.Results, c.factoryReturnedValueUsesContext) {
 			usesContext = true
 			return false
 		}
@@ -44,7 +44,7 @@ func (c *Context) BlockReturnsContextUsingFunc(body *ast.BlockStmt, excludeFuncL
 // FactoryReturnsContextUsingFunc checks if a factory FuncLit's return statements
 // return functions that use context.
 func (c *Context) FactoryReturnsContextUsingFunc(factory *ast.FuncLit) bool {
-	return c.BlockReturnsContextUsingFunc(factory.Body, factory)
+	return c.FactoryBodyReturnsContextUsingFunc(factory.Body, factory)
 }
 
 // FactoryCallReturnsContextUsingFunc checks if a factory call returns a context-using func.
@@ -97,18 +97,18 @@ func (c *Context) IdentFactoryReturnsContextUsingFunc(ident *ast.Ident) bool {
 		if c.FuncTypeHasContextParam(funcDecl.Type) {
 			return true
 		}
-		return c.BlockReturnsContextUsingFunc(funcDecl.Body, nil)
+		return c.FactoryBodyReturnsContextUsingFunc(funcDecl.Body, nil)
 	}
 
 	return true
 }
 
-// returnedValueUsesContext checks if a returned value is a func that uses context.
+// factoryReturnedValueUsesContext checks if a returned value is a func that uses context.
 // For identifiers, checks ALL assignments from last unconditional onwards.
-func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
+func (c *Context) factoryReturnedValueUsesContext(result ast.Expr) bool {
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
 		// Check if the func lit directly uses context OR returns a context-using func
-		return c.FuncLitUsesContext(innerFuncLit) || c.BlockReturnsContextUsingFunc(innerFuncLit.Body, innerFuncLit)
+		return c.FuncLitUsesContext(innerFuncLit) || c.FactoryBodyReturnsContextUsingFunc(innerFuncLit.Body, innerFuncLit)
 	}
 
 	ident, ok := result.(*ast.Ident)
@@ -121,17 +121,17 @@ func (c *Context) returnedValueUsesContext(result ast.Expr) bool {
 		return false
 	}
 
-	return c.funcLitAssignmentsAllUseOrReturnContext(assigns)
+	return c.factoryAssignmentsAllUseOrReturnContext(assigns)
 }
 
-// funcLitAssignmentsAllUseOrReturnContext checks if ALL func literal assignments from
+// factoryAssignmentsAllUseOrReturnContext checks if ALL func literal assignments from
 // last unconditional onwards use context OR return a context-using func.
-func (c *Context) funcLitAssignmentsAllUseOrReturnContext(assigns []FuncLitAssignment) bool {
+func (c *Context) factoryAssignmentsAllUseOrReturnContext(assigns []FuncLitAssignment) bool {
 	// ALL must use context OR return context-using func
 	for _, assign := range EffectiveFuncLitAssignments(assigns) {
 		lit := assign.Lit
 		// Check if the func lit directly uses context OR returns a context-using func
-		if !c.FuncLitUsesContext(lit) && !c.BlockReturnsContextUsingFunc(lit.Body, lit) {
+		if !c.FuncLitUsesContext(lit) && !c.FactoryBodyReturnsContextUsingFunc(lit.Body, lit) {
 			return false
 		}
 	}
