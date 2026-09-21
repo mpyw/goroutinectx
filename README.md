@@ -5,9 +5,6 @@
 [![Codecov](https://codecov.io/gh/mpyw/goroutinectx/graph/badge.svg)](https://codecov.io/gh/mpyw/goroutinectx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> [!NOTE]
-> This project was 99% written by AI (Claude Code).
-
 A Go linter that checks goroutine context propagation.
 
 ## Overview
