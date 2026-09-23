@@ -93,3 +93,19 @@ func badLookalikeIgnore(ctx context.Context) {
 		fmt.Println("background task")
 	}()
 }
+
+// uppercase name is not a directive, and no name can be suggested
+func badUppercaseIgnore(ctx context.Context) {
+	//goroutinectx:Ignore // want `^malformed goroutinectx directive$`
+	go func() { // want `goroutine does not propagate context "ctx"`
+		fmt.Println("background task")
+	}()
+}
+
+// no name at all
+func badNoNameIgnore(ctx context.Context) {
+	//goroutinectx: // want `^malformed goroutinectx directive$`
+	go func() { // want `goroutine does not propagate context "ctx"`
+		fmt.Println("background task")
+	}()
+}

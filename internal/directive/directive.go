@@ -23,10 +23,15 @@ func Parse(text string) (ast.Directive, bool) {
 	return d, true
 }
 
-// Malformed reports whether a comment looks like a goroutinectx directive
-// but is not in the canonical form, such as "// goroutinectx:ignore",
-// "//goroutinectx: ignore" or "/* goroutinectx:ignore */".
-// It returns the canonical form to write instead.
+// Malformed reports whether a comment is addressed to goroutinectx but is not
+// a directive. A comment is addressed when its body, after "//" or "/*",
+// starts with "goroutinectx:" once leading whitespace is skipped. Examples are
+// "// goroutinectx:ignore", "//goroutinectx: ignore", "/* goroutinectx:ignore */",
+// "//goroutinectx:Ignore" and "//goroutinectx:".
+//
+// It also returns the canonical form to write instead, built from the name
+// as written. The suggestion is empty when that form is not a directive
+// either, such as for an uppercase name or no name.
 func Malformed(text string) (string, bool) {
 	if _, ok := Parse(text); ok {
 		return "", false
@@ -49,9 +54,11 @@ func Malformed(text string) (string, bool) {
 	if i := strings.IndexFunc(name, unicode.IsSpace); i >= 0 {
 		name = name[:i]
 	}
-	if name == "" {
-		name = "<name>"
+
+	want := "//" + tool + ":" + name
+	if _, ok := Parse(want); !ok {
+		return "", true
 	}
 
-	return "//" + tool + ":" + name, true
+	return want, true
 }

@@ -271,11 +271,13 @@ func handler(ctx context.Context) {
 
 ## Directives
 
-A directive is written like any other Go directive: `//goroutinectx:name`, with no space after `//` or after the colon. A comment that looks like a directive in another form, such as `// goroutinectx:ignore` or `/* goroutinectx:spawner */`, is not a directive. The analyzer reports it:
+A directive is written like any other Go directive: `//goroutinectx:name`, with no space after `//` or after the colon, and a lowercase name. Any other comment that starts with `goroutinectx:`, such as `// goroutinectx:ignore`, `/* goroutinectx:spawner */` or `//goroutinectx:Ignore`, is not a directive. The analyzer reports it:
 
 ```text
 malformed goroutinectx directive: write //goroutinectx:ignore
 ```
+
+The `write ...` part is left out when the comment has no valid name to suggest, as with `//goroutinectx:Ignore`.
 
 ### `//goroutinectx:ignore`
 
