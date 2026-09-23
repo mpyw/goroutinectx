@@ -1,6 +1,6 @@
 module github.com/mpyw/goroutinectx
 
-go 1.25.0
+go 1.26.0
 
 // Retract all previous versions due to:
 // - v0.1.0-v0.2.0: -goroutine-deriver flag incorrectly disabled the base goroutine checker

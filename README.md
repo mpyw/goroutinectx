@@ -32,7 +32,7 @@ Run it in the project root. It pins the version in the project's `mise.toml`, so
 Add `-g` to install it for every project on your machine instead.
 
 > [!IMPORTANT]
-> The `go`-based methods below build goroutinectx from source, which requires Go 1.25 or later. With an older toolchain installed, the `go` command downloads a matching toolchain automatically unless `GOTOOLCHAIN=local` is set. `go tool` also needs Go 1.24+ on `PATH`, which is where tool directives were introduced.
+> The `go`-based methods below build goroutinectx from source, which requires Go 1.26 or later. With an older toolchain installed, the `go` command downloads a matching toolchain automatically unless `GOTOOLCHAIN=local` is set. `go tool` also needs Go 1.24+ on `PATH`, which is where tool directives were introduced.
 
 ### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool)
 
