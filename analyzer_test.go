@@ -142,6 +142,11 @@ func TestSpawner(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawner")
 }
 
+func TestDirective(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "directive")
+}
+
 func TestExternalSpawner(t *testing.T) {
 	testdata := analysistest.TestData()
 

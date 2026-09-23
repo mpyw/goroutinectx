@@ -179,6 +179,10 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 - `//goroutinectx:ignore - reason` - ignore all with comment
 - `//goroutinectx:ignore goroutine - reason` - ignore specific with comment
 
+Only this canonical form is a directive (parsed by `go/ast.ParseDirective`).
+A comment that looks like one in another form, such as `// goroutinectx:ignore`
+or `/* goroutinectx:ignore */`, is reported as a malformed directive.
+
 ### internal/directives/deriver/
 
 Deriver function matching with OR/AND logic:

@@ -11,7 +11,8 @@ func TestIsSpawnerComment(t *testing.T) {
 		want bool
 	}{
 		{name: "canonical", text: "//goroutinectx:spawner", want: true},
-		{name: "spaced", text: "// goroutinectx:spawner", want: true},
+		{name: "spaced", text: "// goroutinectx:spawner", want: false},
+		{name: "block comment", text: "/* goroutinectx:spawner */", want: false},
 		{name: "trailing comment", text: "//goroutinectx:spawner //vt:helper", want: true},
 		{name: "longer name", text: "//goroutinectx:spawnerX", want: false},
 		{name: "spawnerlabel", text: "//goroutinectx:spawnerlabel", want: false},

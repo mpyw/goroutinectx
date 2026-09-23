@@ -15,10 +15,11 @@ func TestParseComment(t *testing.T) {
 		wantOK bool
 	}{
 		{name: "canonical", text: "//goroutinectx:ignore", wantOK: true},
-		{name: "spaced", text: "// goroutinectx:ignore", wantOK: true},
+		{name: "spaced", text: "// goroutinectx:ignore", wantOK: false},
 		{name: "trailing space", text: "//goroutinectx:ignore  ", wantOK: true},
 		{name: "one checker", text: "//goroutinectx:ignore goroutine", want: []CheckerName{Goroutine}, wantOK: true},
-		{name: "spaced with checker", text: "// goroutinectx:ignore goroutine", want: []CheckerName{Goroutine}, wantOK: true},
+		{name: "spaced with checker", text: "// goroutinectx:ignore goroutine", wantOK: false},
+		{name: "block comment", text: "/* goroutinectx:ignore */", wantOK: false},
 		{name: "checker list", text: "//goroutinectx:ignore goroutine,errgroup", want: []CheckerName{Goroutine, Errgroup}, wantOK: true},
 		{name: "checker list with spaces", text: "//goroutinectx:ignore goroutine, errgroup", want: []CheckerName{Goroutine, Errgroup}, wantOK: true},
 		{name: "dash reason", text: "//goroutinectx:ignore - fire-and-forget", wantOK: true},
