@@ -18,16 +18,18 @@ A Go linter that checks goroutine context propagation.
 **Recommended.** goroutinectx is installable directly from GitHub Releases via mise's `github` backend — no extra registry required, and no Go toolchain needed because the binaries are prebuilt:
 
 ```bash
-mise use -g "github:mpyw/goroutinectx"
+mise use "github:mpyw/goroutinectx@0.9.3"
 goroutinectx ./...
 ```
 
-Or pin it per project in `mise.toml`:
+Run it in the project root. It pins the version in the project's `mise.toml`, so every checkout and CI run the same one:
 
 ```toml
 [tools]
-"github:mpyw/goroutinectx" = "latest"
+"github:mpyw/goroutinectx" = "0.9.3"
 ```
+
+Add `-g` to install it for every project on your machine instead.
 
 > [!IMPORTANT]
 > The `go`-based methods below build goroutinectx from source, which requires Go 1.25 or later. With an older toolchain installed, the `go` command downloads a matching toolchain automatically unless `GOTOOLCHAIN=local` is set. `go tool` also needs Go 1.24+ on `PATH`, which is where tool directives were introduced.
