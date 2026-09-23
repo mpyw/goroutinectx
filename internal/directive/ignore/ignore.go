@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"slices"
 	"strings"
+
+	"github.com/mpyw/goroutinectx/internal/directive"
 )
 
 // CheckerName represents a checker that can be ignored.
@@ -58,49 +60,27 @@ func Build(fset *token.FileSet, file *ast.File) Map {
 // Returns nil slice if no specific checkers are specified (ignore all).
 // Returns false if not an ignore comment.
 func parseComment(text string) ([]CheckerName, bool) {
-	text = strings.TrimPrefix(text, "//")
-	text = strings.TrimSpace(text)
-
-	if !strings.HasPrefix(text, "goroutinectx:ignore") {
+	d, ok := directive.Parse(text)
+	if !ok || d.Name != "ignore" {
 		return nil, false
 	}
 
-	// Extract checker names after "goroutinectx:ignore"
-	rest := strings.TrimPrefix(text, "goroutinectx:ignore")
-	rest = strings.TrimSpace(rest)
-
-	if rest == "" {
-		return nil, true // No specific checkers = ignore all
-	}
-
-	// Stop at comment markers: " - ", " // ", or " //"
-	if idx := strings.Index(rest, " - "); idx >= 0 {
-		rest = rest[:idx]
-	}
-	if idx := strings.Index(rest, " //"); idx >= 0 {
-		rest = rest[:idx]
-	}
-	// Handle "- " at the start (no checkers specified, just comment)
+	// A reason follows " - " or " //". A leading "-" is a reason with no checkers.
+	rest := d.Args
+	rest, _, _ = strings.Cut(rest, " - ")
+	rest, _, _ = strings.Cut(rest, " //")
 	if strings.HasPrefix(rest, "- ") || rest == "-" {
 		return nil, true
 	}
 
-	rest = strings.TrimSpace(rest)
-	if rest == "" {
-		return nil, true
-	}
-
-	// Parse comma-separated checker names
-	parts := strings.Split(rest, ",")
-	checkers := make([]CheckerName, 0, len(parts))
-
-	for _, part := range parts {
-		name := CheckerName(strings.TrimSpace(part))
-		if name != "" {
+	var checkers []CheckerName
+	for part := range strings.SplitSeq(rest, ",") {
+		if name := CheckerName(strings.TrimSpace(part)); name != "" {
 			checkers = append(checkers, name)
 		}
 	}
 
+	// No specific checkers = ignore all
 	return checkers, true
 }
 
