@@ -179,12 +179,9 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 - `//goroutinectx:ignore - reason` - ignore all with comment
 - `//goroutinectx:ignore goroutine - reason` - ignore specific with comment
 
-Only this canonical form is a directive (parsed by `go/ast.ParseDirective`),
-and names are lowercase. Any other comment whose body starts with
-`goroutinectx:` after optional whitespace, such as `// goroutinectx:ignore`,
-`/* goroutinectx:ignore */` or `//goroutinectx:Ignore`, is reported as a
-malformed directive. The report suggests `//goroutinectx:<name>` only when
-that text is itself a valid directive.
+Only `//goroutinectx:name` (a line comment, a lowercase name, no spaces) is a
+directive, as parsed by `go/ast.ParseDirective`. Any other comment starting
+with `goroutinectx:` is reported as a malformed directive.
 
 ### internal/directives/deriver/
 

@@ -16,10 +16,9 @@
 //
 //	//goroutinectx:<directive> [args]
 //
-// There is no space after "//" or after the colon, and the name is
-// lowercase, as for any Go directive. Any other comment that starts with
-// "goroutinectx:", such as "// goroutinectx:ignore" or "//goroutinectx:Ignore",
-// is not a directive, and the analyzer reports it as malformed.
+// Only this form is a directive: a line comment, a lowercase name, and no
+// spaces. Any other comment starting with "goroutinectx:" is reported as
+// malformed.
 //
 // Examples:
 //

@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Directives
 
-Only the canonical form `//goroutinectx:name [args]` with a lowercase name is a directive (`go/ast.ParseDirective`). Any other comment whose body starts with `goroutinectx:` after optional whitespace, such as `// goroutinectx:ignore`, `/* goroutinectx:ignore */` or `//goroutinectx:Ignore`, is reported as malformed. The report suggests `//goroutinectx:<name>` only when that text is itself a valid directive.
+Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) is a directive (`go/ast.ParseDirective`). Any other comment starting with `goroutinectx:` is reported as malformed.
 
 - `//goroutinectx:ignore` - Suppress warnings for the next line or same line
   - Checker-specific: `//goroutinectx:ignore goroutine` or `//goroutinectx:ignore goroutine,errgroup`

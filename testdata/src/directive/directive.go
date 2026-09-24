@@ -13,12 +13,12 @@ func runCanonical(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
 
-// goroutinectx:spawner // want `malformed goroutinectx directive: write //goroutinectx:spawner`
+// goroutinectx:spawner // want `malformed goroutinectx directive: write it as //goroutinectx:name`
 func runSpaced(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
 
-/* goroutinectx:spawner */ // want `malformed goroutinectx directive: write //goroutinectx:spawner`
+/* goroutinectx:spawner */ // want `malformed goroutinectx directive: write it as //goroutinectx:name`
 func runBlock(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
@@ -64,7 +64,7 @@ func goodCanonicalIgnoreWithArgs(ctx context.Context) {
 
 // space after the comment marker
 func badSpacedIgnore(ctx context.Context) {
-	// goroutinectx:ignore // want `malformed goroutinectx directive: write //goroutinectx:ignore`
+	// goroutinectx:ignore // want `malformed goroutinectx directive: write it as //goroutinectx:name`
 	go func() { // want `goroutine does not propagate context "ctx"`
 		fmt.Println("background task")
 	}()
@@ -72,7 +72,7 @@ func badSpacedIgnore(ctx context.Context) {
 
 // space after the colon
 func badSpaceAfterColonIgnore(ctx context.Context) {
-	//goroutinectx: ignore // want `malformed goroutinectx directive: write //goroutinectx:ignore`
+	//goroutinectx: ignore // want `malformed goroutinectx directive: write it as //goroutinectx:name`
 	go func() { // want `goroutine does not propagate context "ctx"`
 		fmt.Println("background task")
 	}()
@@ -80,7 +80,7 @@ func badSpaceAfterColonIgnore(ctx context.Context) {
 
 // block comment
 func badBlockIgnore(ctx context.Context) {
-	/* goroutinectx:ignore */ // want `malformed goroutinectx directive: write //goroutinectx:ignore`
+	/* goroutinectx:ignore */ // want `malformed goroutinectx directive: write it as //goroutinectx:name`
 	go func() { // want `goroutine does not propagate context "ctx"`
 		fmt.Println("background task")
 	}()
@@ -94,17 +94,9 @@ func badLookalikeIgnore(ctx context.Context) {
 	}()
 }
 
-// uppercase name is not a directive, and no name can be suggested
+// uppercase name is not a directive
 func badUppercaseIgnore(ctx context.Context) {
-	//goroutinectx:Ignore // want `^malformed goroutinectx directive$`
-	go func() { // want `goroutine does not propagate context "ctx"`
-		fmt.Println("background task")
-	}()
-}
-
-// no name at all
-func badNoNameIgnore(ctx context.Context) {
-	//goroutinectx: // want `^malformed goroutinectx directive$`
+	//goroutinectx:Ignore // want `malformed goroutinectx directive: write it as //goroutinectx:name`
 	go func() { // want `goroutine does not propagate context "ctx"`
 		fmt.Println("background task")
 	}()

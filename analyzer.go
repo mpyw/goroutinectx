@@ -269,13 +269,8 @@ func reportMalformedDirectives(pass *analysis.Pass, skipFiles map[string]bool) {
 		}
 		for _, cg := range file.Comments {
 			for _, c := range cg.List {
-				want, ok := directive.Malformed(c.Text)
-				switch {
-				case !ok:
-				case want == "":
-					pass.Reportf(c.Pos(), "malformed goroutinectx directive")
-				default:
-					pass.Reportf(c.Pos(), "malformed goroutinectx directive: write %s", want)
+				if directive.Malformed(c.Text) {
+					pass.Reportf(c.Pos(), "malformed goroutinectx directive: write it as //goroutinectx:name")
 				}
 			}
 		}
