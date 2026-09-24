@@ -12,9 +12,9 @@ retract [v0.1.0, v0.4.0]
 //   (deriver checking logic was lost during refactoring)
 retract [v0.7.2, v0.7.3]
 
-require golang.org/x/tools v0.49.0
+require golang.org/x/tools v0.50.0
 
 require (
-	golang.org/x/mod v0.39.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
 )
