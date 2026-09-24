@@ -16,6 +16,10 @@
 //
 //	//goroutinectx:<directive> [args]
 //
+// Only this form is a directive: a line comment, a lowercase name, and no
+// spaces. Any other comment starting with "goroutinectx:" is reported as
+// malformed.
+//
 // Examples:
 //
 //	//goroutinectx:ignore

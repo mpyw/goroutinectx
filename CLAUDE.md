@@ -26,6 +26,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Directives
 
+Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) is a directive (`go/ast.ParseDirective`). Any other comment starting with `goroutinectx:` is reported as malformed.
+
 - `//goroutinectx:ignore` - Suppress warnings for the next line or same line
   - Checker-specific: `//goroutinectx:ignore goroutine` or `//goroutinectx:ignore goroutine,errgroup`
   - Valid checker names: `goroutine`, `goroutinederive`, `waitgroup`, `errgroup`, `spawner`, `spawnerlabel`, `gotask`

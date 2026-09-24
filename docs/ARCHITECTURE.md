@@ -179,6 +179,10 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 - `//goroutinectx:ignore - reason` - ignore all with comment
 - `//goroutinectx:ignore goroutine - reason` - ignore specific with comment
 
+Only `//goroutinectx:name` (a line comment, a lowercase name, no spaces) is a
+directive, as parsed by `go/ast.ParseDirective`. Any other comment starting
+with `goroutinectx:` is reported as a malformed directive.
+
 ### internal/directives/deriver/
 
 Deriver function matching with OR/AND logic:
@@ -306,7 +310,7 @@ Generic methods were added in Go 1.27:
   therefore listed in `excludeDirs` in `testdata/metatest/options.json`, so
   metatest keeps working on toolchains older than 1.27.
 
-CI runs the test suite on Go 1.25, 1.26 and 1.27.
+CI runs the test suite on Go 1.26 and 1.27.
 
 ## Comparison with Related Tools
 

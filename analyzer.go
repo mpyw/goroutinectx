@@ -16,6 +16,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
 	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
@@ -128,6 +129,9 @@ func run(pass *analysis.Pass) (any, error) {
 
 	// Report unused ignore directives
 	reportUnusedIgnores(pass, ignoreMaps, enabled)
+
+	// Report directives written in a form other than //goroutinectx:name
+	reportMalformedDirectives(pass, skipFiles)
 
 	return nil, nil
 }
@@ -249,6 +253,25 @@ func reportUnusedIgnores(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, 
 					checkerNames[i] = string(c)
 				}
 				pass.Reportf(unused.Pos, "unused goroutinectx:ignore directive for checker(s): %s", strings.Join(checkerNames, ", "))
+			}
+		}
+	}
+}
+
+// reportMalformedDirectives reports comments that look like a directive but
+// are not in the canonical form. Such a comment is not a directive, and would
+// otherwise be dropped with no sign: a spawner would not be checked, and an
+// ignore would not suppress anything.
+func reportMalformedDirectives(pass *analysis.Pass, skipFiles map[string]bool) {
+	for _, file := range pass.Files {
+		if skipFiles[pass.Fset.Position(file.Pos()).Filename] {
+			continue
+		}
+		for _, cg := range file.Comments {
+			for _, c := range cg.List {
+				if directive.Malformed(c.Text) {
+					pass.Reportf(c.Pos(), "malformed goroutinectx directive: write it as //goroutinectx:name")
+				}
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
+	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 )
 
@@ -120,7 +121,6 @@ func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{
 
 // isSpawnerComment checks if a comment is a spawner directive.
 func isSpawnerComment(text string) bool {
-	text = strings.TrimPrefix(text, "//")
-	text = strings.TrimSpace(text)
-	return strings.HasPrefix(text, "goroutinectx:spawner")
+	d, ok := directive.Parse(text)
+	return ok && d.Name == "spawner"
 }
