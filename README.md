@@ -512,9 +512,6 @@ func simpleHelper() {  // Warning: unnecessary //goroutinectx:spawner
 
 ## Related Tools
 
-- [zerologlintctx](https://github.com/mpyw/zerologlintctx) - Zerolog context propagation linter
-- [ctxweaver](https://github.com/mpyw/ctxweaver) - Code generator for context-aware instrumentation
-- [gormreuse](https://github.com/mpyw/gormreuse) - GORM instance reuse linter
 - [contextcheck](https://github.com/kkHAIKE/contextcheck) - Detects [`context.Background`](https://pkg.go.dev/context#Background)/[`context.TODO`](https://pkg.go.dev/context#TODO) usage and missing context parameters
 
 `goroutinectx` is complementary to `contextcheck`:
