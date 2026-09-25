@@ -16,16 +16,16 @@ import (
 
 // gotaskConstructor defines how gotask tasks are created.
 var gotaskConstructor = &gotaskConstructorConfig{
-	PkgPath:        "github.com/siketyan/gotask",
-	FuncName:       "NewTask",
-	CallbackArgIdx: 0,
+	pkgPath:        "github.com/siketyan/gotask",
+	funcName:       "NewTask",
+	callbackArgIdx: 0,
 }
 
 // gotaskConstructorConfig defines how tasks are created for task-based APIs.
 type gotaskConstructorConfig struct {
-	PkgPath        string
-	FuncName       string
-	CallbackArgIdx int
+	pkgPath        string
+	funcName       string
+	callbackArgIdx int
 }
 
 // GotaskChecker checks gotask library API calls.
@@ -230,7 +230,7 @@ func (c *GotaskChecker) taskCallbackCallsDeriver(cctx *probe.Context, call *ast.
 	}
 
 	// Check if constructor's callback argument calls the deriver
-	argIdx := gotaskConstructor.CallbackArgIdx
+	argIdx := gotaskConstructor.callbackArgIdx
 	if argIdx < 0 || argIdx >= len(constructorCall.Args) {
 		return false
 	}
@@ -306,8 +306,8 @@ func (c *GotaskChecker) isTaskConstructorCall(cctx *probe.Context, call *ast.Cal
 	}
 
 	spec := funcspec.Spec{
-		PkgPath:  gotaskConstructor.PkgPath,
-		FuncName: gotaskConstructor.FuncName,
+		PkgPath:  gotaskConstructor.pkgPath,
+		FuncName: gotaskConstructor.funcName,
 	}
 	return spec.Matches(fn)
 }
@@ -402,7 +402,7 @@ func (c *GotaskChecker) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
 func (c *GotaskChecker) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) bool {
 	// Case 1: Task constructor (e.g., NewTask(fn)) - check fn
 	if c.isTaskConstructorCall(cctx, call) {
-		argIdx := gotaskConstructor.CallbackArgIdx
+		argIdx := gotaskConstructor.callbackArgIdx
 		if argIdx >= 0 && argIdx < len(call.Args) {
 			return c.callbackCallsDeriver(cctx, call.Args[argIdx])
 		}

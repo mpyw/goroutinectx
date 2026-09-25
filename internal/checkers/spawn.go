@@ -27,8 +27,8 @@ type SpawnCallbackEntry struct {
 	CallbackArgIdx int
 }
 
-// NewSpawnCallbackChecker creates a new SpawnCallbackChecker.
-func NewSpawnCallbackChecker(name ignore.CheckerName, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
+// newSpawnCallbackChecker creates a new SpawnCallbackChecker.
+func newSpawnCallbackChecker(name ignore.CheckerName, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return &SpawnCallbackChecker{
 		checkerName: name,
 		entries:     entries,
@@ -207,7 +207,7 @@ func (c *SpawnCallbackChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.Fun
 
 // NewErrgroupSpawnChecker creates the errgroup checker.
 func NewErrgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return NewSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"}, CallbackArgIdx: 0},
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "TryGo"}, CallbackArgIdx: 0},
 	}, derivers)
@@ -215,14 +215,14 @@ func NewErrgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 
 // NewWaitgroupSpawnChecker creates the waitgroup checker (Go 1.25+).
 func NewWaitgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return NewSpawnCallbackChecker(ignore.Waitgroup, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(ignore.Waitgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, CallbackArgIdx: 0},
 	}, derivers)
 }
 
 // NewConcSpawnChecker creates the conc checker.
 func NewConcSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return NewSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
 		// conc.Pool.Go
 		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
 		// conc.WaitGroup.Go
