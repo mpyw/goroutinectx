@@ -295,8 +295,8 @@ Tests are documented in `testdata/metatest/structure.json`:
 
 ### Build Tags
 
-Some fixtures exercise language or stdlib features newer than the module's
-minimum Go version, so they are gated by build tags.
+Some fixtures use build tags to mark the Go version that introduced the
+language or stdlib feature they exercise.
 
 `sync.WaitGroup.Go()` was added in Go 1.25:
 - `waitgroup_test.go` has a `//go:build go1.25` tag
@@ -307,10 +307,9 @@ Generic methods were added in Go 1.27:
 - `testdata/src/genericmethod/genericmethod.go` has a build tag
 - Generic methods are new *syntax*, and `validation_test.go` parses every
   fixture with `go/parser` regardless of build tags. `genericmethod` is
-  therefore listed in `excludeDirs` in `testdata/metatest/options.json`, so
-  metatest keeps working on toolchains older than 1.27.
+  therefore listed in `excludeDirs` in `testdata/metatest/options.json`.
 
-CI runs the test suite on Go 1.26 and 1.27.
+CI runs the test suite on Go 1.27.
 
 ## Comparison with Related Tools
 

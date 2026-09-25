@@ -44,7 +44,7 @@ func badSimple() {
 //goroutinectx:spawner
 func goodComplex() {
 	g := new(errgroup.Group)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		g.Go(func() error {
 			fmt.Printf("work %d\n", i)
 			return nil
@@ -60,7 +60,7 @@ func goodComplex() {
 // badComplex: missing label with multiple spawn methods
 func badComplex() {
 	g := new(errgroup.Group)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		g.Go(func() error {
 			fmt.Printf("work %d\n", i)
 			return nil

@@ -20,7 +20,7 @@ jobs:
       id-token: write
     strategy:
       matrix:
-        go-version: ['1.26', '1.27']
+        go-version: ['1.27']
 
     steps:
       - name: Checkout code
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26', '1.27']
+        go-version: ['1.27']
 
     steps:
       - name: Checkout code
