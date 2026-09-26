@@ -508,7 +508,7 @@ func simpleHelper() {  // Warning: unnecessary //goroutinectx:spawner
 
 - [Architecture](./docs/ARCHITECTURE.md) - Technical specification and design decisions
 - [Tutorial](./docs/TUTORIAL.md) - Step-by-step learning guide
-- [CLAUDE.md](./CLAUDE.md) - AI assistant guidance for development
+- [AGENTS.md](./AGENTS.md) - Repository instructions for contributors and coding agents
 
 ## Related Tools
 

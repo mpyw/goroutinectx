@@ -100,7 +100,8 @@ goroutinectx/
 │   └── TUTORIAL.md            # Learning guide
 ├── .github/workflows/         # CI configuration
 ├── .golangci.yaml             # golangci-lint configuration
-├── CLAUDE.md                  # AI assistant guidance
+├── AGENTS.md                  # Repository instructions
+├── design/                    # Implementation notes
 └── README.md
 ```
 

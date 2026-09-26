@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Implementation notes
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file records design decisions and implementation details. The short, always-loaded instructions are in [AGENTS.md](../AGENTS.md).
 
 ## Project Overview
 
@@ -285,7 +285,7 @@ func (c *Checker) CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt) {
 - `[LIMITATION]` markers for known gaps
 - Non-obvious behavior that would confuse readers
 
-**Exception:** Major architectural changes that affect understanding may warrant brief explanation, but prefer updating documentation (CLAUDE.md, ARCHITECTURE.md) over inline comments.
+**Exception:** Major architectural changes that affect understanding may warrant brief explanation, but prefer updating documentation (AGENTS.md, design/implementation.md, ARCHITECTURE.md) over inline comments.
 
 ### LIMITATION Comment Format
 
@@ -304,7 +304,8 @@ func limitationReassignedFn(ctx context.Context) {
 
 | File | Purpose | Git Tracked |
 |------|---------|-------------|
-| `CLAUDE.md` | AI assistant guidance, architecture overview, coding conventions | Yes |
+| `AGENTS.md` | Short repository instructions | Yes |
+| `design/implementation.md` | Detailed implementation decisions | Yes |
 | `docs/` | Detailed design docs, API references, user-facing documentation | Yes |
 | `TASKS.md` | Temporary session notes, in-progress work, handoff context | No (gitignored) |
 
