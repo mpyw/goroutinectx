@@ -290,7 +290,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-The comment can be on the same line or the line above.
+The comment can be on the same line or the line above. Lines are the lines in the source file. A `//line` directive does not change them. The same rule applies to `//goroutinectx:spawner`.
 
 #### Checker-Specific Ignore
 
@@ -460,7 +460,7 @@ Available flags:
 |------|---------|-------------|
 | `-test` | `true` | Analyze test files (`*_test.go`) — built-in driver flag |
 
-Generated files (containing `// Code generated ... DO NOT EDIT.`) are always excluded and cannot be opted in.
+Generated files (containing `// Code generated ... DO NOT EDIT.`) are always excluded and cannot be opted in. This includes code below a `//line` directive in a generated file.
 
 ```bash
 # Exclude test files from analysis

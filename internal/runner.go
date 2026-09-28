@@ -64,7 +64,7 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 			return true
 		}
 
-		filename := pass.Fset.Position(n.Pos()).Filename
+		filename := pass.Fset.PositionFor(n.Pos(), false).Filename
 		if r.skipFiles[filename] {
 			return true
 		}
@@ -149,11 +149,11 @@ func (r *Runner) callReportPos(call *ast.CallExpr) token.Pos {
 
 // shouldIgnore checks if the position should be ignored for the given checker.
 func (r *Runner) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName ignore.CheckerName) bool {
-	filename := pass.Fset.Position(pos).Filename
+	filename := pass.Fset.PositionFor(pos, false).Filename
 	ignoreMap, ok := r.ignoreMaps[filename]
 	if !ok {
 		return false
 	}
-	line := pass.Fset.Position(pos).Line
+	line := pass.Fset.PositionFor(pos, false).Line
 	return ignoreMap.ShouldIgnore(line, checkerName)
 }

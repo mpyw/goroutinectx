@@ -141,7 +141,7 @@ func buildSkipFiles(pass *analysis.Pass) map[string]bool {
 	skipFiles := make(map[string]bool)
 
 	for _, file := range pass.Files {
-		filename := pass.Fset.Position(file.Pos()).Filename
+		filename := pass.Fset.PositionFor(file.Pos(), false).Filename
 
 		if ast.IsGenerated(file) {
 			skipFiles[filename] = true
@@ -156,7 +156,7 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	ignoreMaps := make(map[string]ignore.Map)
 
 	for _, file := range pass.Files {
-		filename := pass.Fset.Position(file.Pos()).Filename
+		filename := pass.Fset.PositionFor(file.Pos(), false).Filename
 		if skipFiles[filename] {
 			continue
 		}
@@ -264,7 +264,7 @@ func reportUnusedIgnores(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, 
 // ignore would not suppress anything.
 func reportMalformedDirectives(pass *analysis.Pass, skipFiles map[string]bool) {
 	for _, file := range pass.Files {
-		if skipFiles[pass.Fset.Position(file.Pos()).Filename] {
+		if skipFiles[pass.Fset.PositionFor(file.Pos(), false).Filename] {
 			continue
 		}
 		for _, cg := range file.Comments {

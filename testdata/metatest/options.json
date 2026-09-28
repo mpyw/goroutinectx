@@ -11,6 +11,9 @@
     "errgroupderive",
     "waitgroupderive",
     "spawnerderive",
-    "genericmethod"
+    "genericmethod",
+    "linedirective",
+    "linedirectivegen",
+    "linedirectivelabel"
   ]
 }

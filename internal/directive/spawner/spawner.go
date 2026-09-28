@@ -88,7 +88,7 @@ func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
 			if isSpawnerComment(c.Text) {
-				line := pass.Fset.Position(c.Pos()).Line
+				line := pass.Fset.PositionFor(c.Pos(), false).Line
 				lineComments[line] = c.Text
 			}
 		}
@@ -100,7 +100,7 @@ func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{
 			continue
 		}
 
-		funcLine := pass.Fset.Position(funcDecl.Pos()).Line
+		funcLine := pass.Fset.PositionFor(funcDecl.Pos(), false).Line
 		if _, hasDirective := lineComments[funcLine-1]; !hasDirective {
 			continue
 		}
