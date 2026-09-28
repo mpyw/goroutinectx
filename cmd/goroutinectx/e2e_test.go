@@ -457,7 +457,7 @@ func Use(ctx context.Context) {
 // one ignore comment. Output lines are sorted, since the report on a directive
 // and the report on the statement come from different passes over the file.
 func TestE2E_IgnoreForms(t *testing.T) {
-	const unknown = `unknown checker %q in goroutinectx:ignore (want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after " - " or "//")`
+	const unknown = `unknown checker %q in goroutinectx:ignore (want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after //)`
 	const report = `<repro>/%s/a.go:7:2: goroutine does not propagate context "ctx"`
 	tests := []struct {
 		name     string

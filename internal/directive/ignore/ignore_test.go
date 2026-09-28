@@ -32,7 +32,7 @@ func TestParseComment(t *testing.T) {
 		{name: "bare slash reason", text: "//goroutinectx:ignore // fire-and-forget", wantOK: true},
 		{name: "bare slash reason without space", text: "//goroutinectx:ignore //fire-and-forget", wantOK: true},
 		{name: "bare want comment", text: "//goroutinectx:ignore // want `x`", wantOK: true},
-		{name: "dash reason holding a URL", text: "//goroutinectx:ignore - see https://example.com", wantOK: true},
+		{name: "slash reason holding a URL", text: "//goroutinectx:ignore // see https://example.com", wantOK: true},
 		{name: "conc", text: "//goroutinectx:ignore conc", want: []CheckerName{Conc}, wantOK: true},
 		{name: "reason without dash", text: "//goroutinectx:ignore intentionally detached", unknown: "intentionally detached", wantOK: true},
 		{name: "checker then reason without dash", text: "//goroutinectx:ignore goroutine intentionally detached", unknown: "goroutine intentionally detached", wantOK: true},

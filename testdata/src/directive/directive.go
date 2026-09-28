@@ -56,7 +56,7 @@ func goodCanonicalIgnore(ctx context.Context) {
 
 // canonical ignore directive with a checker and a reason
 func goodCanonicalIgnoreWithArgs(ctx context.Context) {
-	//goroutinectx:ignore goroutine - fire-and-forget
+	//goroutinectx:ignore goroutine // fire-and-forget
 	go func() {
 		fmt.Println("background task")
 	}()

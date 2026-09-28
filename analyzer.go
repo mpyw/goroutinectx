@@ -226,9 +226,7 @@ func buildEnabledCheckers(spawners *spawner.Map) ignore.EnabledCheckers {
 		enabled[ignore.Waitgroup] = true
 	}
 
-	// errgroup stays enabled with conc alone: an errgroup ignore written for
-	// a conc call still silences it, so it is not unused.
-	if enableErrgroup || enableConc {
+	if enableErrgroup {
 		enabled[ignore.Errgroup] = true
 	}
 

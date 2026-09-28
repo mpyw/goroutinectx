@@ -97,7 +97,7 @@ func TestParseDropsTrailingComment(t *testing.T) {
 		"//goroutinectx:ignore //reason":            "",
 		"//goroutinectx:ignore goroutine // reason": "goroutine",
 		"//goroutinectx:spawner //vt:helper":        "",
-		"//goroutinectx:ignore - see https://x.y":   "- see https:",
+		"//goroutinectx:ignore // see https://x.y":  "",
 	} {
 		d, ok := Parse(text)
 		if !ok || d.Name == "" || d.Args != want {

@@ -365,7 +365,7 @@ For intentional fire-and-forget patterns:
 
 ```go
 func handler(ctx context.Context) {
-    //goroutinectx:ignore - intentionally fire-and-forget
+    //goroutinectx:ignore // intentionally fire-and-forget
     go func() {
         backgroundTask()  // No warning
     }()
@@ -382,12 +382,12 @@ You can target specific checkers instead of suppressing all warnings:
 
 ```go
 func handler(ctx context.Context) {
-    //goroutinectx:ignore goroutine - only suppress goroutine checker
+    //goroutinectx:ignore goroutine // only suppress goroutine checker
     go func() {
         backgroundTask()
     }()
 
-    //goroutinectx:ignore goroutine,errgroup - suppress multiple checkers
+    //goroutinectx:ignore goroutine,errgroup // suppress multiple checkers
     g.Go(func() error {
         return backgroundTask()
     })

@@ -22,16 +22,22 @@ func goodSlashReasonNoSpace(ctx context.Context) {
 	go func() {}()
 }
 
-// [GOOD]: A reason after " - " holding a URL is still one reason.
-func goodDashReasonURL(ctx context.Context) {
-	//goroutinectx:ignore - see https://example.com/detached
+// [GOOD]: A reason after // may hold a URL.
+func goodSlashReasonURL(ctx context.Context) {
+	//goroutinectx:ignore // see https://example.com/detached
 	go func() {}()
 }
 
-// [BAD]: A reason without " - " is not a checker. It is reported, and the
+// [GOOD]: A reason after " - " is kept for compatibility.
+func goodDashReason(ctx context.Context) {
+	//goroutinectx:ignore goroutine - fire and forget
+	go func() {}()
+}
+
+// [BAD]: A reason without // or " - " is not a checker. It is reported, and the
 // directive silences nothing.
 func badReasonWithoutDash(ctx context.Context) {
-	//goroutinectx:ignore intentionally detached // want `unknown checker "intentionally detached" in goroutinectx:ignore \(want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after " - " or "//"\)`
+	//goroutinectx:ignore intentionally detached // want `unknown checker "intentionally detached" in goroutinectx:ignore \(want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after //\)`
 	go func() {}() // want `goroutine does not propagate context "ctx"`
 }
 
@@ -81,11 +87,11 @@ func goodConcIgnore(ctx context.Context) {
 	p.Wait()
 }
 
-// [GOOD]: errgroup silenced conc before conc had a name, and still does.
-func goodConcIgnoredAsErrgroup(ctx context.Context) {
+// [BAD]: errgroup does not name the conc checker.
+func badConcIgnoredAsErrgroup(ctx context.Context) {
 	p := &conc.Pool{}
-	//goroutinectx:ignore errgroup
-	p.Go(func() {})
+	//goroutinectx:ignore errgroup // want `unused goroutinectx:ignore directive for checker\(s\): errgroup`
+	p.Go(func() {}) // want `conc.Pool.Go\(\) closure should use context "ctx"`
 	p.Wait()
 }
 

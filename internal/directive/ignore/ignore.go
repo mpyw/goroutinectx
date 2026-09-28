@@ -79,18 +79,18 @@ func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 
 // parseComment parses an ignore directive and returns the checker names.
 // Returns nil slice if no specific checkers are specified (ignore all).
-// Returns false if not an ignore comment. A name goroutinectx does not have is
-// a problem, and the directive silences nothing: a misspelled checker or a
-// reason written without " - " would otherwise be read as a checker that never
-// reports, and the ignore would silently do nothing.
+// Returns false if not an ignore comment. A reason goes after "//", which
+// directive.Parse drops, or after " - ", kept for compatibility. Anything else
+// after the name is read as checker names, and a name goroutinectx does not
+// have is a problem: the directive silences nothing. A misspelled checker or a
+// reason written without a separator would otherwise be read as a checker that
+// never reports.
 func parseComment(text string) ([]CheckerName, string, bool) {
 	d, ok := directive.Parse(text)
 	if !ok || d.Name != "ignore" {
 		return nil, "", false
 	}
 
-	// A reason follows " - ", and a leading "-" is a reason with no checkers.
-	// A reason after "//" is already dropped by directive.Parse.
 	rest, _, _ := strings.Cut(d.Args, " - ")
 	if strings.HasPrefix(rest, "- ") || rest == "-" {
 		return nil, "", true
@@ -117,7 +117,7 @@ func unknownChecker(name CheckerName) string {
 	for i, n := range checkerNames {
 		names[i] = string(n)
 	}
-	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after \" - \" or \"//\")",
+	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after //)",
 		string(name), strings.Join(names, ", "))
 }
 
@@ -148,13 +148,6 @@ func (m Map) shouldIgnoreEntry(entry *Entry, checker CheckerName) bool {
 	// Check if the specified checker is in the list
 	if slices.Contains(entry.checkers, checker) {
 		entry.used[checker] = true
-		return true
-	}
-
-	// The conc checker reported under errgroup before conc was a name of its
-	// own, so an errgroup ignore written for a conc call still silences it.
-	if checker == Conc && slices.Contains(entry.checkers, Errgroup) {
-		entry.used[Errgroup] = true
 		return true
 	}
 

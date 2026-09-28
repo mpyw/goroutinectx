@@ -291,7 +291,7 @@ Suppress warnings for a specific line:
 
 ```go
 func handler(ctx context.Context) {
-    //goroutinectx:ignore - intentionally not passing context
+    //goroutinectx:ignore // intentionally not passing context
     go func() {
         backgroundTask()
     }()
@@ -306,12 +306,12 @@ You can specify which checker(s) to ignore:
 
 ```go
 func handler(ctx context.Context) {
-    //goroutinectx:ignore goroutine - only ignore goroutine checker
+    //goroutinectx:ignore goroutine // only ignore goroutine checker
     go func() {
         backgroundTask()
     }()
 
-    //goroutinectx:ignore goroutine,errgroup - ignore multiple checkers
+    //goroutinectx:ignore goroutine,errgroup // ignore multiple checkers
     g.Go(func() error {
         return backgroundTask()
     })
@@ -328,22 +328,20 @@ func handler(ctx context.Context) {
 - `spawnerlabel` - spawner label requirement
 - `gotask` - [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) library checks
 
-A reason follows ` - ` or `//`. Anything else after the directive is read as checker names:
+A reason goes after `//`. A reason after ` - ` is also accepted, for compatibility. Anything else after the directive is read as checker names:
 
 ```go
-//goroutinectx:ignore - intentionally not passing context
 //goroutinectx:ignore // intentionally not passing context
 //goroutinectx:ignore goroutine // intentionally not passing context
+//goroutinectx:ignore goroutine - intentionally not passing context
 ```
-
-An `errgroup` ignore also silences a `conc` report, as it did before `conc` had a name of its own.
 
 #### Unknown Checker Names
 
-A name that is not in the list above is reported, and the directive silences nothing. A reason written without ` - ` or `//` is read as a checker name too:
+A name that is not in the list above is reported, and the directive silences nothing. A reason written without `//` or ` - ` is read as a checker name too:
 
 ```text
-unknown checker "intentionally detached" in goroutinectx:ignore (want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after " - " or "//")
+unknown checker "intentionally detached" in goroutinectx:ignore (want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after //)
 ```
 
 #### Unused Ignore Detection

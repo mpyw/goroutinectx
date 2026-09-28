@@ -65,7 +65,7 @@ func goodUnmarkedSpawner(ctx context.Context) {
 }
 
 //line linedirective.go:20
-//goroutinectx:ignore - belongs to ignoreTarget // want `unused goroutinectx:ignore directive`
+//goroutinectx:ignore // belongs to ignoreTarget // want `unused goroutinectx:ignore directive`
 var ignoreTarget = 2
 
 // [BAD]: both regions name this file. The ignore is at adjusted line 20 and
