@@ -1,9 +1,11 @@
 package main_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -442,6 +444,108 @@ func Use(ctx context.Context) {
 			}
 			if strings.Join(gotOut, "\n") != strings.Join(tt.wantOut, "\n") {
 				t.Errorf("stderr:\n%s\nwant:\n%s", strings.Join(gotOut, "\n"), strings.Join(tt.wantOut, "\n"))
+			}
+			if exitCode != tt.wantExit {
+				t.Errorf("exit code = %d, want %d", exitCode, tt.wantExit)
+			}
+		})
+	}
+}
+
+// TestE2E_IgnoreForms runs the binary over the forms of //goroutinectx:ignore
+// in #65. Each package holds one go statement that does not use ctx, under
+// one ignore comment. Output lines are sorted, since the report on a directive
+// and the report on the statement come from different passes over the file.
+func TestE2E_IgnoreForms(t *testing.T) {
+	const unknown = `unknown checker %q in goroutinectx:ignore (want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after " - " or "//")`
+	const report = `<repro>/%s/a.go:7:2: goroutine does not propagate context "ctx"`
+	tests := []struct {
+		name     string
+		comment  string
+		wantOut  []string
+		wantExit int
+	}{
+		{name: "bare", comment: "//goroutinectx:ignore"},
+		{name: "dashreason", comment: "//goroutinectx:ignore - reason"},
+		{name: "slashreason", comment: "//goroutinectx:ignore // reason"},
+		{name: "checkerslashreason", comment: "//goroutinectx:ignore goroutine // reason"},
+		{name: "checkerdashreason", comment: "//goroutinectx:ignore goroutine - reason"},
+		{
+			name: "reasonwithoutdash", comment: "//goroutinectx:ignore intentionally detached",
+			wantOut: []string{
+				fmt.Sprintf("<repro>/reasonwithoutdash/a.go:6:2: "+unknown, "intentionally detached"),
+				fmt.Sprintf(report, "reasonwithoutdash"),
+			},
+			wantExit: 3,
+		},
+		{
+			name: "checkerthenwords", comment: "//goroutinectx:ignore goroutine intentionally detached",
+			wantOut: []string{
+				fmt.Sprintf("<repro>/checkerthenwords/a.go:6:2: "+unknown, "goroutine intentionally detached"),
+				fmt.Sprintf(report, "checkerthenwords"),
+			},
+			wantExit: 3,
+		},
+		{
+			name: "misspelleddirective", comment: "//goroutinectx:ignre",
+			wantOut: []string{
+				"<repro>/misspelleddirective/a.go:6:2: unknown directive goroutinectx:ignre",
+				fmt.Sprintf(report, "misspelleddirective"),
+			},
+			wantExit: 3,
+		},
+		{
+			name: "misspelled", comment: "//goroutinectx:ignore gorutine",
+			wantOut: []string{
+				fmt.Sprintf("<repro>/misspelled/a.go:6:2: "+unknown, "gorutine"),
+				fmt.Sprintf(report, "misspelled"),
+			},
+			wantExit: 3,
+		},
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/repro\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range tests {
+		src := "package " + tt.name + "\n\nimport \"context\"\n\nfunc F(ctx context.Context) {\n\t" + tt.comment + "\n\tgo func() {}()\n}\n"
+		if err := os.MkdirAll(filepath.Join(dir, tt.name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, tt.name, "a.go"), []byte(src), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(binaryPath, "./"+tt.name)
+			cmd.Dir = dir
+			var stdout, stderr strings.Builder
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+
+			exitCode := 0
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+
+			var gotOut []string
+			for line := range strings.Lines(stderr.String()) {
+				gotOut = append(gotOut, strings.ReplaceAll(strings.TrimSuffix(line, "\n"), dir, "<repro>"))
+			}
+			slices.Sort(gotOut)
+			want := slices.Sorted(slices.Values(tt.wantOut))
+
+			if stdout.String() != "" {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			if !slices.Equal(gotOut, want) {
+				t.Errorf("stderr:\n%s\nwant:\n%s", strings.Join(gotOut, "\n"), strings.Join(want, "\n"))
 			}
 			if exitCode != tt.wantExit {
 				t.Errorf("exit code = %d, want %d", exitCode, tt.wantExit)

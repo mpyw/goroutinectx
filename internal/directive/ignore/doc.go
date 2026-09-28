@@ -33,6 +33,7 @@
 //	│ goroutinederive │ go statement deriver function calls         │
 //	│ errgroup        │ errgroup.Group.Go callback context          │
 //	│ waitgroup       │ sync.WaitGroup.Go callback context          │
+//	│ conc            │ sourcegraph/conc callback context           │
 //	│ spawner         │ //goroutinectx:spawner function calls       │
 //	│ spawnerlabel    │ Spawner label directive validation          │
 //	│ gotask          │ gotask library function calls               │

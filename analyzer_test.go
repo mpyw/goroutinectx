@@ -33,6 +33,12 @@ func TestErrgroupDerive(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroupderive")
 }
 
+// TestIgnoreForms checks how //goroutinectx:ignore is read (#65).
+func TestIgnoreForms(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "ignoreforms")
+}
+
 func TestConc(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "conc")

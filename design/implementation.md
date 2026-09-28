@@ -26,12 +26,19 @@ This file records design decisions and implementation details. The short, always
 
 ### Directives
 
-Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) is a directive (`go/ast.ParseDirective`). Any other comment starting with `goroutinectx:` is reported as malformed.
+Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) is a directive (`go/ast.ParseDirective`). Any other comment starting with `goroutinectx:` is reported as malformed, and a directive with a name goroutinectx does not read is reported as unknown. A trailing `// ...` is a reason and is dropped before parsing, as declscope does.
 
 - `//goroutinectx:ignore` - Suppress warnings for the next line or same line
   - Checker-specific: `//goroutinectx:ignore goroutine` or `//goroutinectx:ignore goroutine,errgroup`
-  - Valid checker names: `goroutine`, `goroutinederive`, `waitgroup`, `errgroup`, `spawner`, `spawnerlabel`, `gotask`
+  - Valid checker names: `goroutine`, `goroutinederive`, `waitgroup`, `errgroup`, `conc`, `spawner`, `spawnerlabel`, `gotask`
+  - A reason follows ` - ` or `//`.
   - Unused ignore detection: reports unused ignore directives
+
+**An unknown checker name is reported, and the directive silences nothing** (#65). Names used to be accepted unchecked. A reason written without ` - `, a misspelled name, or `// reason` with no checker became a checker that never reports. The ignore then did nothing, and its only report said "unused ... for checker(s): <the reason>". The whole directive is dropped on one unknown name, as `//declscope:ignore` is. Guessing which part was meant would silence a report nobody asked to silence.
+
+**An ignore is asked only when a report would be made.** The runner used to ask it before running the check. That marked the ignore used on a line with nothing to report, so an ignore that silenced nothing was never reported as unused. `badUnusedIgnore` in `testdata/src/goroutine` passed only because the parse bug above turned its `// want` into a checker name. Some checkers report through the pass themselves (`spawner`, `gotask`), so a call check runs on a copy of the pass whose `Report` asks the ignore first.
+
+**`conc` is a checker name of its own.** The conc checker used to report under `errgroup`, so `//goroutinectx:ignore conc`, listed in the README, never worked. An `errgroup` ignore still silences a conc report, and `errgroup` stays enabled while conc is. Ignores written the only way that worked keep working.
 - `//goroutinectx:spawner` - Mark a function as spawning goroutines with its func arguments
 
 Directive matching and file filters use unadjusted positions (`fset.PositionFor(pos, false)`), so a `//line` directive does not move them. Only diagnostics show adjusted positions.

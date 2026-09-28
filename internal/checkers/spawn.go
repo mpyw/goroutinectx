@@ -222,7 +222,7 @@ func NewWaitgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 
 // NewConcSpawnChecker creates the conc checker.
 func NewConcSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(ignore.Conc, []SpawnCallbackEntry{
 		// conc.Pool.Go
 		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
 		// conc.WaitGroup.Go

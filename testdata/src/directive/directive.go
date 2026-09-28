@@ -23,7 +23,7 @@ func runBlock(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
 
-//goroutinectx:spawnerX
+//goroutinectx:spawnerX // want `unknown directive goroutinectx:spawnerX`
 func runLookalike(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
@@ -37,7 +37,7 @@ func badCanonicalSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
-// malformed and lookalike spawner directives mark nothing
+// malformed and lookalike spawner directives mark nothing; both are reported
 func noncanonicalSpawners(ctx context.Context) {
 	g := new(errgroup.Group)
 	runSpaced(g, func() error { return nil })
@@ -86,9 +86,9 @@ func badBlockIgnore(ctx context.Context) {
 	}()
 }
 
-// a longer name is not the ignore directive
+// a longer name is not the ignore directive, and is reported as unknown
 func badLookalikeIgnore(ctx context.Context) {
-	//goroutinectx:ignored
+	//goroutinectx:ignored // want `unknown directive goroutinectx:ignored`
 	go func() { // want `goroutine does not propagate context "ctx"`
 		fmt.Println("background task")
 	}()

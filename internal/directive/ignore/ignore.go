@@ -1,6 +1,7 @@
 package ignore
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"slices"
@@ -21,7 +22,12 @@ const (
 	Spawner         CheckerName = "spawner"
 	Spawnerlabel    CheckerName = "spawnerlabel"
 	Gotask          CheckerName = "gotask"
+	Conc            CheckerName = "conc"
 )
+
+// checkerNames lists every name an ignore directive may give, in the order
+// the report of an unknown one lists them.
+var checkerNames = []CheckerName{Goroutine, GoroutineDerive, Waitgroup, Errgroup, Conc, Spawner, Spawnerlabel, Gotask}
 
 // Entry tracks an ignore directive and its usage.
 type Entry struct {
@@ -36,52 +42,83 @@ type Map map[int]*Entry
 // EnabledCheckers tracks which checkers are currently enabled.
 type EnabledCheckers map[CheckerName]bool
 
-// Build scans a file for ignore comments and returns a map.
-func Build(fset *token.FileSet, file *ast.File) Map {
+// Problem is an ignore directive that names a checker goroutinectx does not
+// have. It is not an ignore: it silences nothing.
+type Problem struct {
+	Pos     token.Pos
+	Message string
+}
+
+// Build scans a file for ignore comments and returns a map, and the ignore
+// comments that name an unknown checker.
+func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 	m := make(Map)
+	var problems []Problem
 
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
-			if checkers, ok := parseComment(c.Text); ok {
-				line := fset.PositionFor(c.Pos(), false).Line
-				m[line] = &Entry{
-					pos:      c.Pos(),
-					checkers: checkers,
-					used:     make(map[CheckerName]bool),
-				}
+			checkers, problem, ok := parseComment(c.Text)
+			if !ok {
+				continue
+			}
+			if problem != "" {
+				problems = append(problems, Problem{Pos: c.Pos(), Message: problem})
+				continue
+			}
+			line := fset.PositionFor(c.Pos(), false).Line
+			m[line] = &Entry{
+				pos:      c.Pos(),
+				checkers: checkers,
+				used:     make(map[CheckerName]bool),
 			}
 		}
 	}
 
-	return m
+	return m, problems
 }
 
 // parseComment parses an ignore directive and returns the checker names.
 // Returns nil slice if no specific checkers are specified (ignore all).
-// Returns false if not an ignore comment.
-func parseComment(text string) ([]CheckerName, bool) {
+// Returns false if not an ignore comment. A name goroutinectx does not have is
+// a problem, and the directive silences nothing: a misspelled checker or a
+// reason written without " - " would otherwise be read as a checker that never
+// reports, and the ignore would silently do nothing.
+func parseComment(text string) ([]CheckerName, string, bool) {
 	d, ok := directive.Parse(text)
 	if !ok || d.Name != "ignore" {
-		return nil, false
+		return nil, "", false
 	}
 
-	// A reason follows " - " or " //". A leading "-" is a reason with no checkers.
-	rest := d.Args
-	rest, _, _ = strings.Cut(rest, " - ")
-	rest, _, _ = strings.Cut(rest, " //")
+	// A reason follows " - ", and a leading "-" is a reason with no checkers.
+	// A reason after "//" is already dropped by directive.Parse.
+	rest, _, _ := strings.Cut(d.Args, " - ")
 	if strings.HasPrefix(rest, "- ") || rest == "-" {
-		return nil, true
+		return nil, "", true
 	}
 
 	var checkers []CheckerName
 	for part := range strings.SplitSeq(rest, ",") {
-		if name := CheckerName(strings.TrimSpace(part)); name != "" {
-			checkers = append(checkers, name)
+		name := CheckerName(strings.TrimSpace(part))
+		if name == "" {
+			continue
 		}
+		if !slices.Contains(checkerNames, name) {
+			return nil, unknownChecker(name), true
+		}
+		checkers = append(checkers, name)
 	}
 
 	// No specific checkers = ignore all
-	return checkers, true
+	return checkers, "", true
+}
+
+func unknownChecker(name CheckerName) string {
+	names := make([]string, len(checkerNames))
+	for i, n := range checkerNames {
+		names[i] = string(n)
+	}
+	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after \" - \" or \"//\")",
+		string(name), strings.Join(names, ", "))
 }
 
 // ShouldIgnore returns true if the given line should be ignored for the specified checker.
@@ -111,6 +148,13 @@ func (m Map) shouldIgnoreEntry(entry *Entry, checker CheckerName) bool {
 	// Check if the specified checker is in the list
 	if slices.Contains(entry.checkers, checker) {
 		entry.used[checker] = true
+		return true
+	}
+
+	// The conc checker reported under errgroup before conc was a name of its
+	// own, so an errgroup ignore written for a conc call still silences it.
+	if checker == Conc && slices.Contains(entry.checkers, Errgroup) {
+		entry.used[Errgroup] = true
 		return true
 	}
 
