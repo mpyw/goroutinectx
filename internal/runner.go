@@ -75,11 +75,12 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 		}
 
 		cctx := &probe.Context{
-			Pass:     pass,
-			Tracer:   r.tracer,
-			SSAProg:  r.ssaProg,
-			CtxNames: s.CtxNames,
-			Carriers: r.carriers,
+			Pass:      pass,
+			Inspector: insp,
+			Tracer:    r.tracer,
+			SSAProg:   r.ssaProg,
+			CtxNames:  s.CtxNames,
+			Carriers:  r.carriers,
 		}
 
 		switch node := n.(type) {

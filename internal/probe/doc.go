@@ -9,11 +9,12 @@
 // # Context Structure
 //
 //	type Context struct {
-//	    Pass     *analysis.Pass       // The analysis pass
-//	    Tracer   *ssa.Tracer          // SSA-based value tracer
-//	    SSAProg  *ssa.Program         // SSA program representation
-//	    CtxNames []string             // Context variable names in scope
-//	    Carriers []carrier.Carrier    // Configured carrier types
+//	    Pass      *analysis.Pass        // The analysis pass
+//	    Inspector *inspector.Inspector  // Inspector over the pass files
+//	    Tracer    *ssa.Tracer           // SSA-based value tracer
+//	    SSAProg   *ssa.Program          // SSA program representation
+//	    CtxNames  []string              // Context variable names in scope
+//	    Carriers  []carrier.Carrier     // Configured carrier types
 //	}
 //
 // # Analysis Methods

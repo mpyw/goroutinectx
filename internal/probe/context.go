@@ -6,6 +6,7 @@ import (
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/ssa"
@@ -13,11 +14,12 @@ import (
 
 // Context provides context for pattern checking.
 type Context struct {
-	Pass     *analysis.Pass
-	Tracer   *ssa.Tracer
-	SSAProg  *ssa.Program
-	CtxNames []string
-	Carriers []carrier.Carrier
+	Pass      *analysis.Pass
+	Inspector *inspector.Inspector // inspector over Pass.Files
+	Tracer    *ssa.Tracer
+	SSAProg   *ssa.Program
+	CtxNames  []string
+	Carriers  []carrier.Carrier
 }
 
 // VarOf extracts *types.Var from an identifier.
