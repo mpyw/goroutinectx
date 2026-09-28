@@ -62,29 +62,38 @@ func (c *Context) FuncLitAssignmentsOfIdent(ident *ast.Ident) []FuncLitAssignmen
 	return c.FuncLitAssignmentsTo(v, token.NoPos)
 }
 
+// assignFileCursor finds the cursor of the file that contains pos, to search
+// that file for assignments.
+// It picks the same file as FileOf.
+func (c *Context) assignFileCursor(pos token.Pos) (inspector.Cursor, bool) {
+	for cur := range c.Inspector.Root().Children() {
+		f := cur.Node()
+		if f.Pos() <= pos && pos < f.End() {
+			return cur, true
+		}
+	}
+	return inspector.Cursor{}, false
+}
+
 // FuncLitAssignedTo searches for the func literal assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
 func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit {
-	f := c.FileOf(v.Pos())
-	if f == nil {
+	file, ok := c.assignFileCursor(v.Pos())
+	if !ok {
 		return nil
 	}
 
 	var result *ast.FuncLit
-	ast.Inspect(f, func(n ast.Node) bool {
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
+	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+		assign := cur.Node().(*ast.AssignStmt)
 		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			return true
+			continue
 		}
 		if fl := c.funcLitInAssignment(assign, v); fl != nil {
 			result = fl
 		}
-		return true
-	})
+	}
 
 	return result
 }
@@ -94,73 +103,67 @@ func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.Func
 // If beforePos is set, returns all assignments BEFORE that position.
 // This is needed for conditional reassignment patterns.
 func (c *Context) FuncLitsAssignedTo(v *types.Var, beforePos token.Pos) []*ast.FuncLit {
-	f := c.FileOf(v.Pos())
-	if f == nil {
+	file, ok := c.assignFileCursor(v.Pos())
+	if !ok {
 		return nil
 	}
 
 	var results []*ast.FuncLit
-	ast.Inspect(f, func(n ast.Node) bool {
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
+	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+		assign := cur.Node().(*ast.AssignStmt)
 		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			return true
+			continue
 		}
 		if fl := c.funcLitInAssignment(assign, v); fl != nil {
 			results = append(results, fl)
 		}
-		return true
-	})
+	}
 
 	return results
 }
 
 // FuncLitAssignmentsTo searches for ALL func literal assignments with conditionality info.
 func (c *Context) FuncLitAssignmentsTo(v *types.Var, beforePos token.Pos) []FuncLitAssignment {
-	f := c.FileOf(v.Pos())
-	if f == nil {
+	file, ok := c.assignFileCursor(v.Pos())
+	if !ok {
 		return nil
 	}
 
 	var results []FuncLitAssignment
-	insp := inspector.New([]*ast.File{f})
-
-	insp.WithStack([]ast.Node{(*ast.AssignStmt)(nil)}, func(n ast.Node, push bool, stack []ast.Node) bool {
-		if !push {
-			return true
-		}
-		assign := n.(*ast.AssignStmt)
+	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+		assign := cur.Node().(*ast.AssignStmt)
 		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			return true
+			continue
 		}
 		fl := c.funcLitInAssignment(assign, v)
 		if fl == nil {
-			return true
+			continue
 		}
 
 		// Check if assignment is inside a control structure
-		conditional := assignedInControlStructure(stack)
+		conditional := assignedInControlStructure(cur)
 
 		results = append(results, FuncLitAssignment{
 			Lit:         fl,
 			Conditional: conditional,
 		})
-		return true
-	})
+	}
 
 	return results
 }
 
-// assignedInControlStructure reports whether an assignment whose ancestors are
-// stack sits inside a control structure.
-func assignedInControlStructure(stack []ast.Node) bool {
-	for _, node := range stack {
-		switch node.(type) {
-		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
-			return true
-		}
+// assignedInControlStructure reports whether the assignment at cur sits inside
+// a control structure.
+func assignedInControlStructure(cur inspector.Cursor) bool {
+	for range cur.Enclosing(
+		(*ast.IfStmt)(nil),
+		(*ast.ForStmt)(nil),
+		(*ast.RangeStmt)(nil),
+		(*ast.SwitchStmt)(nil),
+		(*ast.TypeSwitchStmt)(nil),
+		(*ast.SelectStmt)(nil),
+	) {
+		return true
 	}
 	return false
 }
@@ -197,25 +200,21 @@ func (c *Context) CallExprAssignedToIdent(ident *ast.Ident) *ast.CallExpr {
 
 // CallExprAssignedTo searches for the call expression assigned to the variable.
 func (c *Context) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.CallExpr {
-	f := c.FileOf(v.Pos())
-	if f == nil {
+	file, ok := c.assignFileCursor(v.Pos())
+	if !ok {
 		return nil
 	}
 
 	var result *ast.CallExpr
-	ast.Inspect(f, func(n ast.Node) bool {
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
+	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+		assign := cur.Node().(*ast.AssignStmt)
 		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			return true
+			continue
 		}
 		if call := c.callExprInAssignment(assign, v); call != nil {
 			result = call
 		}
-		return true
-	})
+	}
 
 	return result
 }
@@ -242,48 +241,34 @@ func (c *Context) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *as
 
 // FuncLitAssignedToStructField finds a func literal assigned to a struct field.
 func (c *Context) FuncLitAssignedToStructField(v *types.Var, fieldName string) *ast.FuncLit {
-	f := c.FileOf(v.Pos())
-	if f == nil {
+	file, ok := c.assignFileCursor(v.Pos())
+	if !ok {
 		return nil
 	}
 
-	var result *ast.FuncLit
-	ast.Inspect(f, func(n ast.Node) bool {
-		if result != nil {
-			return false
+	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+		if result := c.funcLitOfFieldAssignment(cur.Node().(*ast.AssignStmt), v, fieldName); result != nil {
+			return result
 		}
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
-		result = c.funcLitOfFieldAssignment(assign, v, fieldName)
-		return result == nil
-	})
+	}
 
-	return result
+	return nil
 }
 
 // FuncLitAssignedToIndex finds a func literal at a specific index in a composite literal.
 func (c *Context) FuncLitAssignedToIndex(v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
-	f := c.FileOf(v.Pos())
-	if f == nil {
+	file, ok := c.assignFileCursor(v.Pos())
+	if !ok {
 		return nil
 	}
 
-	var result *ast.FuncLit
-	ast.Inspect(f, func(n ast.Node) bool {
-		if result != nil {
-			return false
+	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+		if result := c.funcLitOfIndexAssignment(cur.Node().(*ast.AssignStmt), v, indexExpr); result != nil {
+			return result
 		}
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
-		result = c.funcLitOfIndexAssignment(assign, v, indexExpr)
-		return result == nil
-	})
+	}
 
-	return result
+	return nil
 }
 
 // funcLitOfFieldAssignment extracts a func literal from a struct field assignment.
