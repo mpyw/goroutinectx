@@ -34,6 +34,8 @@ Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) 
   - Unused ignore detection: reports unused ignore directives
 - `//goroutinectx:spawner` - Mark a function as spawning goroutines with its func arguments
 
+Directive matching and file filters use unadjusted positions (`fset.PositionFor(pos, false)`), so a `//line` directive does not move them. Only diagnostics show adjusted positions.
+
 ## Architecture
 
 ```

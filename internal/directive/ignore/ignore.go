@@ -43,7 +43,7 @@ func Build(fset *token.FileSet, file *ast.File) Map {
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
 			if checkers, ok := parseComment(c.Text); ok {
-				line := fset.Position(c.Pos()).Line
+				line := fset.PositionFor(c.Pos(), false).Line
 				m[line] = &Entry{
 					pos:      c.Pos(),
 					checkers: checkers,

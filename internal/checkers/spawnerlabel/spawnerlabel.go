@@ -59,7 +59,7 @@ func hasFuncParams(fn *types.Func) bool {
 // Check runs the spawnerlabel analysis on the given pass.
 func (c *Checker) Check(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, skipFiles map[string]bool) {
 	for _, file := range pass.Files {
-		filename := pass.Fset.Position(file.Pos()).Filename
+		filename := pass.Fset.PositionFor(file.Pos(), false).Filename
 		if skipFiles[filename] {
 			continue
 		}
@@ -93,7 +93,7 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 
 	// Check for missing label
 	if !isMarked && spawnInfo != nil {
-		line := pass.Fset.Position(fnDecl.Pos()).Line
+		line := pass.Fset.PositionFor(fnDecl.Pos(), false).Line
 		if !ignoreMap.ShouldIgnore(line, checkerName) {
 			pass.Reportf(
 				fnDecl.Name.Pos(),
@@ -106,7 +106,7 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 
 	// Check for unnecessary label
 	if isMarked && spawnInfo == nil && !hasFuncParams(fn) {
-		line := pass.Fset.Position(fnDecl.Pos()).Line
+		line := pass.Fset.PositionFor(fnDecl.Pos(), false).Line
 		if !ignoreMap.ShouldIgnore(line, checkerName) {
 			pass.Reportf(
 				fnDecl.Name.Pos(),

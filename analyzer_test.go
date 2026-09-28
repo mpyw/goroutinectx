@@ -198,3 +198,29 @@ func TestFileFilter(t *testing.T) {
 	// Tests that generated files are skipped
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "filefilter")
 }
+
+func TestLineDirective(t *testing.T) {
+	testdata := analysistest.TestData()
+	// Tests that //line directives do not move ignore and spawner directives
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirective")
+}
+
+func TestLineDirectiveGenerated(t *testing.T) {
+	testdata := analysistest.TestData()
+	// Tests that generated files with //line directives are still skipped
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirectivegen")
+}
+
+func TestLineDirectiveSpawnerlabel(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirectivelabel")
+}
