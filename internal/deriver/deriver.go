@@ -58,13 +58,9 @@ func NewMatcher(deriveFuncsStr string) *Matcher {
 func (m *Matcher) SatisfiesAnyGroup(pass *analysis.Pass, node ast.Node) bool {
 	calledFuncs := collectCalledFuncs(pass, node)
 
-	for _, andGroup := range m.OrGroups {
-		if groupSatisfied(calledFuncs, andGroup) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(m.OrGroups, func(andGroup []funcspec.Spec) bool {
+		return groupSatisfied(calledFuncs, andGroup)
+	})
 }
 
 // IsEmpty returns true if no derive functions are configured.

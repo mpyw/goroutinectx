@@ -3,6 +3,7 @@ package spawner
 import (
 	"go/ast"
 	"go/types"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -40,12 +41,7 @@ func (m *Map) Len() int {
 
 // matchesExternal checks if fn matches any external spec.
 func (m *Map) matchesExternal(fn *types.Func) bool {
-	for _, spec := range m.external {
-		if spec.Matches(fn) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(m.external, func(spec funcspec.Spec) bool { return spec.Matches(fn) })
 }
 
 // Build scans files for functions marked with the directive

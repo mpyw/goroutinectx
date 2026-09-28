@@ -2,6 +2,7 @@ package probe
 
 import (
 	"go/ast"
+	"slices"
 
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
@@ -11,16 +12,10 @@ func (c *Context) FuncTypeHasContextParam(fnType *ast.FuncType) bool {
 	if fnType == nil || fnType.Params == nil {
 		return false
 	}
-	for _, field := range fnType.Params.List {
+	return slices.ContainsFunc(fnType.Params.List, func(field *ast.Field) bool {
 		typ := c.Pass.TypesInfo.TypeOf(field.Type)
-		if typ == nil {
-			continue
-		}
-		if typeutil.IsContextType(typ) {
-			return true
-		}
-	}
-	return false
+		return typ != nil && typeutil.IsContextType(typ)
+	})
 }
 
 // FuncLitHasContextParam checks if a function literal has a context.Context parameter.

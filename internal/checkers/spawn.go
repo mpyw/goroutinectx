@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -48,12 +49,7 @@ func (c *SpawnCallbackChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr
 		return false
 	}
 
-	for _, entry := range c.entries {
-		if entry.Spec.Matches(fn) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(c.entries, func(entry SpawnCallbackEntry) bool { return entry.Spec.Matches(fn) })
 }
 
 // CheckCall checks the call expression.
