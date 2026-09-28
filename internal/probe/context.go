@@ -24,14 +24,7 @@ type Context struct {
 
 // VarOf extracts *types.Var from an identifier.
 func (c *Context) VarOf(ident *ast.Ident) *types.Var {
-	obj := c.Pass.TypesInfo.ObjectOf(ident)
-	if obj == nil {
-		return nil
-	}
-	v, ok := obj.(*types.Var)
-	if !ok {
-		return nil
-	}
+	v, _ := c.Pass.TypesInfo.ObjectOf(ident).(*types.Var)
 	return v
 }
 

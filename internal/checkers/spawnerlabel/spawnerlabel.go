@@ -119,16 +119,7 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 
 // getFuncObject gets the *types.Func for a function declaration.
 func (c *Checker) getFuncObject(pass *analysis.Pass, fnDecl *ast.FuncDecl) *types.Func {
-	obj := pass.TypesInfo.ObjectOf(fnDecl.Name)
-	if obj == nil {
-		return nil
-	}
-
-	fn, ok := obj.(*types.Func)
-	if !ok {
-		return nil
-	}
-
+	fn, _ := pass.TypesInfo.ObjectOf(fnDecl.Name).(*types.Func)
 	return fn
 }
 
