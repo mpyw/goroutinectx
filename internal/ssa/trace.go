@@ -2,6 +2,7 @@ package ssa
 
 import (
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -26,13 +27,9 @@ func (t *Tracer) ClosureCapturesContext(closure *ssa.Function, carriers []carrie
 		return false
 	}
 
-	for _, fv := range closure.FreeVars {
-		if typeutil.IsContextType(fv.Type()) || carrier.IsCarrierType(fv.Type(), carriers) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(closure.FreeVars, func(fv *ssa.FreeVar) bool {
+		return typeutil.IsContextType(fv.Type()) || carrier.IsCarrierType(fv.Type(), carriers)
+	})
 }
 
 // DeriverTraceResult represents the result of deriver function detection.
@@ -106,17 +103,10 @@ func (t *Tracer) collectDeriverCalls(fn *ssa.Function, inDefer bool, visited map
 
 func (t *Tracer) checkAndGroup(calls []tracedDeriverCall, andGroup []funcspec.Spec, includeDefer bool) bool {
 	for _, spec := range andGroup {
-		found := false
-		for _, call := range calls {
-			if !includeDefer && call.inDefer {
-				continue
-			}
-			if call.fn != nil && spec.Matches(call.fn) {
-				found = true
-				break
-			}
+		matches := func(call tracedDeriverCall) bool {
+			return (includeDefer || !call.inDefer) && call.fn != nil && spec.Matches(call.fn)
 		}
-		if !found {
+		if !slices.ContainsFunc(calls, matches) {
 			return false
 		}
 	}

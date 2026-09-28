@@ -2,6 +2,7 @@ package carrier
 
 import (
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/mpyw/goroutinectx/internal/typeutil"
@@ -47,12 +48,7 @@ func matchPkg(pkgPath, targetPkg string) bool {
 
 // IsCarrierType checks if the type matches any of the carriers.
 func IsCarrierType(t types.Type, carriers []Carrier) bool {
-	for _, c := range carriers {
-		if c.Matches(t) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(carriers, func(c Carrier) bool { return c.Matches(t) })
 }
 
 // Parse parses a comma-separated list of context carriers.

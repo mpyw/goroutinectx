@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"slices"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -82,12 +84,7 @@ func (c *GotaskChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool 
 		return false
 	}
 
-	for _, entry := range c.entries {
-		if entry.Spec.Matches(fn) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(c.entries, func(entry gotaskEntry) bool { return entry.Spec.Matches(fn) })
 }
 
 // CheckCall checks the call expression.
@@ -141,26 +138,11 @@ func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, en
 // Input: "gotask.Task.DoAsync"
 // Output: "gotask.(*Task).DoAsync() 1st argument should call goroutine deriver"
 func formatGotaskMethodMessage(apiName string) string {
-	parts := splitGotaskAPIName(apiName)
+	parts := strings.Split(apiName, ".")
 	if len(parts) == 3 {
 		return parts[0] + ".(*" + parts[1] + ")." + parts[2] + "() 1st argument should call goroutine deriver"
 	}
 	return apiName + "() 1st argument should call goroutine deriver"
-}
-
-// splitGotaskAPIName splits an API name like "pkg.Type.Method" into parts.
-func splitGotaskAPIName(name string) []string {
-	var parts []string
-	for i := len(name) - 1; i >= 0; i-- {
-		if name[i] == '.' {
-			parts = append([]string{name[i+1:]}, parts...)
-			name = name[:i]
-		}
-	}
-	if name != "" {
-		parts = append([]string{name}, parts...)
-	}
-	return parts
 }
 
 func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) {
@@ -439,16 +421,10 @@ func (c *GotaskChecker) factoryReturnCallsDeriver(cctx *probe.Context, call *ast
 
 // callbackReturnCallsDeriver checks if any FuncLit argument returns a deriver-calling func.
 func (c *GotaskChecker) callbackReturnCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
-	for _, arg := range call.Args {
+	return slices.ContainsFunc(call.Args, func(arg ast.Expr) bool {
 		funcLit, ok := arg.(*ast.FuncLit)
-		if !ok {
-			continue
-		}
-		if c.funcLitReturnCallsDeriver(cctx, funcLit) {
-			return true
-		}
-	}
-	return false
+		return ok && c.funcLitReturnCallsDeriver(cctx, funcLit)
+	})
 }
 
 // funcLitReturnCallsDeriver checks if any return statement returns a deriver-calling expr.
