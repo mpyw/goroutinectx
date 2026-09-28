@@ -172,8 +172,7 @@ func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool
 	}
 
 	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-		lit := assign.Lit
-		if !cctx.FuncLitHasContextParam(lit) && !c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
+		if !c.funcLitDerives(cctx, assign.Lit) {
 			return false
 		}
 	}
@@ -220,13 +219,8 @@ func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *probe.Context, factory
 			return false
 		}
 		if fl, ok := n.(*ast.FuncLit); ok && fl != factory {
-			if cctx.FuncLitHasContextParam(fl) {
+			if c.funcLitDerives(cctx, fl) {
 				callsDeriver = true
-				return false
-			}
-			if c.derivers.SatisfiesAnyGroup(cctx.Pass, fl.Body) {
-				callsDeriver = true
-				return false
 			}
 			return false
 		}
@@ -250,10 +244,7 @@ func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *probe.Context, factory
 
 func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Expr) bool {
 	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
-		if cctx.FuncLitHasContextParam(innerFuncLit) {
-			return true
-		}
-		return c.derivers.SatisfiesAnyGroup(cctx.Pass, innerFuncLit.Body)
+		return c.funcLitDerives(cctx, innerFuncLit)
 	}
 
 	ident, ok := result.(*ast.Ident)
@@ -267,10 +258,15 @@ func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Exp
 	}
 
 	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-		lit := assign.Lit
-		if !cctx.FuncLitHasContextParam(lit) && !c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
+		if !c.funcLitDerives(cctx, assign.Lit) {
 			return false
 		}
 	}
 	return true
+}
+
+// funcLitDerives reports whether lit takes a context parameter or calls the
+// deriver.
+func (c *GoroutineDerive) funcLitDerives(cctx *probe.Context, lit *ast.FuncLit) bool {
+	return cctx.FuncLitHasContextParam(lit) || c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body)
 }

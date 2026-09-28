@@ -63,7 +63,7 @@ func (s Spec) Matches(fn *types.Func) bool {
 	}
 
 	pkg := fn.Pkg()
-	if pkg == nil || !matchPkg(pkg.Path(), s.PkgPath) {
+	if pkg == nil || !typeutil.PkgPathMatches(pkg.Path(), s.PkgPath) {
 		return false
 	}
 
@@ -123,17 +123,4 @@ func shortPkgName(pkgPath string) string {
 		return pkgPath[idx+1:]
 	}
 	return pkgPath
-}
-
-// matchPkg checks if pkgPath matches targetPkg, allowing version suffixes.
-func matchPkg(pkgPath, targetPkg string) bool {
-	if pkgPath == targetPkg {
-		return true
-	}
-	prefix := targetPkg + "/v"
-	if !strings.HasPrefix(pkgPath, prefix) {
-		return false
-	}
-	rest := pkgPath[len(prefix):]
-	return len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9'
 }

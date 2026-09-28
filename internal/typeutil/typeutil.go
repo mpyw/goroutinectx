@@ -2,6 +2,7 @@ package typeutil
 
 import (
 	"go/types"
+	"strings"
 )
 
 const contextPkgPath = "context"
@@ -45,4 +46,14 @@ func UnwrapPointer(t types.Type) types.Type {
 		}
 		t = ptr.Elem()
 	}
+}
+
+// PkgPathMatches checks if pkgPath matches targetPkg, allowing version suffixes.
+func PkgPathMatches(pkgPath, targetPkg string) bool {
+	if pkgPath == targetPkg {
+		return true
+	}
+	// Check for version suffix like /v2, /v3, etc.
+	rest, ok := strings.CutPrefix(pkgPath, targetPkg+"/v")
+	return ok && len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9'
 }

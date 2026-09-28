@@ -16,9 +16,15 @@ import (
 
 // SpawnCallbackChecker checks function calls that take callbacks spawned as goroutines.
 type SpawnCallbackChecker struct {
+	spawnClosureCheck
 	checkerName ignore.CheckerName
 	entries     []SpawnCallbackEntry
-	derivers    *deriver.Matcher
+}
+
+// spawnClosureCheck holds the closure checks that SpawnCallbackChecker and
+// SpawnerChecker share.
+type spawnClosureCheck struct {
+	derivers *deriver.Matcher
 }
 
 // SpawnCallbackEntry defines a function that spawns its callback argument as a goroutine.
@@ -30,9 +36,9 @@ type SpawnCallbackEntry struct {
 // newSpawnCallbackChecker creates a new SpawnCallbackChecker.
 func newSpawnCallbackChecker(name ignore.CheckerName, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return &SpawnCallbackChecker{
-		checkerName: name,
-		entries:     entries,
-		derivers:    derivers,
+		spawnClosureCheck: spawnClosureCheck{derivers: derivers},
+		checkerName:       name,
+		entries:           entries,
 	}
 }
 
@@ -113,7 +119,7 @@ func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool 
 
 // checkFuncLitSSA checks a func literal using SSA analysis.
 // Returns (result, true) if SSA succeeded, or (false, false) if SSA failed.
-func (c *SpawnCallbackChecker) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
+func (c *spawnClosureCheck) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
 	if cctx.SSAProg == nil || cctx.Tracer == nil {
 		return false, false
 	}
@@ -174,7 +180,7 @@ func (c *SpawnCallbackChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr
 
 // checkFuncLitAssignments checks all func literal assignments from last unconditional onwards.
 // ALL must pass for the check to succeed.
-func (c *SpawnCallbackChecker) checkFuncLitAssignments(cctx *probe.Context, assigns []probe.FuncLitAssignment) bool {
+func (c *spawnClosureCheck) checkFuncLitAssignments(cctx *probe.Context, assigns []probe.FuncLitAssignment) bool {
 	// ALL must pass (because conditional assignments may override)
 	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
 		if !c.checkFuncLitAST(cctx, assign.Lit) {
@@ -185,7 +191,7 @@ func (c *SpawnCallbackChecker) checkFuncLitAssignments(cctx *probe.Context, assi
 }
 
 // checkFuncLitAST checks a func literal using AST-based analysis.
-func (c *SpawnCallbackChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) bool {
+func (c *spawnClosureCheck) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) bool {
 	// Check context capture
 	if cctx.FuncLitCapturesContext(lit) {
 		return true
@@ -266,8 +272,8 @@ func NewConcSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 
 // SpawnerChecker checks calls to spawner-marked functions.
 type SpawnerChecker struct {
+	spawnClosureCheck
 	spawners SpawnerMap
-	derivers *deriver.Matcher
 }
 
 // SpawnerMap interface for checking if a function is a spawner.
@@ -278,8 +284,8 @@ type SpawnerMap interface {
 // NewSpawnerChecker creates a spawner checker.
 func NewSpawnerChecker(spawners SpawnerMap, derivers *deriver.Matcher) *SpawnerChecker {
 	return &SpawnerChecker{
-		spawners: spawners,
-		derivers: derivers,
+		spawnClosureCheck: spawnClosureCheck{derivers: derivers},
+		spawners:          spawners,
 	}
 }
 
@@ -357,62 +363,6 @@ func (c *SpawnerChecker) checkFuncArg(cctx *probe.Context, arg ast.Expr) bool {
 	}
 
 	return true
-}
-
-// checkFuncLitAssignments checks all func literal assignments from last unconditional onwards.
-// ALL must pass for the check to succeed.
-func (c *SpawnerChecker) checkFuncLitAssignments(cctx *probe.Context, assigns []probe.FuncLitAssignment) bool {
-	// ALL must pass (because conditional assignments may override)
-	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-		if !c.checkFuncLitAST(cctx, assign.Lit) {
-			return false
-		}
-	}
-	return true
-}
-
-// checkFuncLitSSA checks a func literal using SSA analysis for SpawnerChecker.
-func (c *SpawnerChecker) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
-	if cctx.SSAProg == nil || cctx.Tracer == nil {
-		return false, false
-	}
-
-	if cctx.FuncLitHasContextParam(lit) {
-		return true, true
-	}
-
-	ssaFn := cctx.SSAProg.FindFuncLit(lit)
-	if ssaFn == nil {
-		return false, false
-	}
-
-	if cctx.Tracer.ClosureCapturesContext(ssaFn, cctx.Carriers) {
-		return true, true
-	}
-
-	if c.derivers != nil && !c.derivers.IsEmpty() {
-		result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
-		if result.FoundAtStart {
-			return true, true
-		}
-	}
-
-	return false, true
-}
-
-// checkFuncLitAST checks a func literal using AST analysis for SpawnerChecker.
-func (c *SpawnerChecker) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) bool {
-	if cctx.FuncLitCapturesContext(lit) {
-		return true
-	}
-
-	if c.derivers != nil && !c.derivers.IsEmpty() {
-		if c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // findSpawnableFuncArgs finds all arguments in a call that are func types.
