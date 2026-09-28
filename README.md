@@ -271,19 +271,7 @@ func handler(ctx context.Context) {
 
 ## Directives
 
-Only `//goroutinectx:name` is a directive: a line comment, a lowercase name, and no spaces. Any other comment that starts with `goroutinectx:`, such as `// goroutinectx:ignore`, is reported:
-
-```text
-malformed goroutinectx directive: write it as //goroutinectx:name
-```
-
-A directive with a name goroutinectx does not read, such as `//goroutinectx:ignre`, is reported too:
-
-```text
-unknown directive goroutinectx:ignre
-```
-
-A trailing `// ...` after a directive is a reason, and is not read.
+Only `//goroutinectx:name` is a directive: a line comment, a lowercase name, and no spaces. A reason goes after `//`. A reason after ` - ` is also accepted, for compatibility. Any other comment that starts with `goroutinectx:` does nothing and is reported, as is an unknown directive or checker name.
 
 ### `//goroutinectx:ignore`
 
@@ -298,7 +286,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-The comment can be on the same line or the line above. Lines are the lines in the source file. A `//line` directive does not change them. The same rule applies to `//goroutinectx:spawner`.
+The comment can be on the same line or the line above.
 
 #### Checker-Specific Ignore
 
@@ -328,25 +316,9 @@ func handler(ctx context.Context) {
 - `spawnerlabel` - spawner label requirement
 - `gotask` - [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) library checks
 
-A reason goes after `//`. A reason after ` - ` is also accepted, for compatibility. Anything else after the directive is read as checker names:
-
-```go
-//goroutinectx:ignore // intentionally not passing context
-//goroutinectx:ignore goroutine // intentionally not passing context
-//goroutinectx:ignore goroutine - intentionally not passing context
-```
-
-#### Unknown Checker Names
-
-A name that is not in the list above is reported, and the directive silences nothing. A reason written without `//` or ` - ` is read as a checker name too:
-
-```text
-unknown checker "intentionally detached" in goroutinectx:ignore (want one of goroutine, goroutinederive, waitgroup, errgroup, conc, spawner, spawnerlabel, gotask; write a reason after //)
-```
-
 #### Unused Ignore Detection
 
-The analyzer reports unused `//goroutinectx:ignore` directives. An ignore is used only when it silences a report. If an ignore directive doesn't suppress any warning, it will be flagged as unused. This helps keep your codebase clean from stale ignore comments.
+An ignore that silences no report is reported as unused.
 
 ### `//goroutinectx:spawner`
 
