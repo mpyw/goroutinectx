@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"iter"
 	"slices"
 	"strings"
 
@@ -75,21 +76,48 @@ func (c *Context) assignFileCursor(pos token.Pos) (inspector.Cursor, bool) {
 	return inspector.Cursor{}, false
 }
 
+// assignStmtsBefore yields each assignment in the file that declares v, with
+// its cursor. If beforePos is set, it yields only those before that position.
+func (c *Context) assignStmtsBefore(v *types.Var, beforePos token.Pos) iter.Seq2[inspector.Cursor, *ast.AssignStmt] {
+	return func(yield func(inspector.Cursor, *ast.AssignStmt) bool) {
+		file, ok := c.assignFileCursor(v.Pos())
+		if !ok {
+			return
+		}
+		for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+			assign := cur.Node().(*ast.AssignStmt)
+			if beforePos != token.NoPos && assign.Pos() >= beforePos {
+				continue
+			}
+			if !yield(cur, assign) {
+				return
+			}
+		}
+	}
+}
+
+// assignValuesTo yields each value the assignment gives v: the right-hand side
+// at the position of every left-hand identifier that denotes v.
+func (c *Context) assignValuesTo(assign *ast.AssignStmt, v *types.Var) iter.Seq[ast.Expr] {
+	return func(yield func(ast.Expr) bool) {
+		for i, lhs := range assign.Lhs {
+			ident, ok := lhs.(*ast.Ident)
+			if !ok || c.Pass.TypesInfo.ObjectOf(ident) != v || i >= len(assign.Rhs) {
+				continue
+			}
+			if !yield(assign.Rhs[i]) {
+				return
+			}
+		}
+	}
+}
+
 // FuncLitAssignedTo searches for the func literal assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
 func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit {
-	file, ok := c.assignFileCursor(v.Pos())
-	if !ok {
-		return nil
-	}
-
 	var result *ast.FuncLit
-	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-		assign := cur.Node().(*ast.AssignStmt)
-		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			continue
-		}
+	for _, assign := range c.assignStmtsBefore(v, beforePos) {
 		if fl := c.funcLitInAssignment(assign, v); fl != nil {
 			result = fl
 		}
@@ -103,17 +131,8 @@ func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.Func
 // If beforePos is set, returns all assignments BEFORE that position.
 // This is needed for conditional reassignment patterns.
 func (c *Context) FuncLitsAssignedTo(v *types.Var, beforePos token.Pos) []*ast.FuncLit {
-	file, ok := c.assignFileCursor(v.Pos())
-	if !ok {
-		return nil
-	}
-
 	var results []*ast.FuncLit
-	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-		assign := cur.Node().(*ast.AssignStmt)
-		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			continue
-		}
+	for _, assign := range c.assignStmtsBefore(v, beforePos) {
 		if fl := c.funcLitInAssignment(assign, v); fl != nil {
 			results = append(results, fl)
 		}
@@ -124,17 +143,8 @@ func (c *Context) FuncLitsAssignedTo(v *types.Var, beforePos token.Pos) []*ast.F
 
 // FuncLitAssignmentsTo searches for ALL func literal assignments with conditionality info.
 func (c *Context) FuncLitAssignmentsTo(v *types.Var, beforePos token.Pos) []FuncLitAssignment {
-	file, ok := c.assignFileCursor(v.Pos())
-	if !ok {
-		return nil
-	}
-
 	var results []FuncLitAssignment
-	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-		assign := cur.Node().(*ast.AssignStmt)
-		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			continue
-		}
+	for cur, assign := range c.assignStmtsBefore(v, beforePos) {
 		fl := c.funcLitInAssignment(assign, v)
 		if fl == nil {
 			continue
@@ -170,18 +180,8 @@ func assignedInControlStructure(cur inspector.Cursor) bool {
 
 // funcLitInAssignment checks if the assignment assigns a func literal to v.
 func (c *Context) funcLitInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.FuncLit {
-	for i, lhs := range assign.Lhs {
-		ident, ok := lhs.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if c.Pass.TypesInfo.ObjectOf(ident) != v {
-			continue
-		}
-		if i >= len(assign.Rhs) {
-			continue
-		}
-		if fl, ok := assign.Rhs[i].(*ast.FuncLit); ok {
+	for rhs := range c.assignValuesTo(assign, v) {
+		if fl, ok := rhs.(*ast.FuncLit); ok {
 			return fl
 		}
 	}
@@ -200,17 +200,8 @@ func (c *Context) CallExprAssignedToIdent(ident *ast.Ident) *ast.CallExpr {
 
 // CallExprAssignedTo searches for the call expression assigned to the variable.
 func (c *Context) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.CallExpr {
-	file, ok := c.assignFileCursor(v.Pos())
-	if !ok {
-		return nil
-	}
-
 	var result *ast.CallExpr
-	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-		assign := cur.Node().(*ast.AssignStmt)
-		if beforePos != token.NoPos && assign.Pos() >= beforePos {
-			continue
-		}
+	for _, assign := range c.assignStmtsBefore(v, beforePos) {
 		if call := c.callExprInAssignment(assign, v); call != nil {
 			result = call
 		}
@@ -221,18 +212,8 @@ func (c *Context) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.Cal
 
 // callExprInAssignment checks if the assignment assigns a call expression to v.
 func (c *Context) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.CallExpr {
-	for i, lhs := range assign.Lhs {
-		ident, ok := lhs.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if c.Pass.TypesInfo.ObjectOf(ident) != v {
-			continue
-		}
-		if i >= len(assign.Rhs) {
-			continue
-		}
-		if call, ok := assign.Rhs[i].(*ast.CallExpr); ok {
+	for rhs := range c.assignValuesTo(assign, v) {
+		if call, ok := rhs.(*ast.CallExpr); ok {
 			return call
 		}
 	}
@@ -241,13 +222,8 @@ func (c *Context) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *as
 
 // FuncLitAssignedToStructField finds a func literal assigned to a struct field.
 func (c *Context) FuncLitAssignedToStructField(v *types.Var, fieldName string) *ast.FuncLit {
-	file, ok := c.assignFileCursor(v.Pos())
-	if !ok {
-		return nil
-	}
-
-	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-		if result := c.funcLitOfFieldAssignment(cur.Node().(*ast.AssignStmt), v, fieldName); result != nil {
+	for _, assign := range c.assignStmtsBefore(v, token.NoPos) {
+		if result := c.funcLitOfFieldAssignment(assign, v, fieldName); result != nil {
 			return result
 		}
 	}
@@ -257,13 +233,8 @@ func (c *Context) FuncLitAssignedToStructField(v *types.Var, fieldName string) *
 
 // FuncLitAssignedToIndex finds a func literal at a specific index in a composite literal.
 func (c *Context) FuncLitAssignedToIndex(v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
-	file, ok := c.assignFileCursor(v.Pos())
-	if !ok {
-		return nil
-	}
-
-	for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-		if result := c.funcLitOfIndexAssignment(cur.Node().(*ast.AssignStmt), v, indexExpr); result != nil {
+	for _, assign := range c.assignStmtsBefore(v, token.NoPos) {
+		if result := c.funcLitOfIndexAssignment(assign, v, indexExpr); result != nil {
 			return result
 		}
 	}
@@ -273,18 +244,8 @@ func (c *Context) FuncLitAssignedToIndex(v *types.Var, indexExpr ast.Expr) *ast.
 
 // funcLitOfFieldAssignment extracts a func literal from a struct field assignment.
 func (c *Context) funcLitOfFieldAssignment(assign *ast.AssignStmt, v *types.Var, fieldName string) *ast.FuncLit {
-	for i, lhs := range assign.Lhs {
-		ident, ok := lhs.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if c.Pass.TypesInfo.ObjectOf(ident) != v {
-			continue
-		}
-		if i >= len(assign.Rhs) {
-			continue
-		}
-		compLit, ok := assign.Rhs[i].(*ast.CompositeLit)
+	for rhs := range c.assignValuesTo(assign, v) {
+		compLit, ok := rhs.(*ast.CompositeLit)
 		if !ok {
 			continue
 		}
@@ -307,18 +268,8 @@ func (c *Context) funcLitOfFieldAssignment(assign *ast.AssignStmt, v *types.Var,
 
 // funcLitOfIndexAssignment extracts a func literal at a specific index from an assignment.
 func (c *Context) funcLitOfIndexAssignment(assign *ast.AssignStmt, v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
-	for i, lhs := range assign.Lhs {
-		ident, ok := lhs.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		if c.Pass.TypesInfo.ObjectOf(ident) != v {
-			continue
-		}
-		if i >= len(assign.Rhs) {
-			continue
-		}
-		compLit, ok := assign.Rhs[i].(*ast.CompositeLit)
+	for rhs := range c.assignValuesTo(assign, v) {
+		compLit, ok := rhs.(*ast.CompositeLit)
 		if !ok {
 			continue
 		}
