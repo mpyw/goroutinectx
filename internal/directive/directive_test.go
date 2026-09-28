@@ -71,3 +71,37 @@ func TestMalformed(t *testing.T) {
 		})
 	}
 }
+
+func TestKnown(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]bool{
+		"ignore":   true,
+		"spawner":  true,
+		"ignre":    false,
+		"ignored":  false,
+		"spawnerX": false,
+		"":         false,
+	} {
+		if got := Known(name); got != want {
+			t.Errorf("Known(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestParseDropsTrailingComment(t *testing.T) {
+	t.Parallel()
+
+	for text, want := range map[string]string{
+		"//goroutinectx:ignore // reason":           "",
+		"//goroutinectx:ignore //reason":            "",
+		"//goroutinectx:ignore goroutine // reason": "goroutine",
+		"//goroutinectx:spawner //vt:helper":        "",
+		"//goroutinectx:ignore // see https://x.y":  "",
+	} {
+		d, ok := Parse(text)
+		if !ok || d.Name == "" || d.Args != want {
+			t.Errorf("Parse(%q) = %q %q %v, want args %q", text, d.Name, d.Args, ok, want)
+		}
+	}
+}

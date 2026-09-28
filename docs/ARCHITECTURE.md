@@ -177,8 +177,10 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 - `//goroutinectx:ignore` - ignore all checkers
 - `//goroutinectx:ignore goroutine` - ignore specific checker
 - `//goroutinectx:ignore goroutine,errgroup` - ignore multiple checkers
-- `//goroutinectx:ignore - reason` - ignore all with comment
-- `//goroutinectx:ignore goroutine - reason` - ignore specific with comment
+- `//goroutinectx:ignore // reason` - ignore all with comment
+- `//goroutinectx:ignore goroutine // reason` - ignore specific with comment
+- `//goroutinectx:ignore goroutine - reason` - the same, with ` - ` kept for compatibility
+- An unknown checker name is reported, and the directive ignores nothing
 
 Only `//goroutinectx:name` (a line comment, a lowercase name, no spaces) is a
 directive, as parsed by `go/ast.ParseDirective`. Any other comment starting

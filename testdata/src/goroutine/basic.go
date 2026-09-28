@@ -300,7 +300,7 @@ func goodIgnoredPreviousLine(ctx context.Context) {
 //
 // The //goroutinectx:ignore directive suppresses the warning.
 func goodIgnoredWithReason(ctx context.Context) {
-	go func() { //goroutinectx:ignore - intentionally fire-and-forget
+	go func() { //goroutinectx:ignore // intentionally fire-and-forget
 		fmt.Println("background task")
 	}()
 }
@@ -318,7 +318,7 @@ func goodIgnoredCheckerSpecific(ctx context.Context) {
 //
 // Checker-specific ignore can also have a comment.
 func goodIgnoredCheckerSpecificWithComment(ctx context.Context) {
-	go func() { //goroutinectx:ignore goroutine - fire-and-forget
+	go func() { //goroutinectx:ignore goroutine // fire-and-forget
 		fmt.Println("background task")
 	}()
 }

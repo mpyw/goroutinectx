@@ -97,10 +97,6 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 // checkGoStmt runs all GoStmt checkers.
 func (r *Runner) checkGoStmt(cctx *probe.Context, stmt *ast.GoStmt) {
 	for _, checker := range r.goStmtCheckers {
-		if r.shouldIgnore(cctx.Pass, stmt.Pos(), checker.Name()) {
-			continue
-		}
-
 		result := checker.CheckGoStmt(cctx, stmt)
 		if result.OK {
 			continue
@@ -111,7 +107,10 @@ func (r *Runner) checkGoStmt(cctx *probe.Context, stmt *ast.GoStmt) {
 			msg = result.DeferMsg
 		}
 
-		if msg != "" {
+		// The ignore is asked only for a report it would silence. Asking it
+		// first marked it used on a line with nothing to report, so an ignore
+		// that silenced nothing was never reported as unused.
+		if msg != "" && !r.shouldIgnore(cctx.Pass, stmt.Pos(), checker.Name()) {
 			cctx.Pass.Reportf(stmt.Pos(), "%s", msg)
 		}
 	}
@@ -124,18 +123,26 @@ func (r *Runner) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) {
 			continue
 		}
 
-		if r.shouldIgnore(cctx.Pass, call.Pos(), checker.Name()) {
-			continue
+		// The ignore is asked only for a report it would silence, as in
+		// checkGoStmt. Some checkers report through the pass themselves, so
+		// the check runs on a pass whose Report asks the ignore first.
+		pass := *cctx.Pass
+		pass.Report = func(d analysis.Diagnostic) {
+			if !r.shouldIgnore(cctx.Pass, call.Pos(), checker.Name()) {
+				cctx.Pass.Report(d)
+			}
 		}
+		checked := *cctx
+		checked.Pass = &pass
 
-		result := checker.CheckCall(cctx, call)
+		result := checker.CheckCall(&checked, call)
 		if result.OK {
 			continue
 		}
 
 		if result.Message != "" {
 			reportPos := r.callReportPos(call)
-			cctx.Pass.Reportf(reportPos, "%s", result.Message)
+			pass.Reportf(reportPos, "%s", result.Message)
 		}
 	}
 }

@@ -160,7 +160,11 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 		if skipFiles[filename] {
 			continue
 		}
-		ignoreMaps[filename] = ignore.Build(pass.Fset, file)
+		m, problems := ignore.Build(pass.Fset, file)
+		ignoreMaps[filename] = m
+		for _, p := range problems {
+			pass.Reportf(p.Pos, "%s", p.Message)
+		}
 	}
 
 	return ignoreMaps
@@ -222,8 +226,12 @@ func buildEnabledCheckers(spawners *spawner.Map) ignore.EnabledCheckers {
 		enabled[ignore.Waitgroup] = true
 	}
 
-	if enableErrgroup || enableConc {
+	if enableErrgroup {
 		enabled[ignore.Errgroup] = true
+	}
+
+	if enableConc {
+		enabled[ignore.Conc] = true
 	}
 
 	if enableSpawner && spawners.Len() > 0 {
@@ -271,6 +279,8 @@ func reportMalformedDirectives(pass *analysis.Pass, skipFiles map[string]bool) {
 			for _, c := range cg.List {
 				if directive.Malformed(c.Text) {
 					pass.Reportf(c.Pos(), "malformed goroutinectx directive: write it as //goroutinectx:name")
+				} else if d, ok := directive.Parse(c.Text); ok && !directive.Known(d.Name) {
+					pass.Reportf(c.Pos(), "unknown directive goroutinectx:%s", d.Name)
 				}
 			}
 		}
