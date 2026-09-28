@@ -29,21 +29,7 @@ func (c Carrier) Matches(t types.Type) bool {
 		return false
 	}
 
-	return matchPkg(obj.Pkg().Path(), c.PkgPath) && obj.Name() == c.TypeName
-}
-
-// matchPkg checks if pkgPath matches targetPkg, allowing version suffixes.
-func matchPkg(pkgPath, targetPkg string) bool {
-	if pkgPath == targetPkg {
-		return true
-	}
-	// Check for version suffix like /v2, /v3, etc.
-	prefix := targetPkg + "/v"
-	if !strings.HasPrefix(pkgPath, prefix) {
-		return false
-	}
-	rest := pkgPath[len(prefix):]
-	return len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9'
+	return typeutil.PkgPathMatches(obj.Pkg().Path(), c.PkgPath) && obj.Name() == c.TypeName
 }
 
 // IsCarrierType checks if the type matches any of the carriers.
