@@ -73,11 +73,6 @@ func (c *Context) FactoryCallReturnsContextUsingFunc(call *ast.CallExpr) bool {
 // IdentFactoryReturnsContextUsingFunc checks if an identifier refers to a factory
 // that returns a context-using func.
 func (c *Context) IdentFactoryReturnsContextUsingFunc(ident *ast.Ident) bool {
-	obj := c.Pass.TypesInfo.ObjectOf(ident)
-	if obj == nil {
-		return true
-	}
-
 	if v := c.VarOf(ident); v != nil {
 		funcLit := c.FuncLitAssignedTo(v, token.NoPos)
 		if funcLit == nil {
@@ -89,7 +84,7 @@ func (c *Context) IdentFactoryReturnsContextUsingFunc(ident *ast.Ident) bool {
 		return c.FactoryReturnsContextUsingFunc(funcLit)
 	}
 
-	if fn, ok := obj.(*types.Func); ok {
+	if fn, ok := c.Pass.TypesInfo.ObjectOf(ident).(*types.Func); ok {
 		funcDecl := c.FuncDeclOf(fn)
 		if funcDecl == nil {
 			return true

@@ -105,12 +105,7 @@ func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{
 			continue
 		}
 
-		obj := pass.TypesInfo.ObjectOf(funcDecl.Name)
-		if obj == nil {
-			continue
-		}
-
-		fn, ok := obj.(*types.Func)
+		fn, ok := pass.TypesInfo.ObjectOf(funcDecl.Name).(*types.Func)
 		if !ok {
 			continue
 		}
