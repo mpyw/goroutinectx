@@ -47,10 +47,12 @@ Directive matching and file filters use unadjusted positions (`fset.PositionFor(
 
 ```
 goroutinectx/
-├── analyzer.go                # Main analyzer (orchestration, flags, run function)
+├── analyzer.go                # Main analyzer: flags resolved into run.Config
+├── plugin/                    # golangci-lint module plugin: settings resolved into run.Config
 ├── analyzer_test.go           # Integration tests using analysistest
 ├── waitgroup_test.go          # Waitgroup-specific tests (Go 1.25+ build tag)
 ├── internal/
+│   ├── run/                   # Run: every checker over one package, with a Config
 │   ├── checkers/              # Individual checker implementations
 │   │   ├── checker.go         # CallChecker, GoStmtChecker interfaces
 │   │   ├── errgroup/          # errgroup.Group.Go() checker
