@@ -12,7 +12,10 @@ retract [v0.1.0, v0.4.0]
 //   (deriver checking logic was lost during refactoring)
 retract [v0.7.2, v0.7.3]
 
-require golang.org/x/tools v0.50.0
+require (
+	github.com/golangci/plugin-module-register v0.1.2
+	golang.org/x/tools v0.50.0
+)
 
 require (
 	golang.org/x/mod v0.41.0 // indirect

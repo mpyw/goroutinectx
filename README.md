@@ -18,7 +18,7 @@ A Go linter that checks goroutine context propagation.
 **Recommended.** goroutinectx is installable directly from GitHub Releases via mise's `github` backend — no extra registry required, and no Go toolchain needed because the binaries are prebuilt:
 
 ```bash
-mise use "github:mpyw/goroutinectx@0.11.0"
+mise use "github:mpyw/goroutinectx@0.12.0"
 goroutinectx ./...
 ```
 
@@ -26,7 +26,7 @@ Run it in the project root. It pins the version in the project's `mise.toml`, so
 
 ```toml
 [tools]
-"github:mpyw/goroutinectx" = "0.11.0"
+"github:mpyw/goroutinectx" = "0.12.0"
 ```
 
 Add `-g` to install it for every project on your machine instead.
@@ -100,9 +100,48 @@ See [`singlechecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/singlech
 
 Or use it with [`multichecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/multichecker) alongside other analyzers.
 
-### golangci-lint
+<details>
+<summary>Using <a href="https://golangci-lint.run/">golangci-lint</a> (module plugin)</summary>
 
-Not currently integrated with golangci-lint. PRs welcome if someone wants to add it, but not actively pursuing integration.
+goroutinectx is not bundled with golangci-lint. Build a binary that holds it as a [module plugin](https://golangci-lint.run/plugins/module-plugins/). Write `.custom-gcl.yml`:
+
+```yaml
+version: v2.13.1  # the golangci-lint release to build
+plugins:
+  - module: github.com/mpyw/goroutinectx
+    import: github.com/mpyw/goroutinectx/plugin
+    version: v0.12.0
+```
+
+Turn it on in `.golangci.yml`. The keys under `settings` are the names of the [flags](#flags). `external-spawner` and `context-carriers` are lists here, not comma-separated strings. A key left out keeps its default. An unknown key stops the run:
+
+```yaml
+version: "2"
+linters:
+  enable:
+    - goroutinectx
+  settings:
+    custom:
+      goroutinectx:
+        type: module
+        description: Checks goroutine context propagation.
+        settings:
+          goroutine-deriver: github.com/my-example-app/telemetry/apm.NewGoroutineContext
+          context-carriers:
+            - github.com/labstack/echo/v4.Context
+          external-spawner:
+            - github.com/example/workerpool.Pool.Submit
+          spawnerlabel: true
+```
+
+Then build and run it:
+
+```bash
+golangci-lint custom  # writes ./custom-gcl
+./custom-gcl run ./...
+```
+
+</details>
 
 ## What It Checks
 
