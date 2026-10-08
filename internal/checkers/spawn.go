@@ -22,16 +22,16 @@ type SpawnCallbackChecker struct {
 	entries     []SpawnCallbackEntry
 }
 
-// spawnClosureCheck holds the closure checks that SpawnCallbackChecker and
-// SpawnerChecker share.
-type spawnClosureCheck struct {
-	derivers *deriver.Matcher
-}
-
 // SpawnCallbackEntry defines a function that spawns its callback argument as a goroutine.
 type SpawnCallbackEntry struct {
 	Spec           funcspec.Spec
 	CallbackArgIdx int
+}
+
+// spawnClosureCheck holds the closure checks that SpawnCallbackChecker and
+// SpawnerChecker share.
+type spawnClosureCheck struct {
+	derivers *deriver.Matcher
 }
 
 // newSpawnCallbackChecker creates a new SpawnCallbackChecker.
