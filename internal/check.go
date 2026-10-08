@@ -9,13 +9,6 @@ import (
 	"github.com/mpyw/goroutinectx/internal/probe"
 )
 
-// checker is the unified interface for all checkers.
-// Each checker may implement one or more check methods.
-type checker interface {
-	// Name returns the checker name for ignore directive matching.
-	Name() ignore.CheckerName
-}
-
 // GoStmtChecker checks go statements (go func()...).
 type GoStmtChecker interface {
 	checker
@@ -29,6 +22,13 @@ type CallChecker interface {
 	MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 	// CheckCall checks the call expression.
 	CheckCall(cctx *probe.Context, call *ast.CallExpr) *CheckResult
+}
+
+// checker is the unified interface for all checkers.
+// Each checker may implement one or more check methods.
+type checker interface {
+	// Name returns the checker name for ignore directive matching.
+	Name() ignore.CheckerName
 }
 
 // CheckResult represents the outcome of a check.

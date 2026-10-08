@@ -63,55 +63,6 @@ func (c *Context) FuncLitAssignmentsOfIdent(ident *ast.Ident) []FuncLitAssignmen
 	return c.FuncLitAssignmentsTo(v, token.NoPos)
 }
 
-// assignFileCursor finds the cursor of the file that contains pos, to search
-// that file for assignments.
-// It picks the same file as FileOf.
-func (c *Context) assignFileCursor(pos token.Pos) (inspector.Cursor, bool) {
-	for cur := range c.Inspector.Root().Children() {
-		f := cur.Node()
-		if f.Pos() <= pos && pos < f.End() {
-			return cur, true
-		}
-	}
-	return inspector.Cursor{}, false
-}
-
-// assignStmtsBefore yields each assignment in the file that declares v, with
-// its cursor. If beforePos is set, it yields only those before that position.
-func (c *Context) assignStmtsBefore(v *types.Var, beforePos token.Pos) iter.Seq2[inspector.Cursor, *ast.AssignStmt] {
-	return func(yield func(inspector.Cursor, *ast.AssignStmt) bool) {
-		file, ok := c.assignFileCursor(v.Pos())
-		if !ok {
-			return
-		}
-		for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-			assign := cur.Node().(*ast.AssignStmt)
-			if beforePos != token.NoPos && assign.Pos() >= beforePos {
-				continue
-			}
-			if !yield(cur, assign) {
-				return
-			}
-		}
-	}
-}
-
-// assignValuesTo yields each value the assignment gives v: the right-hand side
-// at the position of every left-hand identifier that denotes v.
-func (c *Context) assignValuesTo(assign *ast.AssignStmt, v *types.Var) iter.Seq[ast.Expr] {
-	return func(yield func(ast.Expr) bool) {
-		for i, lhs := range assign.Lhs {
-			ident, ok := lhs.(*ast.Ident)
-			if !ok || c.Pass.TypesInfo.ObjectOf(ident) != v || i >= len(assign.Rhs) {
-				continue
-			}
-			if !yield(assign.Rhs[i]) {
-				return
-			}
-		}
-	}
-}
-
 // FuncLitAssignedTo searches for the func literal assigned to the variable.
 // If beforePos is token.NoPos, returns the LAST assignment found.
 // If beforePos is set, returns the last assignment BEFORE that position.
@@ -315,4 +266,53 @@ func funcLitAssignedToLiteralKey(compLit *ast.CompositeLit, lit *ast.BasicLit) *
 	}
 
 	return nil
+}
+
+// assignFileCursor finds the cursor of the file that contains pos, to search
+// that file for assignments.
+// It picks the same file as FileOf.
+func (c *Context) assignFileCursor(pos token.Pos) (inspector.Cursor, bool) {
+	for cur := range c.Inspector.Root().Children() {
+		f := cur.Node()
+		if f.Pos() <= pos && pos < f.End() {
+			return cur, true
+		}
+	}
+	return inspector.Cursor{}, false
+}
+
+// assignStmtsBefore yields each assignment in the file that declares v, with
+// its cursor. If beforePos is set, it yields only those before that position.
+func (c *Context) assignStmtsBefore(v *types.Var, beforePos token.Pos) iter.Seq2[inspector.Cursor, *ast.AssignStmt] {
+	return func(yield func(inspector.Cursor, *ast.AssignStmt) bool) {
+		file, ok := c.assignFileCursor(v.Pos())
+		if !ok {
+			return
+		}
+		for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
+			assign := cur.Node().(*ast.AssignStmt)
+			if beforePos != token.NoPos && assign.Pos() >= beforePos {
+				continue
+			}
+			if !yield(cur, assign) {
+				return
+			}
+		}
+	}
+}
+
+// assignValuesTo yields each value the assignment gives v: the right-hand side
+// at the position of every left-hand identifier that denotes v.
+func (c *Context) assignValuesTo(assign *ast.AssignStmt, v *types.Var) iter.Seq[ast.Expr] {
+	return func(yield func(ast.Expr) bool) {
+		for i, lhs := range assign.Lhs {
+			ident, ok := lhs.(*ast.Ident)
+			if !ok || c.Pass.TypesInfo.ObjectOf(ident) != v || i >= len(assign.Rhs) {
+				continue
+			}
+			if !yield(assign.Rhs[i]) {
+				return
+			}
+		}
+	}
 }
