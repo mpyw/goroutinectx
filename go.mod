@@ -14,7 +14,7 @@ retract [v0.7.2, v0.7.3]
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2
-	golang.org/x/tools v0.50.0
+	golang.org/x/tools v0.51.0
 )
 
 require (
