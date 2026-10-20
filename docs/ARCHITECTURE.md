@@ -84,9 +84,10 @@ goroutinectx/
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
 │   └── src/                   # Test fixtures for analysistest
-│       ├── goroutine/         # goroutine checker tests
-│       ├── errgroup/          # errgroup checker tests
-│       ├── waitgroup/         # waitgroup checker tests
+│       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
+│       ├── goroutine/         # goroutine-only cases
+│       ├── errgroup/          # errgroup-only cases
+│       ├── waitgroup/         # waitgroup-only cases
 │       ├── spawner/           # spawner tests
 │       ├── goroutinederive/   # Single deriver tests
 │       ├── goroutinederiveand/    # AND deriver tests
