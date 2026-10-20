@@ -417,3 +417,97 @@ func makeWorkerWithCtxSpawner(ctx context.Context) func() error {
 		return nil
 	}
 }
+
+// ===== Decorator =====
+
+// [GOOD]: Decorator
+//
+// A decorator runs the func it is given, here from a struct field, so that
+// func is judged (#148).
+func goodDecoratorGoroutine(ctx context.Context) {
+	job := struct{ fn func() }{fn: func() { _ = ctx }}
+	go recoverWrap(job.fn)()
+}
+
+// [BAD]: Decorator without ctx
+//
+// The func the decorator is given does not use ctx.
+func badDecoratorGoroutine(ctx context.Context) {
+	go recoverWrap(func() { fmt.Println("no ctx") })() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Decorator
+//
+// A decorator runs the func it is given, here from a struct field, so that
+// func is judged (#148).
+func goodDecoratorErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	job := struct{ fn func() error }{fn: func() error { _ = ctx; return nil }}
+	g.Go(recoverWrapErr(job.fn))
+	_ = g.Wait()
+}
+
+// [BAD]: Decorator without ctx
+//
+// The func the decorator is given does not use ctx.
+func badDecoratorErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(recoverWrapErr(func() error { fmt.Println("no ctx"); return nil })) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Decorator
+//
+// A decorator runs the func it is given, here from a struct field, so that
+// func is judged (#148).
+func goodDecoratorWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	job := struct{ fn func() }{fn: func() { _ = ctx }}
+	wg.Go(recoverWrap(job.fn))
+	wg.Wait()
+}
+
+// [BAD]: Decorator without ctx
+//
+// The func the decorator is given does not use ctx.
+func badDecoratorWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(recoverWrap(func() { fmt.Println("no ctx") })) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [GOOD]: Decorator
+//
+// A decorator runs the func it is given, here from a struct field, so that
+// func is judged (#148).
+func goodDecoratorSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	job := struct{ fn func() error }{fn: func() error { _ = ctx; return nil }}
+	runWithGroup(g, recoverWrapErr(job.fn))
+	_ = g.Wait()
+}
+
+// [BAD]: Decorator without ctx
+//
+// The func the decorator is given does not use ctx.
+func badDecoratorSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, recoverWrapErr(func() error { fmt.Println("no ctx"); return nil })) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// recoverWrap runs f, recovering a panic.
+func recoverWrap(f func()) func() {
+	return func() {
+		defer func() { _ = recover() }()
+		f()
+	}
+}
+
+// recoverWrapErr runs f, recovering a panic.
+func recoverWrapErr(f func() error) func() error {
+	return func() error {
+		defer func() { _ = recover() }()
+		return f()
+	}
+}
