@@ -3,7 +3,6 @@ package checkers
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
@@ -78,16 +77,9 @@ func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.Cal
 	if !c.derivers.IsEmpty() {
 		msg = fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName)
 	}
-	return []analysis.Diagnostic{{Pos: spawnReportPos(call), Message: msg}}
-}
-
-// spawnReportPos gives the position to report a call at: its method name
-// when it has one.
-func spawnReportPos(call *ast.CallExpr) token.Pos {
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		return sel.Sel.Pos()
-	}
-	return call.Pos()
+	// Report at the callback, as the spawner checker reports at each
+	// argument, so that an ignore above the callback silences it.
+	return []analysis.Diagnostic{{Pos: call.Args[idx].Pos(), Message: msg}}
 }
 
 // =============================================================================
