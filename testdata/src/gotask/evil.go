@@ -620,3 +620,47 @@ func badExpandedSliceLiteral(ctx context.Context) {
 func limitationExpandedParam(ctx context.Context, tasks []func(context.Context) error) {
 	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
 }
+
+// [GOOD]: A whole local array, sliced and expanded
+//
+// Its elements are judged.
+func goodExpandedArraySlice(ctx context.Context) {
+	arr := [1]func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	_ = gotask.DoAllFnsSettled(ctx, arr[:]...)
+}
+
+// [NOTCHECKED]: Part of a local array, sliced and expanded
+//
+// A slice of part of an array is not traced, so it passes.
+func notCheckedExpandedArrayPart(ctx context.Context) {
+	arr := [2]func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	_ = gotask.DoAllFnsSettled(ctx, arr[0:1]...)
+}
+
+// [GOOD]: TasksFrom given an expanded slice of deriving functions
+//
+// The slice TasksFrom is given is judged by its elements.
+func goodExpandedTasksFromSlice(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	_ = gotask.DoAllSettled(ctx, gotask.TasksFrom(fns...)...)
+}
+
+// [BAD]: A helper's slice that does not derive, expanded
+//
+// The slices the helper returns are judged by their elements.
+func badExpandedHelper(ctx context.Context) {
+	_ = gotask.DoAllFnsSettled(ctx, nonDerivingTasks()...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+}
+
+func nonDerivingTasks() []func(context.Context) error {
+	return []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+}
