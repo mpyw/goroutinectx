@@ -29,14 +29,24 @@ type Spec struct {
 // import path.
 func Parse(s string) (Spec, error) {
 	spec := parseSpec(s)
-	switch {
-	case spec.PkgPath == "" || spec.FuncName == "":
+	if spec.PkgPath == "" || spec.FuncName == "" {
 		return Spec{}, fmt.Errorf("%q: want pkg/path.Func or pkg/path.Type.Method", s)
-	case !strings.Contains(spec.PkgPath, "/") && !isStdPackage(spec.PkgPath):
-		return Spec{}, fmt.Errorf("%q: %q is not an import path; write the full path of the package, as github.com/org/%s",
-			s, spec.PkgPath, s)
+	}
+	if err := CheckPkgPath(s, spec.PkgPath); err != nil {
+		return Spec{}, err
 	}
 	return spec, nil
+}
+
+// CheckPkgPath rejects pkgPath, the package of the name s, when it is a bare
+// name that is not a standard library package. Such a name never matches,
+// since a package is matched by its full import path.
+func CheckPkgPath(s, pkgPath string) error {
+	if !strings.Contains(pkgPath, "/") && !isStdPackage(pkgPath) {
+		return fmt.Errorf("%q: %q is not an import path; write the full path of the package, as github.com/org/%s",
+			s, pkgPath, s)
+	}
+	return nil
 }
 
 // stdTopLevel lists the standard library packages whose path has no slash.

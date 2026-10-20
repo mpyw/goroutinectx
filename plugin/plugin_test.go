@@ -79,6 +79,7 @@ func TestPluginRejectsShortName(t *testing.T) {
 	for _, settings := range []map[string]any{
 		{"goroutine-deriver": "apm.NewGoroutineContext"},
 		{"external-spawner": []any{"apm.Spawn"}},
+		{"context-carriers": []any{"echo.Context"}},
 	} {
 		if _, err := newPlugin(t)(settings); err == nil || !strings.Contains(err.Error(), "not an import path") {
 			t.Errorf("settings %v: got error %v, want one about the import path", settings, err)

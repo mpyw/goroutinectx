@@ -59,27 +59,36 @@ func DefaultConfig() Config {
 }
 
 // Validate reports the first flag value Run would reject: a function
-// specification of -goroutine-deriver or -external-spawner that names no
-// import path.
+// specification of -goroutine-deriver or -external-spawner, or a type of
+// -context-carriers, that names no import path.
 func (cfg Config) Validate() error {
-	_, _, err := cfg.parse()
+	_, err := cfg.parse()
 	return err
 }
 
-// parse parses the derivers and the external spawners.
-func (cfg Config) parse() (*deriver.Matcher, []funcspec.Spec, error) {
-	external, err := spawner.ParseExternal(cfg.ExternalSpawner)
-	if err != nil {
-		return nil, nil, err
+// parsedConfig holds the flag values of a Config that are parsed.
+type parsedConfig struct {
+	derivers *deriver.Matcher
+	external []funcspec.Spec
+	carriers []carrier.Carrier
+}
+
+// parse parses the derivers, the external spawners and the carriers.
+func (cfg Config) parse() (parsedConfig, error) {
+	var p parsedConfig
+	var err error
+	if p.external, err = spawner.ParseExternal(cfg.ExternalSpawner); err != nil {
+		return parsedConfig{}, err
 	}
-	if cfg.GoroutineDeriver == "" {
-		return nil, external, nil
+	if p.carriers, err = carrier.Parse(cfg.ContextCarriers); err != nil {
+		return parsedConfig{}, err
 	}
-	derivers, err := deriver.NewMatcher(cfg.GoroutineDeriver)
-	if err != nil {
-		return nil, nil, err
+	if cfg.GoroutineDeriver != "" {
+		if p.derivers, err = deriver.NewMatcher(cfg.GoroutineDeriver); err != nil {
+			return parsedConfig{}, err
+		}
 	}
-	return derivers, external, nil
+	return p, nil
 }
 
 // FactTypes are the facts Run exports and imports. The analyzer that calls
@@ -97,7 +106,7 @@ func Run(pass *analysis.Pass, cfg Config) error {
 		return ErrNoInspector
 	}
 
-	derivers, external, err := cfg.parse()
+	parsed, err := cfg.parse()
 	if err != nil {
 		return err
 	}
@@ -109,7 +118,7 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
-	spawners := spawner.Build(pass, external)
+	spawners := spawner.Build(pass, parsed.external)
 
 	// Build SSA program
 	ssaProg := ssa.BuildProgram(pass)
@@ -117,12 +126,12 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	r := &runner{
 		pass:       pass,
 		ssaProg:    ssaProg,
-		carriers:   carrier.Parse(cfg.ContextCarriers),
+		carriers:   parsed.carriers,
 		ignoreMaps: ignoreMaps,
 		skipFiles:  skipFiles,
 		enabled:    make(ignore.EnabledCheckers),
 	}
-	r.goStmtCheckers, r.callCheckers = buildCheckers(cfg, derivers, spawners)
+	r.goStmtCheckers, r.callCheckers = buildCheckers(cfg, parsed.derivers, spawners)
 	for _, c := range r.goStmtCheckers {
 		r.enabled[c.Name()] = true
 	}

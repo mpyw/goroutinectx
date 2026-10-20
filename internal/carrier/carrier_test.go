@@ -9,9 +9,10 @@ func TestParse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		input string
-		want  []Carrier
+		name    string
+		input   string
+		want    []Carrier
+		wantErr bool
 	}{
 		{
 			name:  "empty string",
@@ -25,23 +26,38 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name:  "multiple carriers",
-			input: "pkg1.Type1,pkg2.Type2",
-			want:  []Carrier{{PkgPath: "pkg1", TypeName: "Type1"}, {PkgPath: "pkg2", TypeName: "Type2"}},
+			input: "github.com/a/pkg1.Type1,github.com/b/pkg2.Type2",
+			want:  []Carrier{{PkgPath: "github.com/a/pkg1", TypeName: "Type1"}, {PkgPath: "github.com/b/pkg2", TypeName: "Type2"}},
 		},
 		{
 			name:  "with spaces",
-			input: " pkg1.Type1 , pkg2.Type2 ",
-			want:  []Carrier{{PkgPath: "pkg1", TypeName: "Type1"}, {PkgPath: "pkg2", TypeName: "Type2"}},
-		},
-		{
-			name:  "invalid format - no dot",
-			input: "invalid",
-			want:  []Carrier{},
+			input: " github.com/a/pkg1.Type1 , github.com/b/pkg2.Type2 ",
+			want:  []Carrier{{PkgPath: "github.com/a/pkg1", TypeName: "Type1"}, {PkgPath: "github.com/b/pkg2", TypeName: "Type2"}},
 		},
 		{
 			name:  "empty parts are skipped",
-			input: "pkg.Type,,other.Type",
-			want:  []Carrier{{PkgPath: "pkg", TypeName: "Type"}, {PkgPath: "other", TypeName: "Type"}},
+			input: "github.com/a/pkg.Type,,github.com/b/other.Type",
+			want:  []Carrier{{PkgPath: "github.com/a/pkg", TypeName: "Type"}, {PkgPath: "github.com/b/other", TypeName: "Type"}},
+		},
+		{
+			name:  "standard library package",
+			input: "context.Context",
+			want:  []Carrier{{PkgPath: "context", TypeName: "Context"}},
+		},
+		{
+			name:    "no dot",
+			input:   "invalid",
+			wantErr: true,
+		},
+		{
+			name:    "no type name",
+			input:   "github.com/example/pkg.",
+			wantErr: true,
+		},
+		{
+			name:    "no import path",
+			input:   "echo.Context",
+			wantErr: true,
 		},
 	}
 
@@ -49,10 +65,12 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := Parse(strings.Split(tt.input, ","))
+			got, err := Parse(strings.Split(tt.input, ","))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Parse(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
 			if len(got) != len(tt.want) {
-				t.Errorf("Parse(%q) returned %d carriers, want %d", tt.input, len(got), len(tt.want))
-				return
+				t.Fatalf("Parse(%q) returned %d carriers, want %d", tt.input, len(got), len(tt.want))
 			}
 			for i := range got {
 				if got[i] != tt.want[i] {
