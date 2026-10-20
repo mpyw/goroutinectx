@@ -12,6 +12,9 @@ import (
 // Program wraps an SSA program with the analyzed package.
 type Program struct {
 	*ssa.Program
+	// SrcFuncs are the functions of the package's source, each before the
+	// closures it makes: those of buildssa, and the function literals of
+	// package-level variables, which buildssa leaves out.
 	SrcFuncs []*ssa.Function
 }
 
@@ -34,6 +37,9 @@ func (p *Program) FindFuncLit(lit *ast.FuncLit) *ssa.Function {
 	topFn := p.FuncAt(lit)
 	if topFn == nil {
 		return nil
+	}
+	if topFn.Syntax() == lit {
+		return topFn
 	}
 
 	return p.findFuncLitInFunc(topFn, lit)
@@ -137,6 +143,28 @@ func BuildProgram(pass *analysis.Pass) *Program {
 
 	return &Program{
 		Program:  ssaResult.Pkg.Prog,
-		SrcFuncs: ssaResult.SrcFuncs,
+		SrcFuncs: append(slices.Clone(ssaResult.SrcFuncs), programInitClosures(ssaResult.Pkg)...),
 	}
+}
+
+// programInitClosures gives the function literals of pkg's package-level
+// variables, and the closures they make. They are closures of the package
+// initializer, which has no syntax of its own.
+func programInitClosures(pkg *ssa.Package) []*ssa.Function {
+	init := pkg.Func("init")
+	if init == nil {
+		return nil
+	}
+	var funcs []*ssa.Function
+	var add func(fn *ssa.Function)
+	add = func(fn *ssa.Function) {
+		funcs = append(funcs, fn)
+		for _, anon := range fn.AnonFuncs {
+			add(anon)
+		}
+	}
+	for _, anon := range init.AnonFuncs {
+		add(anon)
+	}
+	return funcs
 }

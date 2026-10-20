@@ -111,6 +111,69 @@ func goodParenGoroutine(ctx context.Context) {
 	})()
 }
 
+// ===== Package-level func literal =====
+
+// [BAD]: Package-level func literal
+//
+// A func literal in a package-level variable is checked like a function (#117).
+var badPackageLevelGoroutine = func(ctx context.Context) {
+	go func() { // want `goroutine does not propagate context "ctx"`
+		fmt.Println("no context")
+	}()
+}
+
+// [BAD]: Package-level func literal
+//
+// A func literal in a package-level variable is checked like a function (#117).
+var badPackageLevelErrgroup = func(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		fmt.Println("no context")
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [BAD]: Package-level func literal
+//
+// A func literal in a package-level variable is checked like a function (#117).
+var badPackageLevelWaitGroup = func(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		fmt.Println("no context")
+	})
+	wg.Wait()
+}
+
+// [BAD]: Package-level func literal
+//
+// A func literal in a package-level variable is checked like a function (#117).
+var badPackageLevelSpawner = func(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
+		fmt.Println("no context")
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Package-level func literal with ctx
+//
+// A goroutine that uses ctx in a package-level func literal passes.
+var goodPackageLevelGoroutine = func(ctx context.Context) {
+	go func() {
+		_ = ctx
+	}()
+}
+
+// [GOOD]: Package-level func literal given through a variable
+//
+// The closure is resolved through SSA, as in a function.
+var goodPackageLevelVariableGoroutine = func(ctx context.Context) {
+	fn := func() { _ = ctx }
+	go fn()
+}
+
 // ===== Literal with ctx =====
 
 // [GOOD]: Literal with ctx - basic good case
