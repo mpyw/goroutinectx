@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -23,10 +24,49 @@ func (*Fact) AFact() {}
 
 func (*Fact) String() string { return "spawner" }
 
+// Analyzer finds the functions marked with //goroutinectx:spawner. It
+// exports a [Fact] for each exported one, and gives the marked functions of
+// its package and of the packages it imports as a [*Marked].
+//
+// It reads only comments, so it is cheap. It is a separate analyzer so that
+// the facts, which the driver computes for every dependency, do not make
+// goroutinectx build SSA for every dependency too.
+var Analyzer = &analysis.Analyzer{
+	Name:       "goroutinectxspawner",
+	Doc:        "finds the functions marked with //goroutinectx:spawner",
+	Run:        run,
+	FactTypes:  []analysis.Fact{new(Fact)},
+	ResultType: reflect.TypeFor[*Marked](),
+}
+
+// Marked holds the functions marked with //goroutinectx:spawner, in a
+// package and in the packages it imports.
+type Marked struct {
+	funcs map[*types.Func]struct{}
+}
+
+func run(pass *analysis.Pass) (any, error) {
+	m := &Marked{funcs: make(map[*types.Func]struct{})}
+	for _, file := range pass.Files {
+		buildForFile(pass, file, m.funcs)
+	}
+	// Only an exported function can be called from another package.
+	for fn := range m.funcs {
+		if fn.Exported() {
+			pass.ExportObjectFact(fn, new(Fact))
+		}
+	}
+	for _, f := range pass.AllObjectFacts() {
+		if fn, ok := f.Object.(*types.Func); ok {
+			m.funcs[fn] = struct{}{}
+		}
+	}
+	return m, nil
+}
+
 // Map tracks functions marked with //goroutinectx:spawner.
 type Map struct {
-	pass     *analysis.Pass
-	local    map[*types.Func]struct{}
+	marked   *Marked
 	external []funcspec.Spec
 }
 
@@ -38,11 +78,7 @@ func (m *Map) IsSpawner(fn *types.Func) bool {
 	}
 	fn = fn.Origin()
 
-	if _, ok := m.local[fn]; ok {
-		return true
-	}
-
-	if fn.Pkg() != nil && fn.Pkg() != m.pass.Pkg && m.pass.ImportObjectFact(fn, new(Fact)) {
+	if _, ok := m.marked.funcs[fn]; ok {
 		return true
 	}
 
@@ -54,26 +90,11 @@ func (m *Map) matchesExternal(fn *types.Func) bool {
 	return slices.ContainsFunc(m.external, func(spec funcspec.Spec) bool { return spec.Matches(fn) })
 }
 
-// Build scans files for functions marked with the directive. external are
-// the specs of -external-spawner, from [ParseExternal].
-func Build(pass *analysis.Pass, external []funcspec.Spec) *Map {
-	m := &Map{
-		pass:     pass,
-		local:    make(map[*types.Func]struct{}),
-		external: external,
-	}
-
-	for _, file := range pass.Files {
-		buildForFile(pass, file, m.local)
-	}
-	// Only an exported function can be called from another package.
-	for fn := range m.local {
-		if fn.Exported() {
-			pass.ExportObjectFact(fn, new(Fact))
-		}
-	}
-
-	return m
+// Build gives the spawners of a package: the functions [Analyzer] found
+// marked, and those external, the specs of -external-spawner, from
+// [ParseExternal], match.
+func Build(marked *Marked, external []funcspec.Spec) *Map {
+	return &Map{marked: marked, external: external}
 }
 
 // ParseExternal parses the -external-spawner list. Blank entries are

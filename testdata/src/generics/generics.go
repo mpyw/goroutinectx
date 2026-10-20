@@ -14,12 +14,12 @@ type Pool[T any] struct{}
 // Spawn runs fn in a goroutine.
 //
 //goroutinectx:spawner
-func (p *Pool[T]) Spawn(fn func()) { go fn() } // want Spawn:"spawner"
+func (p *Pool[T]) Spawn(fn func()) { go fn() }
 
 // GSpawn is a generic spawner.
 //
 //goroutinectx:spawner
-func GSpawn[T any](v T, fn func()) { go fn() } // want GSpawn:"spawner"
+func GSpawn[T any](v T, fn func()) { go fn() }
 
 // [BAD]: A spawner method of a generic type.
 func badGenericMethod(ctx context.Context) {

@@ -54,10 +54,9 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 func (p *pluginConfig) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 	cfg := p.cfg
 	return []*analysis.Analyzer{{
-		Name:      goroutinectx.Analyzer.Name,
-		Doc:       goroutinectx.Analyzer.Doc,
-		Requires:  goroutinectx.Analyzer.Requires,
-		FactTypes: goroutinectx.Analyzer.FactTypes,
+		Name:     goroutinectx.Analyzer.Name,
+		Doc:      goroutinectx.Analyzer.Doc,
+		Requires: goroutinectx.Analyzer.Requires,
 		Run: func(pass *analysis.Pass) (any, error) {
 			return nil, run.Run(pass, cfg)
 		},

@@ -91,15 +91,20 @@ func (cfg Config) parse() (parsedConfig, error) {
 	return p, nil
 }
 
-// FactTypes are the facts Run exports and imports. The analyzer that calls
-// it must declare them.
-var FactTypes = []analysis.Fact{new(spawner.Fact)}
+// Requires are the analyzers Run reads the results of. The analyzer that
+// calls it must require them. None of them is built for dependencies but
+// spawner.Analyzer, which exports facts and reads only comments, so SSA is
+// built only for the packages analyzed.
+var Requires = []*analysis.Analyzer{inspect.Analyzer, ssa.ProgramAnalyzer, spawner.Analyzer}
 
 // ErrNoInspector is returned when the inspect analyzer's result is missing.
 var ErrNoInspector = errors.New("inspector analyzer result not found")
 
+// errNoSpawners is returned when spawner.Analyzer's result is missing.
+var errNoSpawners = errors.New("spawner analyzer result not found")
+
 // Run analyzes one package with cfg. The analyzer that calls it must require
-// inspect.Analyzer and ssa.ProgramAnalyzer.
+// [Requires].
 func Run(pass *analysis.Pass, cfg Config) error {
 	insp, ok := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	if !ok {
@@ -118,7 +123,11 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
-	spawners := spawner.Build(pass, parsed.external)
+	marked, ok := pass.ResultOf[spawner.Analyzer].(*spawner.Marked)
+	if !ok {
+		return errNoSpawners
+	}
+	spawners := spawner.Build(marked, parsed.external)
 
 	// Build SSA program
 	ssaProg := ssa.BuildProgram(pass)

@@ -284,7 +284,7 @@ type Executor struct{}
 // [GOOD]: Method with func param - justified label
 //
 //goroutinectx:spawner
-func (e *Executor) Execute(task func()) { // want Execute:"spawner"
+func (e *Executor) Execute(task func()) {
 	go task()
 }
 

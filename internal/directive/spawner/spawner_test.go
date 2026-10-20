@@ -1,6 +1,11 @@
 package spawner
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+
+	"golang.org/x/tools/go/analysis/analysistest"
+)
 
 func TestIsSpawnerComment(t *testing.T) {
 	t.Parallel()
@@ -30,4 +35,17 @@ func TestIsSpawnerComment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAnalyzerExportsFacts checks that Analyzer exports a fact for each
+// exported function marked with the directive, and only for those.
+func TestAnalyzerExportsFacts(t *testing.T) {
+	t.Parallel()
+
+	testdata := filepath.Join("..", "..", "..", "testdata")
+	abs, err := filepath.Abs(testdata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysistest.Run(t, abs, Analyzer, "spawnermarked")
 }
