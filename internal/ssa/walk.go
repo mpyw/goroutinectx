@@ -17,13 +17,20 @@ type WalkedCall struct {
 
 // CallWalker walks the Call, Defer and Go instructions of a function. It goes
 // into each immediately invoked function literal, and with Closures into each
-// closure the function makes. A walker walks each function once, however many
-// times it is asked to.
+// closure the function makes. A walker walks each function once as deferred
+// and once as not, however many times it is asked to, so a function both
+// deferred and called directly is seen called directly too.
 type CallWalker struct {
 	// Closures makes the walk go into every closure made, not only IIFEs.
 	Closures bool
 
-	visited map[*ssa.Function]bool
+	visited map[walkVisit]bool
+}
+
+// walkVisit is a function walked, and whether it was walked as deferred.
+type walkVisit struct {
+	fn      *ssa.Function
+	inDefer bool
 }
 
 // Walk calls visit on each call fn makes, in instruction order, until visit
@@ -34,17 +41,18 @@ func (w *CallWalker) Walk(fn *ssa.Function, visit func(WalkedCall) bool) bool {
 
 // Walked reports whether fn has been walked already.
 func (w *CallWalker) Walked(fn *ssa.Function) bool {
-	return w.visited[fn]
+	return w.visited[walkVisit{fn, false}] || w.visited[walkVisit{fn, true}]
 }
 
 func (w *CallWalker) walk(fn *ssa.Function, inDefer bool, visit func(WalkedCall) bool) bool {
-	if fn == nil || w.visited[fn] {
+	key := walkVisit{fn, inDefer}
+	if fn == nil || w.visited[key] {
 		return true
 	}
 	if w.visited == nil {
-		w.visited = make(map[*ssa.Function]bool)
+		w.visited = make(map[walkVisit]bool)
 	}
-	w.visited[fn] = true
+	w.visited[key] = true
 
 	for _, block := range fn.Blocks {
 		for _, instr := range block.Instrs {
