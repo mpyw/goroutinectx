@@ -56,6 +56,26 @@ func TestErrgroupDerive(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroupderive")
 }
 
+func TestWaitgroup(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "waitgroup")
+}
+
+func TestWaitgroupDerive(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
+	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "waitgroupderive")
+}
+
 // TestIgnoreForms checks how //goroutinectx:ignore is read (#65).
 func TestIgnoreForms(t *testing.T) {
 	testdata := analysistest.TestData()
@@ -195,7 +215,7 @@ func TestSpawnerlabelDoc(t *testing.T) {
 }
 
 // TestGenerics checks calls of generic functions and of methods of generic
-// types (#86).
+// types (#86), and generic methods (Go 1.27).
 func TestGenerics(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "generics")

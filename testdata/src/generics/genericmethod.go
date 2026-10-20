@@ -1,10 +1,8 @@
-//go:build go1.27
+// Generic methods (Go 1.27) have a receiver and a type parameter list of their
+// own, so these cases pin down that scope detection and diagnostics behave
+// exactly as they do for ordinary methods.
 
-// Package genericmethod contains test fixtures for generic methods (Go 1.27).
-// Generic methods introduce a new receiver+type-parameter shape, so these cases
-// pin down that scope detection and diagnostics behave exactly as they do for
-// ordinary methods.
-package genericmethod
+package generics
 
 import (
 	"context"
