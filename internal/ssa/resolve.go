@@ -1,6 +1,7 @@
 package ssa
 
 import (
+	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -59,7 +60,7 @@ func (r *FuncResolver) passes(v ssa.Value, seen map[ssa.Value]bool) bool {
 	case *ssa.ChangeType:
 		return r.passes(v.X, seen)
 	case *ssa.UnOp, *ssa.Lookup:
-		stored, isLoad, ok := resolvedLoaded(v, 0)
+		stored, isLoad, ok := resolvedLoaded(v, newResolvedWalk())
 		return !isLoad || !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.passes(s, seen) })
 	case *ssa.Call:
 		return r.callPasses(v.Common(), seen)
@@ -132,7 +133,7 @@ func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]b
 	case *ssa.ChangeType:
 		return r.resultPasses(x.X, depth, seen)
 	case *ssa.UnOp, *ssa.Lookup:
-		stored, isLoad, ok := resolvedLoaded(x, 0)
+		stored, isLoad, ok := resolvedLoaded(x, newResolvedWalk())
 		return !isLoad || !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.resultPasses(s, depth, seen) })
 	}
 	return true
@@ -206,10 +207,10 @@ func ResolvedReceiver(common *ssa.CallCommon) ssa.Value {
 // loads of local variables and of their parts, and map lookups. ok is false
 // when a load cannot be followed.
 func ResolvedValues(v ssa.Value) (values []ssa.Value, ok bool) {
-	return resolvedValues(v, 0)
+	return resolvedValues(v, newResolvedWalk())
 }
 
-func resolvedValues(v ssa.Value, depth int) (values []ssa.Value, ok bool) {
+func resolvedValues(v ssa.Value, w resolvedWalk) (values []ssa.Value, ok bool) {
 	ok = true
 	seen := make(map[ssa.Value]bool)
 	var visit func(v ssa.Value)
@@ -218,6 +219,10 @@ func resolvedValues(v ssa.Value, depth int) (values []ssa.Value, ok bool) {
 			return
 		}
 		seen[v] = true
+		if *w.steps++; w.exhausted() {
+			ok = false
+			return
+		}
 		switch x := v.(type) {
 		case *ssa.Phi:
 			for _, e := range x.Edges {
@@ -226,7 +231,7 @@ func resolvedValues(v ssa.Value, depth int) (values []ssa.Value, ok bool) {
 		case *ssa.ChangeType:
 			visit(x.X)
 		default:
-			stored, isLoad, followed := resolvedLoaded(v, depth)
+			stored, isLoad, followed := resolvedLoaded(v, w)
 			switch {
 			case !isLoad:
 				values = append(values, v)
@@ -246,16 +251,16 @@ func resolvedValues(v ssa.Value, depth int) (values []ssa.Value, ok bool) {
 // resolvedLoaded gives the values v can read when it is a load through a
 // pointer or a map lookup, and isLoad false for any other value. ok is false
 // when the load cannot be followed.
-func resolvedLoaded(v ssa.Value, depth int) (values []ssa.Value, isLoad, ok bool) {
+func resolvedLoaded(v ssa.Value, w resolvedWalk) (values []ssa.Value, isLoad, ok bool) {
 	switch x := v.(type) {
 	case *ssa.UnOp:
 		if x.Op != token.MUL {
 			return nil, false, false
 		}
-		values, ok = resolvedStoresAt(x.X, x, depth)
+		values, ok = resolvedStoresAt(x.X, x, w)
 		return values, true, ok
 	case *ssa.Lookup:
-		values, ok = resolvedLookups(x, depth)
+		values, ok = resolvedLookups(x, w)
 		return values, true, ok
 	}
 	return nil, false, false
@@ -283,11 +288,11 @@ func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
 // slice a function called to make it returns. ok is false for any other
 // slice.
 func ResolvedSliceElems(v ssa.Value) (elems []ssa.Value, ok bool) {
-	return resolvedSliceElemsAt(v, 0)
+	return resolvedSliceElemsAt(v, newResolvedWalk())
 }
 
-func resolvedSliceElemsAt(v ssa.Value, depth int) ([]ssa.Value, bool) {
-	if depth > resolvedMaxDepth {
+func resolvedSliceElemsAt(v ssa.Value, w resolvedWalk) ([]ssa.Value, bool) {
+	if w.exhausted() {
 		return nil, false
 	}
 	switch x := v.(type) {
@@ -309,7 +314,7 @@ func resolvedSliceElemsAt(v ssa.Value, depth int) ([]ssa.Value, bool) {
 		}
 		var elems []ssa.Value
 		for _, ret := range resolvedReturns(fn) {
-			e, ok := resolvedSliceElemsAt(ret, depth+1)
+			e, ok := resolvedSliceElemsAt(ret, w.deeper())
 			if !ok {
 				return nil, false
 			}
@@ -378,13 +383,13 @@ func resolvedReturns(fn *ssa.Function) []ssa.Value {
 // store counts. ok is false when the variable may be written in a
 // way not followed: through a closure, or through its address.
 func resolvedStores(addr ssa.Value, at ssa.Instruction) (stored []ssa.Value, ok bool) {
-	return resolvedStoresAt(addr, at, 0)
+	return resolvedStoresAt(addr, at, newResolvedWalk())
 }
 
 // resolvedStoresAt is resolvedStores, depth steps into the parts of
 // variables. A struct field, or an element at a constant index, is followed
 // as a part of the variable it is in.
-func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, depth int) (stored []ssa.Value, ok bool) {
+func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, w resolvedWalk) (stored []ssa.Value, ok bool) {
 	switch a := addr.(type) {
 	case *ssa.Alloc:
 		if !resolvedAllocOnlyStored(a) {
@@ -396,7 +401,7 @@ func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, depth int) (stored []s
 		take := func(instr ssa.Instruction) bool {
 			st, ok := instr.(*ssa.Store)
 			if ok && st.Addr == a {
-				stored = append(stored, st.Val)
+				stored = resolvedAppendNew(stored, st.Val)
 			}
 			return ok && st.Addr == a
 		}
@@ -412,10 +417,10 @@ func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, depth int) (stored []s
 		if !ok {
 			return nil, false
 		}
-		return resolvedStoresAt(binding, at, depth)
+		return resolvedStoresAt(binding, at, w)
 
 	case *ssa.FieldAddr, *ssa.IndexAddr:
-		return resolvedPartStores(a, nil, at, depth)
+		return resolvedPartStores(a, nil, at, w)
 	}
 	return nil, false
 }
@@ -507,7 +512,7 @@ func resolvedReachingStores(a *ssa.Alloc, at ssa.Instruction) []ssa.Value {
 	resolvedScanBack(at, a, func(instr ssa.Instruction) bool {
 		st, ok := instr.(*ssa.Store)
 		if ok && st.Addr == a {
-			stored = append(stored, st.Val)
+			stored = resolvedAppendNew(stored, st.Val)
 		}
 		return ok && st.Addr == a
 	})
@@ -601,6 +606,49 @@ func resolvedScanForward(from, origin ssa.Instruction, visit func(ssa.Instructio
 // through, so that a value that refers to itself, as p = p.next does, ends.
 const resolvedMaxDepth = 16
 
+// resolvedMaxSteps bounds how many parts, loads and lookups one resolution
+// follows in all. Depth alone does not bound the work: a variable copied from
+// another on each of many branches, a few levels deep, fans out at each level.
+const resolvedMaxSteps = 4096
+
+// resolvedWalk is the state of one resolution: how deep it is, and, shared
+// by every step of it, the work done so far and the parts of stores already
+// resolved.
+type resolvedWalk struct {
+	depth int
+	steps *int
+	parts map[resolvedPartKey]resolvedPartResult
+}
+
+// resolvedPartKey is a store, and the path into the value it stores.
+type resolvedPartKey struct {
+	store *ssa.Store
+	path  string
+}
+
+// resolvedPartResult is what resolvedPart gave for a resolvedPartKey.
+type resolvedPartResult struct {
+	values []ssa.Value
+	ok     bool
+}
+
+func newResolvedWalk() resolvedWalk {
+	return resolvedWalk{steps: new(int), parts: make(map[resolvedPartKey]resolvedPartResult)}
+}
+
+// deeper is w one step further in, counting the step toward the bound.
+func (w resolvedWalk) deeper() resolvedWalk {
+	*w.steps++
+	w.depth++
+	return w
+}
+
+// exhausted reports whether w is too deep, or has done too much work, to go
+// on. A resolution that stops is not followed, so what it judges passes.
+func (w resolvedWalk) exhausted() bool {
+	return w.depth > resolvedMaxDepth || *w.steps > resolvedMaxSteps
+}
+
 // resolvedPartStores gives the values stored at the part of a variable addr
 // addresses, extra steps further in, that a load at at can read. For a
 // variable of at's function, only the stores that reach at count; for one
@@ -609,8 +657,8 @@ const resolvedMaxDepth = 16
 // part is taken from the value stored. ok is false when a variable may be
 // written in a way not followed, or a part was written after the value that
 // holds it.
-func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, depth int) ([]ssa.Value, bool) {
-	if depth > resolvedMaxDepth {
+func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, w resolvedWalk) ([]ssa.Value, bool) {
+	if w.exhausted() {
 		return nil, false
 	}
 	base, path, ok := resolvedAddrPath(addr)
@@ -618,7 +666,7 @@ func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, depth i
 		return nil, false
 	}
 	path = append(path, extra...)
-	roots, ok := resolvedRoots(base, depth+1)
+	roots, ok := resolvedRoots(base, w.deeper())
 	if !ok {
 		return nil, false
 	}
@@ -660,45 +708,69 @@ func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, depth i
 			return nil, false
 		}
 		for _, st := range found {
-			parts, ok := resolvedPart(st.Val, path[len(writes[st]):], depth+1)
+			parts, ok := resolvedStoredPart(st, path[len(writes[st]):], w)
 			if !ok {
 				return nil, false
 			}
-			values = append(values, parts...)
+			values = resolvedAppendNew(values, parts...)
 		}
 	}
 	return values, true
 }
 
+// resolvedAppendNew appends to values each of more that it does not hold
+// yet. Many paths often lead to the same value, and keeping each copy makes
+// the lists grow with the number of paths, not of values.
+func resolvedAppendNew(values []ssa.Value, more ...ssa.Value) []ssa.Value {
+	for _, v := range more {
+		if !slices.Contains(values, v) {
+			values = append(values, v)
+		}
+	}
+	return values
+}
+
+// resolvedStoredPart is resolvedPart of the value st stores, remembered for
+// the rest of the walk: many loads may reach the same store.
+func resolvedStoredPart(st *ssa.Store, path []int, w resolvedWalk) ([]ssa.Value, bool) {
+	key := resolvedPartKey{store: st, path: fmt.Sprint(path)}
+	if r, ok := w.parts[key]; ok {
+		return r.values, r.ok
+	}
+	values, ok := resolvedPart(st.Val, path, w.deeper())
+	w.parts[key] = resolvedPartResult{values: values, ok: ok}
+	return values, ok
+}
+
 // resolvedPart gives the values the part of v at path can be: v itself for
 // an empty path.
-func resolvedPart(v ssa.Value, path []int, depth int) ([]ssa.Value, bool) {
+func resolvedPart(v ssa.Value, path []int, w resolvedWalk) ([]ssa.Value, bool) {
 	if len(path) == 0 {
 		return []ssa.Value{v}, true
 	}
-	if depth > resolvedMaxDepth {
+	if w.exhausted() {
 		return nil, false
 	}
 	switch x := v.(type) {
 	case *ssa.UnOp:
 		if x.Op == token.MUL {
-			return resolvedPartStores(x.X, path, x, depth+1)
+			return resolvedPartStores(x.X, path, x, w.deeper())
 		}
 	case *ssa.Phi:
 		var values []ssa.Value
 		for _, e := range x.Edges {
-			parts, ok := resolvedPart(e, path, depth+1)
+			parts, ok := resolvedPart(e, path, w.deeper())
 			if !ok {
 				return nil, false
 			}
-			values = append(values, parts...)
+			values = resolvedAppendNew(values, parts...)
 		}
 		return values, true
 	case *ssa.Field:
-		return resolvedPart(x.X, append([]int{x.Field}, path...), depth+1)
+		return resolvedPart(x.X, append([]int{x.Field}, path...), w.deeper())
 	case *ssa.Index:
 		if i, ok := resolvedConstIndex(x.Index); ok {
-			return resolvedPart(x.X, append([]int{i}, path...), depth+1)
+			return resolvedPart(x.X, append([]int{i}, path...), w.deeper())
 		}
 	}
 	return nil, false
@@ -740,8 +812,8 @@ func resolvedConstIndex(v ssa.Value) (int, bool) {
 // resolvedRoots gives the variables base can address the start of: a
 // variable, or the array a slice of it from its start covers. ok is false
 // for any other base.
-func resolvedRoots(base ssa.Value, depth int) ([]*ssa.Alloc, bool) {
-	values, ok := resolvedValues(base, depth)
+func resolvedRoots(base ssa.Value, w resolvedWalk) ([]*ssa.Alloc, bool) {
+	values, ok := resolvedValues(base, w)
 	if !ok || len(values) == 0 {
 		return nil, false
 	}
@@ -761,7 +833,7 @@ func resolvedRoots(base ssa.Value, depth int) ([]*ssa.Alloc, bool) {
 			if !ok {
 				return nil, false
 			}
-			bound, ok := resolvedRoots(binding, depth+1)
+			bound, ok := resolvedRoots(binding, w.deeper())
 			if !ok {
 				return nil, false
 			}
@@ -841,15 +913,15 @@ func resolvedPathCovers(q, p []int) (covers, partial bool) {
 // it store. ok is false for any other lookup, and for a map that is used in
 // any way but a lookup or an update at a constant key, as when it is passed
 // on or captured.
-func resolvedLookups(l *ssa.Lookup, depth int) ([]ssa.Value, bool) {
+func resolvedLookups(l *ssa.Lookup, w resolvedWalk) ([]ssa.Value, bool) {
 	key, ok := l.Index.(*ssa.Const)
-	if l.CommaOk || !ok || key.Value == nil || depth > resolvedMaxDepth {
+	if l.CommaOk || !ok || key.Value == nil || w.exhausted() {
 		return nil, false
 	}
 	if _, isMap := l.X.Type().Underlying().(*types.Map); !isMap {
 		return nil, false
 	}
-	maps, ok := resolvedValues(l.X, depth+1)
+	maps, ok := resolvedValues(l.X, w.deeper())
 	if !ok || len(maps) == 0 {
 		return nil, false
 	}
@@ -869,7 +941,7 @@ func resolvedLookups(l *ssa.Lookup, depth int) ([]ssa.Value, bool) {
 			if k == nil || k.Value == nil || !constant.Compare(k.Value, token.EQL, key.Value) {
 				return false
 			}
-			values = append(values, u.Value)
+			values = resolvedAppendNew(values, u.Value)
 			return true
 		}
 		resolvedScanBack(l, m, take)
