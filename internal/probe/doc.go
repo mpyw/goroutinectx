@@ -11,7 +11,6 @@
 //	type Context struct {
 //	    Pass      *analysis.Pass        // The analysis pass
 //	    Inspector *inspector.Inspector  // Inspector over the pass files
-//	    Tracer    *ssa.Tracer           // SSA-based value tracer
 //	    SSAProg   *ssa.Program          // SSA program representation
 //	    CtxNames  []string              // Context variable names in scope
 //	    Carriers  []carrier.Carrier     // Configured carrier types
@@ -28,7 +27,6 @@
 //	│ Parameter Detection  │ FuncLitHasContextParam, FuncTypeHasContextParam│
 //	│ Factory Functions    │ FactoryCallReturnsContextUsingFunc           │
 //	│ Variable Resolution  │ FuncLitAssignedToIdent                       │
-//	│ SSA Analysis         │ FuncLitCapturesContextSSA                    │
 //	└──────────────────────┴──────────────────────────────────────────────┘
 //
 // # SSA vs AST Analysis
@@ -42,7 +40,7 @@
 //
 //	func checkFunc(cctx *probe.Context, lit *ast.FuncLit) bool {
 //	    // Try SSA first
-//	    if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {
+//	    if result, ok := cctx.SSAProg.FuncLitCapturesContext(lit, cctx.Carriers); ok {
 //	        return result
 //	    }
 //	    // Fall back to AST
@@ -69,10 +67,10 @@
 // # Carrier Types
 //
 // Beyond context.Context, the analyzer supports custom carrier types configured
-// via the -carrier flag. These are types that wrap or carry context:
+// via the -context-carriers flag. These are types that wrap or carry context:
 //
 //	// Example: echo.Context carries request context
-//	// Configure with: -carrier=github.com/labstack/echo/v4.Context
+//	// Configure with: -context-carriers=github.com/labstack/echo/v4.Context
 //	func handler(c echo.Context) {
 //	    go func() {
 //	        processRequest(c)  // c is a carrier type

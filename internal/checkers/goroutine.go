@@ -4,24 +4,25 @@ import (
 	"go/ast"
 
 	"github.com/mpyw/goroutinectx/internal"
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
-	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/probe"
+	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // Goroutine checks that go statements propagate context.
 type Goroutine struct{}
 
 // Name returns the checker name for ignore directive matching.
-func (*Goroutine) Name() ignore.CheckerName {
-	return ignore.Goroutine
+func (*Goroutine) Name() checker.Name {
+	return checker.Goroutine
 }
 
 // CheckGoStmt checks a go statement for context propagation.
 func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.CheckResult {
 	// Try SSA-based check first
 	if lit, ok := stmt.Call.Fun.(*ast.FuncLit); ok {
-		if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {
+		if result, ok := cctx.SSAProg.FuncLitCapturesContext(lit, cctx.Carriers); ok {
 			if result {
 				return internal.CheckPassed()
 			}
@@ -82,8 +83,8 @@ func NewGoroutineDerive(derivers *deriver.Matcher) *GoroutineDerive {
 }
 
 // Name returns the checker name for ignore directive matching.
-func (*GoroutineDerive) Name() ignore.CheckerName {
-	return ignore.GoroutineDerive
+func (*GoroutineDerive) Name() checker.Name {
+	return checker.GoroutineDerive
 }
 
 // CheckGoStmt checks a go statement for deriver function calls.
@@ -135,16 +136,12 @@ func (c *GoroutineDerive) deferMessage() string {
 }
 
 func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (*internal.CheckResult, bool) {
-	if cctx.SSAProg == nil || cctx.Tracer == nil {
-		return nil, false
-	}
-
 	ssaFn := cctx.SSAProg.FindFuncLit(lit)
 	if ssaFn == nil {
 		return nil, false
 	}
 
-	result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
+	result := ssa.ClosureCallsDeriver(ssaFn, c.derivers)
 
 	if result.FoundAtStart {
 		return internal.CheckPassed(), true

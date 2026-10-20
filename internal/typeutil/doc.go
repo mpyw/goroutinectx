@@ -39,7 +39,7 @@
 //
 // For carrier types (types that wrap context), use the carrier package:
 //
-//	import "github.com/mpyw/goroutinectx/internal/directive/carrier"
+//	import "github.com/mpyw/goroutinectx/internal/carrier"
 //
 //	if typeutil.IsContextType(typ) || carrier.IsCarrierType(typ, carriers) {
 //	    // typ is context.Context or a configured carrier

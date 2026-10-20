@@ -10,11 +10,12 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/goroutinectx/internal"
+	"github.com/mpyw/goroutinectx/internal/carrier"
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive"
-	"github.com/mpyw/goroutinectx/internal/directive/carrier"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
@@ -204,35 +205,35 @@ func buildEnabledCheckers(cfg Config, spawners *spawner.Map) ignore.EnabledCheck
 	enabled := make(ignore.EnabledCheckers)
 
 	if cfg.Goroutine {
-		enabled[ignore.Goroutine] = true
+		enabled[checker.Goroutine] = true
 	}
 
 	if cfg.GoroutineDeriver != "" {
-		enabled[ignore.GoroutineDerive] = true
+		enabled[checker.GoroutineDerive] = true
 	}
 
 	if cfg.Waitgroup {
-		enabled[ignore.Waitgroup] = true
+		enabled[checker.Waitgroup] = true
 	}
 
 	if cfg.Errgroup {
-		enabled[ignore.Errgroup] = true
+		enabled[checker.Errgroup] = true
 	}
 
 	if cfg.Conc {
-		enabled[ignore.Conc] = true
+		enabled[checker.Conc] = true
 	}
 
 	if cfg.Spawner && spawners.Len() > 0 {
-		enabled[ignore.Spawner] = true
+		enabled[checker.Spawner] = true
 	}
 
 	if cfg.Spawnerlabel {
-		enabled[ignore.Spawnerlabel] = true
+		enabled[checker.Spawnerlabel] = true
 	}
 
 	if cfg.GoroutineDeriver != "" && cfg.Gotask {
-		enabled[ignore.Gotask] = true
+		enabled[checker.Gotask] = true
 	}
 
 	return enabled

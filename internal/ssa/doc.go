@@ -38,22 +38,29 @@
 //	    // Fall back to AST analysis
 //	}
 //
-// # Tracer
+// # Closure Checks
 //
-// The [Tracer] analyzes SSA functions for context propagation:
-//
-//	tracer := ssa.NewTracer()
+// Plain functions check an SSA function for context propagation:
 //
 //	// Check if closure captures context
-//	captures := tracer.ClosureCapturesContext(ssaFn, carriers)
+//	captures := ssa.ClosureCapturesContext(ssaFn, carriers)
 //
 //	// Check if closure calls deriver function
-//	result := tracer.ClosureCallsDeriver(ssaFn, deriveMatcher)
+//	result := ssa.ClosureCallsDeriver(ssaFn, deriveMatcher)
 //	if result.FoundAtStart {
 //	    // Deriver called at goroutine start - OK
 //	} else if result.FoundOnlyInDefer {
 //	    // Deriver only in defer - warning
 //	}
+//
+// [Program.FuncLitCapturesContext] runs the capture check on the SSA function
+// of an AST func literal.
+//
+// # Walking Calls
+//
+// [CallWalker] walks the Call, Defer and Go instructions of a function, going
+// into IIFEs, and with Closures set into every closure. The deriver check and
+// the spawnerlabel checker both walk calls with it.
 //
 // # Closure Free Variables
 //
@@ -65,7 +72,7 @@
 //	    }()
 //	}
 //
-// The tracer checks if any free variable has context type:
+// The capture check asks whether any free variable has context type:
 //
 //	for _, fv := range closure.FreeVars {
 //	    if typeutil.IsContextType(fv.Type()) {
@@ -75,7 +82,7 @@
 //
 // # Deriver Detection
 //
-// For goroutine-derive checking, the tracer:
+// For goroutine-derive checking, ClosureCallsDeriver:
 //
 //  1. Collects all function calls in the closure body
 //  2. Tracks whether calls are in defer statements
@@ -93,6 +100,6 @@
 // The package exports helper functions for SSA analysis:
 //
 //   - [ExtractCalledFunc]: Get types.Func from CallCommon
-//   - [ExtractIIFECallee]: Detect immediately-invoked function expressions
+//   - [CallWalker]: Walk calls, going into immediately-invoked function expressions
 //   - [CallHasFuncArgs]: Check if call has function-typed arguments
 package ssa

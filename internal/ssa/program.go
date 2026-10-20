@@ -2,10 +2,14 @@ package ssa
 
 import (
 	"go/ast"
+	"slices"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
 	"golang.org/x/tools/go/ssa"
+
+	"github.com/mpyw/goroutinectx/internal/carrier"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Program wraps an SSA program with the analyzed package.
@@ -52,6 +56,22 @@ func (p *Program) findFuncLitInFunc(fn *ssa.Function, lit *ast.FuncLit) *ssa.Fun
 		}
 	}
 	return nil
+}
+
+// FuncLitCapturesContext reports whether the closure built from lit takes a
+// context parameter, or captures a context or a carrier. ok is false when lit
+// has no SSA function.
+func (p *Program) FuncLitCapturesContext(lit *ast.FuncLit, carriers []carrier.Carrier) (captures, ok bool) {
+	fn := p.FindFuncLit(lit)
+	if fn == nil {
+		return false, false
+	}
+
+	if slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool { return typeutil.IsContextType(param.Type()) }) {
+		return true, true
+	}
+
+	return ClosureCapturesContext(fn, carriers), true
 }
 
 // FindFuncDecl finds the SSA function for a given FuncDecl AST node.

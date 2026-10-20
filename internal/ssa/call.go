@@ -26,27 +26,6 @@ func ExtractCalledFunc(call *ssa.CallCommon) *types.Func {
 	return nil
 }
 
-// ExtractIIFECallee returns the invoked function if the CallCommon is an IIFE.
-func ExtractIIFECallee(call *ssa.CallCommon) *ssa.Function {
-	if call.IsInvoke() {
-		return nil
-	}
-
-	if mc, ok := call.Value.(*ssa.MakeClosure); ok {
-		if fn, ok := mc.Fn.(*ssa.Function); ok {
-			return fn
-		}
-	}
-
-	if fn, ok := call.Value.(*ssa.Function); ok {
-		if fn.Parent() != nil {
-			return fn
-		}
-	}
-
-	return nil
-}
-
 // CallHasFuncArgs checks if the call has func-typed arguments starting from startIdx.
 func CallHasFuncArgs(call *ssa.CallCommon, startIdx int) bool {
 	args := call.Args

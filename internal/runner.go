@@ -7,7 +7,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/directive/carrier"
+	"github.com/mpyw/goroutinectx/internal/carrier"
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/scope"
@@ -19,7 +20,6 @@ type Runner struct {
 	goStmtCheckers []GoStmtChecker
 	callCheckers   []CallChecker
 	ssaProg        *ssa.Program
-	tracer         *ssa.Tracer
 	carriers       []carrier.Carrier
 	ignoreMaps     map[string]ignore.Map
 	skipFiles      map[string]bool
@@ -38,7 +38,6 @@ func NewRunner(
 		goStmtCheckers: goStmtCheckers,
 		callCheckers:   callCheckers,
 		ssaProg:        ssaProg,
-		tracer:         ssa.NewTracer(),
 		carriers:       carriers,
 		ignoreMaps:     ignoreMaps,
 		skipFiles:      skipFiles,
@@ -77,7 +76,6 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 		cctx := &probe.Context{
 			Pass:      pass,
 			Inspector: insp,
-			Tracer:    r.tracer,
 			SSAProg:   r.ssaProg,
 			CtxNames:  s.CtxNames,
 			Carriers:  r.carriers,
@@ -96,8 +94,8 @@ func (r *Runner) Run(pass *analysis.Pass, insp *inspector.Inspector) {
 
 // checkGoStmt runs all GoStmt checkers.
 func (r *Runner) checkGoStmt(cctx *probe.Context, stmt *ast.GoStmt) {
-	for _, checker := range r.goStmtCheckers {
-		result := checker.CheckGoStmt(cctx, stmt)
+	for _, c := range r.goStmtCheckers {
+		result := c.CheckGoStmt(cctx, stmt)
 		if result.OK {
 			continue
 		}
@@ -110,7 +108,7 @@ func (r *Runner) checkGoStmt(cctx *probe.Context, stmt *ast.GoStmt) {
 		// The ignore is asked only for a report it would silence. Asking it
 		// first marked it used on a line with nothing to report, so an ignore
 		// that silenced nothing was never reported as unused.
-		if msg != "" && !r.shouldIgnore(cctx.Pass, stmt.Pos(), checker.Name()) {
+		if msg != "" && !r.shouldIgnore(cctx.Pass, stmt.Pos(), c.Name()) {
 			cctx.Pass.Reportf(stmt.Pos(), "%s", msg)
 		}
 	}
@@ -118,8 +116,8 @@ func (r *Runner) checkGoStmt(cctx *probe.Context, stmt *ast.GoStmt) {
 
 // checkCallExpr runs all Call checkers.
 func (r *Runner) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) {
-	for _, checker := range r.callCheckers {
-		if !checker.MatchCall(cctx.Pass, call) {
+	for _, c := range r.callCheckers {
+		if !c.MatchCall(cctx.Pass, call) {
 			continue
 		}
 
@@ -128,14 +126,14 @@ func (r *Runner) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) {
 		// the check runs on a pass whose Report asks the ignore first.
 		pass := *cctx.Pass
 		pass.Report = func(d analysis.Diagnostic) {
-			if !r.shouldIgnore(cctx.Pass, call.Pos(), checker.Name()) {
+			if !r.shouldIgnore(cctx.Pass, call.Pos(), c.Name()) {
 				cctx.Pass.Report(d)
 			}
 		}
 		checked := *cctx
 		checked.Pass = &pass
 
-		result := checker.CheckCall(&checked, call)
+		result := c.CheckCall(&checked, call)
 		if result.OK {
 			continue
 		}
@@ -156,7 +154,7 @@ func (r *Runner) callReportPos(call *ast.CallExpr) token.Pos {
 }
 
 // shouldIgnore checks if the position should be ignored for the given checker.
-func (r *Runner) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName ignore.CheckerName) bool {
+func (r *Runner) shouldIgnore(pass *analysis.Pass, pos token.Pos, checkerName checker.Name) bool {
 	filename := pass.Fset.PositionFor(pos, false).Filename
 	ignoreMap, ok := r.ignoreMaps[filename]
 	if !ok {

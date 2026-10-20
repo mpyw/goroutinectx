@@ -16,13 +16,13 @@
 //
 // # Configuration
 //
-// Configure carriers via the -carrier flag:
+// Configure carriers via the -context-carriers flag:
 //
-//	golangci-lint run -- -carrier=github.com/labstack/echo/v4.Context
+//	golangci-lint run -- -context-carriers=github.com/labstack/echo/v4.Context
 //
 // Multiple carriers (comma-separated):
 //
-//	-carrier=github.com/labstack/echo/v4.Context,github.com/gin-gonic/gin.Context
+//	-context-carriers=github.com/labstack/echo/v4.Context,github.com/gin-gonic/gin.Context
 //
 // # Carrier Structure
 //
@@ -33,9 +33,9 @@
 //
 // # Parsing
 //
-// Use [Parse] to parse a comma-separated carrier list:
+// Use [Parse] to parse the carrier list:
 //
-//	carriers := carrier.Parse("github.com/labstack/echo/v4.Context")
+//	carriers := carrier.Parse([]string{"github.com/labstack/echo/v4.Context"})
 //	// carriers = []Carrier{{
 //	//     PkgPath:  "github.com/labstack/echo/v4",
 //	//     TypeName: "Context",

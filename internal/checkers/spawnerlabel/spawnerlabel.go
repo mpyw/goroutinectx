@@ -7,13 +7,14 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
-const checkerName = ignore.Spawnerlabel
+const checkerName = checker.Spawnerlabel
 
 // Checker validates that functions are properly labeled with //goroutinectx:spawner.
 type Checker struct {
@@ -126,83 +127,38 @@ func (c *Checker) getFuncObject(pass *analysis.Pass, fnDecl *ast.FuncDecl) *type
 // findSpawnCall searches for spawn calls using SSA analysis.
 // It checks nested function literals, IIFEs, and higher-order function returns.
 func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
-	if c.ssaProg == nil {
-		return nil
-	}
 	ssaFn := c.ssaProg.FindFuncDecl(fnDecl)
 	if ssaFn == nil {
 		return nil
 	}
-	return c.findSpawnCallSSA(ssaFn, make(map[*ssa.Function]bool))
+
+	var info *spawnCallInfo
+	w := &internalssa.CallWalker{Closures: true}
+	var visit func(internalssa.WalkedCall) bool
+	visit = func(site internalssa.WalkedCall) bool {
+		info = c.spawnCallInfoOf(site.Call)
+		if info != nil {
+			return false
+		}
+		// A call to a function that returns a spawning closure spawns too.
+		callee := site.Call.StaticCallee()
+		if callee == nil || w.Walked(callee) {
+			return true
+		}
+		for _, closure := range returnedClosures(callee) {
+			if !w.Walk(closure, visit) {
+				return false
+			}
+		}
+		return true
+	}
+	w.Walk(ssaFn, visit)
+
+	return info
 }
 
-// findSpawnCallSSA uses SSA to find spawn calls, including in nested functions and IIFEs.
-func (c *Checker) findSpawnCallSSA(fn *ssa.Function, visited map[*ssa.Function]bool) *spawnCallInfo {
-	if fn == nil || visited[fn] {
-		return nil
-	}
-	visited[fn] = true
-
-	for _, block := range fn.Blocks {
-		for _, instr := range block.Instrs {
-			if info := c.checkInstrForSpawn(instr, visited); info != nil {
-				return info
-			}
-		}
-	}
-
-	return nil
-}
-
-// checkInstrForSpawn checks a single SSA instruction for spawn calls.
-func (c *Checker) checkInstrForSpawn(instr ssa.Instruction, visited map[*ssa.Function]bool) *spawnCallInfo {
-	switch v := instr.(type) {
-	case *ssa.Call:
-		// Check if this is a spawn call
-		if info := c.checkCallForSpawn(&v.Call, visited); info != nil {
-			return info
-		}
-
-		// Check for IIFE - traverse into immediately invoked functions
-		if iifeFn := internalssa.ExtractIIFECallee(&v.Call); iifeFn != nil {
-			if info := c.findSpawnCallSSA(iifeFn, visited); info != nil {
-				return info
-			}
-		}
-
-	case *ssa.Defer:
-		// Check deferred calls too
-		if info := c.checkCallForSpawn(&v.Call, visited); info != nil {
-			return info
-		}
-
-		// Check for deferred IIFE
-		if iifeFn := internalssa.ExtractIIFECallee(&v.Call); iifeFn != nil {
-			if info := c.findSpawnCallSSA(iifeFn, visited); info != nil {
-				return info
-			}
-		}
-
-	case *ssa.Go:
-		// go statement itself is a spawn, but we check the called function
-		if info := c.checkCallForSpawn(&v.Call, visited); info != nil {
-			return info
-		}
-
-	case *ssa.MakeClosure:
-		// Traverse into closures created in this function
-		if closureFn, ok := v.Fn.(*ssa.Function); ok {
-			if info := c.findSpawnCallSSA(closureFn, visited); info != nil {
-				return info
-			}
-		}
-	}
-
-	return nil
-}
-
-// checkCallForSpawn checks if a call is a spawn call.
-func (c *Checker) checkCallForSpawn(call *ssa.CallCommon, visited map[*ssa.Function]bool) *spawnCallInfo {
+// spawnCallInfoOf reports the API a call spawns through, or nil.
+func (c *Checker) spawnCallInfoOf(call *ssa.CallCommon) *spawnCallInfo {
 	// Get the called function
 	calledFn := internalssa.ExtractCalledFunc(call)
 	if calledFn == nil {
@@ -226,42 +182,26 @@ func (c *Checker) checkCallForSpawn(call *ssa.CallCommon, visited map[*ssa.Funct
 		return &spawnCallInfo{methodName: calledFn.Name()}
 	}
 
-	// Check higher-order function returns: if calling a function that returns a spawning func
-	if staticCallee := call.StaticCallee(); staticCallee != nil {
-		if info := c.checkReturnedFuncForSpawn(staticCallee, visited); info != nil {
-			return info
-		}
-	}
-
 	return nil
 }
 
-// checkReturnedFuncForSpawn checks if a function returns another function that contains spawn calls.
-func (c *Checker) checkReturnedFuncForSpawn(fn *ssa.Function, visited map[*ssa.Function]bool) *spawnCallInfo {
-	if fn == nil || visited[fn] {
-		return nil
-	}
-
-	// Look for Return instructions that return function values
+// returnedClosures gives the closures fn returns.
+func returnedClosures(fn *ssa.Function) []*ssa.Function {
+	var closures []*ssa.Function
 	for _, block := range fn.Blocks {
 		for _, instr := range block.Instrs {
 			ret, ok := instr.(*ssa.Return)
 			if !ok {
 				continue
 			}
-
 			for _, result := range ret.Results {
-				// Check if the result is a closure
 				if mc, ok := result.(*ssa.MakeClosure); ok {
 					if closureFn, ok := mc.Fn.(*ssa.Function); ok {
-						if info := c.findSpawnCallSSA(closureFn, visited); info != nil {
-							return info
-						}
+						closures = append(closures, closureFn)
 					}
 				}
 			}
 		}
 	}
-
-	return nil
+	return closures
 }

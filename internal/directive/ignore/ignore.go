@@ -7,40 +7,22 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/directive"
 )
 
-// CheckerName represents a checker that can be ignored.
-type CheckerName string
-
-// Valid checker names.
-const (
-	Goroutine       CheckerName = "goroutine"
-	GoroutineDerive CheckerName = "goroutinederive"
-	Waitgroup       CheckerName = "waitgroup"
-	Errgroup        CheckerName = "errgroup"
-	Spawner         CheckerName = "spawner"
-	Spawnerlabel    CheckerName = "spawnerlabel"
-	Gotask          CheckerName = "gotask"
-	Conc            CheckerName = "conc"
-)
-
-// checkerNames lists every name an ignore directive may give, in the order
-// the report of an unknown one lists them.
-var checkerNames = []CheckerName{Goroutine, GoroutineDerive, Waitgroup, Errgroup, Conc, Spawner, Spawnerlabel, Gotask}
-
 // Entry tracks an ignore directive and its usage.
 type Entry struct {
-	pos      token.Pos            // Position of the ignore comment
-	checkers []CheckerName        // List of checker names (empty = all)
-	used     map[CheckerName]bool // Track usage per checker
+	pos      token.Pos             // Position of the ignore comment
+	checkers []checker.Name        // List of checker names (empty = all)
+	used     map[checker.Name]bool // Track usage per checker
 }
 
 // Map tracks ignore entries by line number.
 type Map map[int]*Entry
 
 // EnabledCheckers tracks which checkers are currently enabled.
-type EnabledCheckers map[CheckerName]bool
+type EnabledCheckers map[checker.Name]bool
 
 // Problem is an ignore directive that names a checker goroutinectx does not
 // have. It is not an ignore: it silences nothing.
@@ -69,7 +51,7 @@ func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 			m[line] = &Entry{
 				pos:      c.Pos(),
 				checkers: checkers,
-				used:     make(map[CheckerName]bool),
+				used:     make(map[checker.Name]bool),
 			}
 		}
 	}
@@ -85,7 +67,7 @@ func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 // have is a problem: the directive silences nothing. A misspelled checker or a
 // reason written without a separator would otherwise be read as a checker that
 // never reports.
-func parseComment(text string) ([]CheckerName, string, bool) {
+func parseComment(text string) ([]checker.Name, string, bool) {
 	d, ok := directive.Parse(text)
 	if !ok || d.Name != "ignore" {
 		return nil, "", false
@@ -96,13 +78,13 @@ func parseComment(text string) ([]CheckerName, string, bool) {
 		return nil, "", true
 	}
 
-	var checkers []CheckerName
+	var checkers []checker.Name
 	for part := range strings.SplitSeq(rest, ",") {
-		name := CheckerName(strings.TrimSpace(part))
+		name := checker.Name(strings.TrimSpace(part))
 		if name == "" {
 			continue
 		}
-		if !slices.Contains(checkerNames, name) {
+		if !slices.Contains(checker.Names, name) {
 			return nil, unknownChecker(name), true
 		}
 		checkers = append(checkers, name)
@@ -112,9 +94,9 @@ func parseComment(text string) ([]CheckerName, string, bool) {
 	return checkers, "", true
 }
 
-func unknownChecker(name CheckerName) string {
-	names := make([]string, len(checkerNames))
-	for i, n := range checkerNames {
+func unknownChecker(name checker.Name) string {
+	names := make([]string, len(checker.Names))
+	for i, n := range checker.Names {
 		names[i] = string(n)
 	}
 	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after //)",
@@ -122,11 +104,11 @@ func unknownChecker(name CheckerName) string {
 }
 
 // ShouldIgnore returns true if the given line should be ignored for the specified checker.
-func (m Map) ShouldIgnore(line int, checker CheckerName) bool {
-	if m.shouldIgnoreEntry(m[line], checker) {
+func (m Map) ShouldIgnore(line int, name checker.Name) bool {
+	if m.shouldIgnoreEntry(m[line], name) {
 		return true
 	}
-	if m.shouldIgnoreEntry(m[line-1], checker) {
+	if m.shouldIgnoreEntry(m[line-1], name) {
 		return true
 	}
 
@@ -134,20 +116,20 @@ func (m Map) ShouldIgnore(line int, checker CheckerName) bool {
 }
 
 // shouldIgnoreEntry checks if an entry ignores the specified checker.
-func (m Map) shouldIgnoreEntry(entry *Entry, checker CheckerName) bool {
+func (m Map) shouldIgnoreEntry(entry *Entry, name checker.Name) bool {
 	if entry == nil {
 		return false
 	}
 
 	// Empty checkers list means ignore all
 	if len(entry.checkers) == 0 {
-		entry.used[checker] = true
+		entry.used[name] = true
 		return true
 	}
 
 	// Check if the specified checker is in the list
-	if slices.Contains(entry.checkers, checker) {
-		entry.used[checker] = true
+	if slices.Contains(entry.checkers, name) {
+		entry.used[name] = true
 		return true
 	}
 
@@ -157,7 +139,7 @@ func (m Map) shouldIgnoreEntry(entry *Entry, checker CheckerName) bool {
 // UnusedIgnore represents an unused ignore directive.
 type UnusedIgnore struct {
 	Pos      token.Pos
-	Checkers []CheckerName // Unused checker names (empty if entire directive is unused)
+	Checkers []checker.Name // Unused checker names (empty if entire directive is unused)
 }
 
 // GetUnusedIgnores returns ignore directives that were not used.
@@ -168,8 +150,8 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore {
 		if len(entry.checkers) == 0 {
 			// Ignore-all directive: check if any enabled checker used it
 			anyUsed := false
-			for checker := range enabled {
-				if entry.used[checker] {
+			for name := range enabled {
+				if entry.used[name] {
 					anyUsed = true
 					break
 				}
@@ -179,14 +161,14 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore {
 			}
 		} else {
 			// Specific checkers: report each unused one
-			var unusedCheckers []CheckerName
-			for _, checker := range entry.checkers {
-				if !enabled[checker] {
+			var unusedCheckers []checker.Name
+			for _, name := range entry.checkers {
+				if !enabled[name] {
 					// Checker is not enabled - report as invalid
-					unusedCheckers = append(unusedCheckers, checker)
-				} else if !entry.used[checker] {
+					unusedCheckers = append(unusedCheckers, name)
+				} else if !entry.used[name] {
 					// Checker is enabled but wasn't used
-					unusedCheckers = append(unusedCheckers, checker)
+					unusedCheckers = append(unusedCheckers, name)
 				}
 			}
 			if len(unusedCheckers) > 0 {
