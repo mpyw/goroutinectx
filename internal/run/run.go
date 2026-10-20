@@ -18,6 +18,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
+	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/scope"
 	"github.com/mpyw/goroutinectx/internal/ssa"
@@ -57,6 +58,30 @@ func DefaultConfig() Config {
 	}
 }
 
+// Validate reports the first flag value Run would reject: a function
+// specification of -goroutine-deriver or -external-spawner that names no
+// import path.
+func (cfg Config) Validate() error {
+	_, _, err := cfg.parse()
+	return err
+}
+
+// parse parses the derivers and the external spawners.
+func (cfg Config) parse() (*deriver.Matcher, []funcspec.Spec, error) {
+	external, err := spawner.ParseExternal(cfg.ExternalSpawner)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg.GoroutineDeriver == "" {
+		return nil, external, nil
+	}
+	derivers, err := deriver.NewMatcher(cfg.GoroutineDeriver)
+	if err != nil {
+		return nil, nil, err
+	}
+	return derivers, external, nil
+}
+
 // FactTypes are the facts Run exports and imports. The analyzer that calls
 // it must declare them.
 var FactTypes = []analysis.Fact{new(spawner.Fact)}
@@ -72,6 +97,11 @@ func Run(pass *analysis.Pass, cfg Config) error {
 		return ErrNoInspector
 	}
 
+	derivers, external, err := cfg.parse()
+	if err != nil {
+		return err
+	}
+
 	// Build set of files to skip
 	skipFiles := buildSkipFiles(pass)
 
@@ -79,16 +109,10 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
-	spawners := spawner.Build(pass, cfg.ExternalSpawner)
+	spawners := spawner.Build(pass, external)
 
 	// Build SSA program
 	ssaProg := ssa.BuildProgram(pass)
-
-	// Build derivers matcher
-	var derivers *deriver.Matcher
-	if cfg.GoroutineDeriver != "" {
-		derivers = deriver.NewMatcher(cfg.GoroutineDeriver)
-	}
 
 	r := &runner{
 		pass:       pass,

@@ -232,6 +232,23 @@ func TestGenericsLabel(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "genericslabel")
 }
 
+// TestFlagRejectsShortName checks that a function with no import path is
+// rejected when the flag is set (#90).
+func TestFlagRejectsShortName(t *testing.T) {
+	for _, flag := range []string{"goroutine-deriver", "external-spawner"} {
+		if err := goroutinectx.Analyzer.Flags.Set(flag, "apm.NewGoroutineContext"); err == nil {
+			t.Errorf("-%s=apm.NewGoroutineContext was accepted", flag)
+		}
+		if got := goroutinectx.Analyzer.Flags.Lookup(flag).Value.String(); got != "" {
+			t.Errorf("-%s holds %q after a rejected value", flag, got)
+		}
+	}
+	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "context.WithoutCancel"); err != nil {
+		t.Errorf("a standard library function was rejected: %v", err)
+	}
+	_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
+}
+
 func TestDirective(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "directive")

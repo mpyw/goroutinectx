@@ -1,8 +1,11 @@
 package funcspec
 
 import (
+	"fmt"
 	"go/ast"
+	"go/build"
 	"go/types"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -19,8 +22,43 @@ type Spec struct {
 	FuncName string
 }
 
-// Parse parses a single function specification string.
-func Parse(s string) Spec {
+// Parse parses a single function specification string. It rejects a
+// specification with no package, or whose package is a bare name that is not
+// a standard library package, as apm.NewGoroutineContext: such a
+// specification never matches, since a package is matched by its full
+// import path.
+func Parse(s string) (Spec, error) {
+	spec := parseSpec(s)
+	switch {
+	case spec.PkgPath == "" || spec.FuncName == "":
+		return Spec{}, fmt.Errorf("%q: want pkg/path.Func or pkg/path.Type.Method", s)
+	case !strings.Contains(spec.PkgPath, "/") && !isStdPackage(spec.PkgPath):
+		return Spec{}, fmt.Errorf("%q: %q is not an import path; write the full path of the package, as github.com/org/%s",
+			s, spec.PkgPath, s)
+	}
+	return spec, nil
+}
+
+// stdTopLevel lists the standard library packages whose path has no slash.
+var stdTopLevel = []string{
+	"bufio", "bytes", "cmp", "context", "crypto", "embed", "encoding", "errors", "expvar", "flag", "fmt",
+	"hash", "html", "image", "io", "iter", "log", "maps", "math", "mime", "net", "os", "path", "plugin",
+	"reflect", "regexp", "runtime", "slices", "sort", "strconv", "strings", "structs", "sync", "syscall",
+	"testing", "time", "unicode", "unique", "unsafe", "uuid", "weak",
+}
+
+// isStdPackage reports whether path, which has no slash, is a standard
+// library package: one listed, or one GOROOT holds, for a package newer than
+// the list.
+func isStdPackage(path string) bool {
+	if slices.Contains(stdTopLevel, path) {
+		return true
+	}
+	pkg, err := build.Default.Import(path, "", build.FindOnly)
+	return err == nil && pkg.Goroot
+}
+
+func parseSpec(s string) Spec {
 	spec := Spec{}
 
 	lastDot := strings.LastIndex(s, ".")

@@ -1,6 +1,7 @@
 package deriver
 
 import (
+	"fmt"
 	"go/types"
 	"strings"
 
@@ -17,8 +18,9 @@ type Matcher struct {
 
 // NewMatcher creates a Matcher from a derive function string.
 // Supports OR (comma) and AND (plus) operators.
-// Format: "pkg/path.Func" or "pkg/path.Type.Method".
-func NewMatcher(deriveFuncsStr string) *Matcher {
+// Format: "pkg/path.Func" or "pkg/path.Type.Method". It rejects a
+// specification funcspec.Parse rejects.
+func NewMatcher(deriveFuncsStr string) (*Matcher, error) {
 	m := &Matcher{
 		Original: deriveFuncsStr,
 	}
@@ -39,7 +41,11 @@ func NewMatcher(deriveFuncsStr string) *Matcher {
 				continue
 			}
 
-			andGroup = append(andGroup, funcspec.Parse(andPart))
+			spec, err := funcspec.Parse(andPart)
+			if err != nil {
+				return nil, fmt.Errorf("-goroutine-deriver: %w", err)
+			}
+			andGroup = append(andGroup, spec)
 		}
 
 		if len(andGroup) > 0 {
@@ -47,7 +53,7 @@ func NewMatcher(deriveFuncsStr string) *Matcher {
 		}
 	}
 
-	return m
+	return m, nil
 }
 
 // IsEmpty returns true if no derive functions are configured. A nil Matcher

@@ -75,6 +75,17 @@ func TestPluginRejectsBadSettings(t *testing.T) {
 	}
 }
 
+func TestPluginRejectsShortName(t *testing.T) {
+	for _, settings := range []map[string]any{
+		{"goroutine-deriver": "apm.NewGoroutineContext"},
+		{"external-spawner": []any{"apm.Spawn"}},
+	} {
+		if _, err := newPlugin(t)(settings); err == nil || !strings.Contains(err.Error(), "not an import path") {
+			t.Errorf("settings %v: got error %v, want one about the import path", settings, err)
+		}
+	}
+}
+
 func TestPluginLoadMode(t *testing.T) {
 	p, err := newPlugin(t)(nil)
 	if err != nil {

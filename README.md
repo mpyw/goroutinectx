@@ -394,6 +394,8 @@ This is useful for wrapper functions that abstract away goroutine spawning patte
 
 Require goroutines to call a specific function to derive context. Useful for APM libraries like New Relic.
 
+Name each function with the full import path of its package. A short name such as `apm.NewGoroutineContext` would never match, so it is rejected (standard library packages such as `context` are fine). The same holds for `-external-spawner`.
+
 ```bash
 # Single deriver - require apm.NewGoroutineContext() in goroutines
 goroutinectx -goroutine-deriver='github.com/my-example-app/telemetry/apm.NewGoroutineContext' ./...
