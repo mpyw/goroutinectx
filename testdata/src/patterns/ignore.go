@@ -76,3 +76,41 @@ func goodIgnoredPreviousLineWaitGroup(ctx context.Context) {
 	})
 	wg.Wait()
 }
+
+// ===== Ignore directive - above the callback argument =====
+
+// [GOOD]: Ignore directive - above the callback argument
+//
+// An ignore above the callback of a call that spans lines covers it (#139).
+func goodIgnoredAboveArgErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(
+		//goroutinectx:ignore errgroup
+		func() error { return nil },
+	)
+	_ = g.Wait()
+}
+
+// [GOOD]: Ignore directive - above the callback argument
+//
+// An ignore above the callback of a call that spans lines covers it (#139).
+func goodIgnoredAboveArgWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(
+		//goroutinectx:ignore
+		func() {},
+	)
+	wg.Wait()
+}
+
+// [GOOD]: Ignore directive - above the callback argument
+//
+// An ignore above the callback of a call that spans lines covers it (#139).
+func goodIgnoredAboveArgSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g,
+		//goroutinectx:ignore spawner
+		func() error { return nil },
+	)
+	_ = g.Wait()
+}
