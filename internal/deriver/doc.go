@@ -2,34 +2,34 @@
 //
 // # Overview
 //
-// When using -goroutine-deriver flag, this package parses the flag value
-// and provides matching logic for detecting deriver function calls.
+// When the -goroutine-deriver flag is set, this package parses its value
+// into a [Matcher] that tells whether a function is one of the derivers.
+// Whether a goroutine calls them is judged by ssa.ClosureCallsDeriver.
 //
 // # Flag Syntax
 //
 // The -goroutine-deriver flag supports three operators:
 //
-//	Comma (,) = OR  : At least one function must be called
-//	Plus  (+) = AND : All functions must be called
+//	Comma (,) = OR  : At least one group must be called
+//	Plus  (+) = AND : All functions of a group must be called
 //	Mixed       : Combination of OR and AND
 //
 // Examples:
 //
 //	# Single deriver
-//	-goroutine-deriver=apm.NewGoroutineContext
+//	-goroutine-deriver=github.com/org/apm.NewGoroutineContext
 //
 //	# OR - either function satisfies
-//	-goroutine-deriver=apm.NewGoroutineContext,otel.StartSpan
+//	-goroutine-deriver=github.com/org/apm.NewGoroutineContext,github.com/org/otel.StartSpan
 //
 //	# AND - both functions must be called
-//	-goroutine-deriver=apm.NewGoroutineContext+trace.StartSpan
-//
-//	# Mixed - (A AND B) OR C
-//	-goroutine-deriver=apm.Func+trace.Func,otel.Func
+//	-goroutine-deriver=github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext
 //
 // # Function Specification Format
 //
-// Functions are specified as package path + function/method name:
+// Functions are named with the full import path of their package. A short
+// name such as apm.NewGoroutineContext is rejected, since it never matches;
+// a standard library package such as context is fine.
 //
 //	# Package function
 //	github.com/example/pkg.FuncName
@@ -39,18 +39,20 @@
 //
 // # Matcher Usage
 //
-// Parse the flag value to create a [Matcher]:
+// Parse the flag value with [NewMatcher]:
 //
-//	matcher := deriver.Parse("-goroutine-deriver", flagValue)
-//	if matcher == nil {
-//	    // No deriver configured
+//	matcher, err := deriver.NewMatcher(flagValue)
+//	if err != nil {
+//	    // A specification names no import path
 //	}
 //
-// Check if a code block satisfies the matcher:
+// [Matcher.MatchesFunc] tells whether a called function is any of the
+// derivers. ssa.ClosureCallsDeriver walks a goroutine's function and tells
+// whether an OR group is called at its start, or only in defer:
 //
-//	// For AST analysis
-//	if matcher.SatisfiesAnyGroup(pass, funcBody) {
-//	    // At least one OR group is fully satisfied
+//	result := ssa.ClosureCallsDeriver(fn, matcher)
+//	if result.FoundAtStart {
+//	    // At least one OR group is fully called at the start
 //	}
 //
 // # Matcher Structure
@@ -73,17 +75,11 @@
 //
 // # Error Messages
 //
-// The [Matcher.Original] field preserves the flag value for error messages:
-//
-//	return internal.CheckFailed(
-//	    "goroutine should call " + matcher.Original + " to derive context",
-//	)
+// [Matcher.Original] keeps the flag value for messages, as in
+// "goroutine should call <Original> to derive context".
 //
 // # Empty Matcher
 //
-// Use [Matcher.IsEmpty] to check if no derivers are configured:
-//
-//	if matcher == nil || matcher.IsEmpty() {
-//	    return internal.CheckPassed()  // No derive check required
-//	}
+// [Matcher.IsEmpty] tells that no derivers are configured. A nil Matcher is
+// empty, so a run without -goroutine-deriver can pass nil.
 package deriver

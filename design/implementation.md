@@ -163,22 +163,24 @@ func caller(ctx context.Context) {
 - `interface{}` type assertion - can't trace func through type assertion
 - A variable written by a closure - not followed, so it passes
 
-### Derive Function Matching (DeriveMatcher)
+### Derive Function Matching
 
-`internal/deriver/` provides shared OR/AND logic for matching derive functions. Used by:
+`internal/deriver/` parses `-goroutine-deriver` into a `deriver.Matcher`, with `deriver.NewMatcher`. Used by:
 - `goroutinederive`: checks `go func()` calls
 - `gotask`: checks gotask task functions and DoAsync calls
 
 ```go
-// DeriveMatcher supports OR (comma) and AND (plus) operators
-type DeriveMatcher struct {
-    OrGroups [][]DeriveFuncSpec  // Each group must have ALL specs satisfied
-    Original string               // Original flag value for error messages
+// Matcher holds OR groups of AND groups of function specifications.
+type Matcher struct {
+    OrGroups [][]funcspec.Spec // Each group must have ALL specs called
+    Original string            // Original flag value for messages
 }
 
-// SatisfiesAnyGroup checks if ANY OR group is fully satisfied
-func (m *DeriveMatcher) SatisfiesAnyGroup(pass *analysis.Pass, node ast.Node) bool
+// MatchesFunc reports whether fn is any of the derivers.
+func (m *Matcher) MatchesFunc(fn *types.Func) bool
 ```
+
+`ssa.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `ssa.CallWalker`, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
 
 **Parsing Logic:**
 - `pkg.Func1,pkg.Func2` → OR: either Func1 or Func2
