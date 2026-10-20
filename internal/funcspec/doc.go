@@ -30,15 +30,18 @@
 //
 // Use [Parse] to create a Spec from a string:
 //
-//	spec := funcspec.Parse("github.com/pkg.Type.Method")
+//	spec, err := funcspec.Parse("github.com/pkg.Type.Method")
 //	// spec.PkgPath  = "github.com/pkg"
 //	// spec.TypeName = "Type"
 //	// spec.FuncName = "Method"
 //
-//	spec := funcspec.Parse("context.WithCancel")
+//	spec, err := funcspec.Parse("context.WithCancel")
 //	// spec.PkgPath  = "context"
 //	// spec.TypeName = ""  (empty - package function)
 //	// spec.FuncName = "WithCancel"
+//
+// A package that is a bare name but no standard library package, as in
+// "apm.NewGoroutineContext", is an error: it would never match.
 //
 // # Matching
 //

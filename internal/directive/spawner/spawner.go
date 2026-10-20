@@ -1,6 +1,7 @@
 package spawner
 
 import (
+	"fmt"
 	"go/ast"
 	"go/types"
 	"slices"
@@ -53,13 +54,13 @@ func (m *Map) matchesExternal(fn *types.Func) bool {
 	return slices.ContainsFunc(m.external, func(spec funcspec.Spec) bool { return spec.Matches(fn) })
 }
 
-// Build scans files for functions marked with the directive
-// and parses the external spawner flag.
-func Build(pass *analysis.Pass, externalSpawners []string) *Map {
+// Build scans files for functions marked with the directive. external are
+// the specs of -external-spawner, from [ParseExternal].
+func Build(pass *analysis.Pass, external []funcspec.Spec) *Map {
 	m := &Map{
 		pass:     pass,
 		local:    make(map[*types.Func]struct{}),
-		external: parseExternal(externalSpawners),
+		external: external,
 	}
 
 	for _, file := range pass.Files {
@@ -75,18 +76,23 @@ func Build(pass *analysis.Pass, externalSpawners []string) *Map {
 	return m
 }
 
-// parseExternal parses the -external-spawner list. Blank entries are skipped.
-func parseExternal(parts []string) []funcspec.Spec {
+// ParseExternal parses the -external-spawner list. Blank entries are
+// skipped, and a specification funcspec.Parse rejects is an error.
+func ParseExternal(parts []string) ([]funcspec.Spec, error) {
 	var specs []funcspec.Spec
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		specs = append(specs, funcspec.Parse(part))
+		spec, err := funcspec.Parse(part)
+		if err != nil {
+			return nil, fmt.Errorf("-external-spawner: %w", err)
+		}
+		specs = append(specs, spec)
 	}
 
-	return specs
+	return specs, nil
 }
 
 // buildForFile scans a single file for functions whose doc comment holds a

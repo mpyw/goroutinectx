@@ -43,6 +43,9 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 			return nil, fmt.Errorf("decoding settings: %w", err)
 		}
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &pluginConfig{cfg: cfg}, nil
 }
 

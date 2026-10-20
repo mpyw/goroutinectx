@@ -18,11 +18,11 @@ var analyzerConfig = run.DefaultConfig()
 
 func init() {
 	c := &analyzerConfig
-	Analyzer.Flags.StringVar(&c.GoroutineDeriver, "goroutine-deriver", c.GoroutineDeriver,
+	Analyzer.Flags.Var(analyzerDeriver{&c.GoroutineDeriver}, "goroutine-deriver",
 		"require goroutines to call this function to derive context (e.g., pkg.Func or pkg.Type.Method)")
-	Analyzer.Flags.Var(analyzerList{&c.ExternalSpawner}, "external-spawner",
+	Analyzer.Flags.Var(analyzerList{&c.ExternalSpawner, func(l []string) error { return run.Config{ExternalSpawner: l}.Validate() }}, "external-spawner",
 		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
-	Analyzer.Flags.Var(analyzerList{&c.ContextCarriers}, "context-carriers",
+	Analyzer.Flags.Var(analyzerList{list: &c.ContextCarriers}, "context-carriers",
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 
 	// Checker flags
@@ -53,8 +53,12 @@ func analyzerRun(pass *analysis.Pass) (any, error) {
 }
 
 // analyzerList is a comma-separated flag held as a list. Setting it replaces
-// the list, so setting it to "" empties it.
-type analyzerList struct{ list *[]string }
+// the list, so setting it to "" empties it. validate, when set, rejects a
+// list.
+type analyzerList struct {
+	list     *[]string
+	validate func([]string) error
+}
 
 func (l analyzerList) String() string {
 	if l.list == nil {
@@ -64,11 +68,36 @@ func (l analyzerList) String() string {
 }
 
 func (l analyzerList) Set(s string) error {
-	*l.list = nil
+	var list []string
 	for part := range strings.SplitSeq(s, ",") {
 		if part = strings.TrimSpace(part); part != "" {
-			*l.list = append(*l.list, part)
+			list = append(list, part)
 		}
 	}
+	if l.validate != nil {
+		if err := l.validate(list); err != nil {
+			return err
+		}
+	}
+	*l.list = list
+	return nil
+}
+
+// analyzerDeriver is -goroutine-deriver. Setting it rejects a function
+// specification that names no import path.
+type analyzerDeriver struct{ value *string }
+
+func (d analyzerDeriver) String() string {
+	if d.value == nil {
+		return ""
+	}
+	return *d.value
+}
+
+func (d analyzerDeriver) Set(s string) error {
+	if err := (run.Config{GoroutineDeriver: s}).Validate(); err != nil {
+		return err
+	}
+	*d.value = s
 	return nil
 }
