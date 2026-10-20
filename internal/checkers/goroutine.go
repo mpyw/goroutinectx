@@ -7,6 +7,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	gossa "golang.org/x/tools/go/ssa"
 
+	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/probe"
@@ -44,7 +45,7 @@ func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *gossa.Parameter) bool {
-				if !typeutil.IsContextType(p.Type()) {
+				if !typeutil.IsContextType(p.Type()) && !carrier.IsCarrierType(p.Type(), cctx.Carriers) {
 					return false
 				}
 				i := slices.Index(fn.Params, p)
@@ -95,10 +96,10 @@ func (c *GoroutineDerive) failure(cctx *probe.Context, stmt *ast.GoStmt) string 
 	}
 
 	v := goroutineSpawnedValue(cctx, stmt)
-	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(true), false) {
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, true), false) {
 		return ""
 	}
-	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(false), false) {
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, false), false) {
 		return c.deferMessage()
 	}
 	return c.message()
@@ -112,25 +113,26 @@ func (c *GoroutineDerive) deferMessage() string {
 	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
-// resolver judges a closure by whether it takes a context or calls the
-// deriver: at its start when atStart is set, or else in defer too.
-func (c *GoroutineDerive) resolver(atStart bool) *ssa.FuncResolver {
+// resolver judges a closure by whether it takes a context or one of
+// carriers, or calls the deriver: at its start when atStart is set, or else
+// in defer too.
+func (c *GoroutineDerive) resolver(carriers []carrier.Carrier, atStart bool) *ssa.FuncResolver {
 	return &ssa.FuncResolver{
 		Closure: func(fn *gossa.Function) bool {
-			if ssa.HasContextParam(fn) {
+			if ssa.HasContextParam(fn, carriers) {
 				return true
 			}
 			result := ssa.ClosureCallsDeriver(fn, c.derivers)
 			return result.FoundAtStart || (!atStart && result.FoundOnlyInDefer)
 		},
-		Factory: c.factoryDerives,
+		Factory: func(fn *gossa.Function) bool { return c.factoryDerives(fn, carriers) },
 	}
 }
 
-// factoryDerives passes a factory that takes a context, or that makes a
-// closure taking a context or calling the deriver.
-func (c *GoroutineDerive) factoryDerives(fn *gossa.Function) bool {
-	return ssa.HasContextParam(fn) || slices.ContainsFunc(fn.AnonFuncs, func(anon *gossa.Function) bool {
-		return ssa.HasContextParam(anon) || ssa.ClosureCallsDeriver(anon, c.derivers).FoundAtStart
+// factoryDerives passes a factory that takes a context or one of carriers,
+// or that makes a closure taking one or calling the deriver.
+func (c *GoroutineDerive) factoryDerives(fn *gossa.Function, carriers []carrier.Carrier) bool {
+	return ssa.HasContextParam(fn, carriers) || slices.ContainsFunc(fn.AnonFuncs, func(anon *gossa.Function) bool {
+		return ssa.HasContextParam(anon, carriers) || ssa.ClosureCallsDeriver(anon, c.derivers).FoundAtStart
 	})
 }

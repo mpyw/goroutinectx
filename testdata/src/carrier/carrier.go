@@ -2,6 +2,7 @@ package carrier
 
 import (
 	"github.com/labstack/echo/v4"
+	"golang.org/x/sync/errgroup"
 
 	"log/slog"
 )
@@ -82,4 +83,43 @@ func badCarrierAsSecondParam(prefix string, c echo.Context) {
 	go func() { // want `goroutine does not propagate context "c"`
 		_ = prefix
 	}()
+}
+
+// [GOOD]: Goroutine takes the carrier as a param
+//
+// The closure takes the carrier as a param, as it would a context (#115).
+func goodGoroutineCarrierParam(c echo.Context) {
+	go func(c echo.Context) {
+		_ = c
+	}(c)
+}
+
+//goroutinectx:spawner
+func runWithCarrier(fn func(echo.Context)) {
+	go fn(echo.New())
+}
+
+// [GOOD]: Spawner func argument takes the carrier as a param
+//
+// The func argument takes the carrier as a param, as it would a context (#115).
+func goodSpawnerCarrierParam(c echo.Context) {
+	runWithCarrier(func(c echo.Context) {
+		_ = c
+	})
+}
+
+// [GOOD]: Errgroup closure from a factory that takes the carrier
+//
+// The factory takes the carrier as a param, so what it makes passes.
+func goodErrgroupCarrierFactory(c echo.Context) {
+	g := new(errgroup.Group)
+	g.Go(carrierWorker(c))
+	_ = g.Wait()
+}
+
+func carrierWorker(c echo.Context) func() error {
+	return func() error {
+		_ = c
+		return nil
+	}
 }

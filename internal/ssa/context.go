@@ -9,9 +9,12 @@ import (
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
-// HasContextParam reports whether fn takes a context.Context.
-func HasContextParam(fn *ssa.Function) bool {
-	return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool { return typeutil.IsContextType(p.Type()) })
+// HasContextParam reports whether fn takes a context.Context or one of
+// carriers.
+func HasContextParam(fn *ssa.Function, carriers []carrier.Carrier) bool {
+	return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
+		return typeutil.IsContextType(p.Type()) || carrier.IsCarrierType(p.Type(), carriers)
+	})
 }
 
 // IsFreshContext reports whether every value v can be is a call of
