@@ -41,6 +41,8 @@ Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) 
 **`conc` is a checker name of its own.** The conc checker used to report under `errgroup`, so `//goroutinectx:ignore conc`, listed in the README, never worked. An `errgroup` ignore no longer silences a conc report. Keeping it would leave two names for one checker, and compatibility was not a goal here. The one form kept for compatibility is the ` - ` reason, which the README documented.
 - `//goroutinectx:spawner` - Mark a function as spawning goroutines with its func arguments
 
+**The spawner facts come from a separate analyzer, `spawner.Analyzer`, which reads only comments.** A driver runs an analyzer with facts, and everything it requires, on every dependency, the standard library included. When the goroutinectx analyzer itself exported the facts, buildssa ran on every dependency too. On prometheus that took 14.3GB against 8.9GB for SSA of the analyzed packages alone. Now only `spawner.Analyzer` runs on dependencies, and goroutinectx, which has no facts, builds SSA only for the packages analyzed. So in a multichecker or golangci-lint, its SSA is the same one other analyzers share.
+
 Directive matching and file filters use unadjusted positions (`fset.PositionFor(pos, false)`), so a `//line` directive does not move them. Only diagnostics show adjusted positions.
 
 ## Architecture

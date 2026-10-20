@@ -369,3 +369,17 @@ func TestResolveFanOutIsBounded(t *testing.T) {
 		t.Errorf("analysis took %v, want well under 30s", elapsed)
 	}
 }
+
+// TestFlagsPrintDefaults checks that the flags print their defaults, which
+// asks each flag value for the text of its zero value.
+func TestFlagsPrintDefaults(t *testing.T) {
+	var buf strings.Builder
+	goroutinectx.Analyzer.Flags.SetOutput(&buf)
+	defer goroutinectx.Analyzer.Flags.SetOutput(nil)
+	goroutinectx.Analyzer.Flags.PrintDefaults()
+	for _, name := range []string{"goroutine-deriver", "external-spawner", "context-carriers"} {
+		if !strings.Contains(buf.String(), "-"+name) {
+			t.Errorf("defaults do not list -%s:\n%s", name, buf.String())
+		}
+	}
+}

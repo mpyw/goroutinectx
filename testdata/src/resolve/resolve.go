@@ -276,3 +276,38 @@ func badPartOfValueChosenOnBranch(ctx context.Context, c bool) {
 	s := t
 	go s.fn() // want `goroutine does not propagate context "ctx"`
 }
+
+// ===== BASES THAT ARE NOT FOLLOWED =====
+
+var globalFn = func() {}
+
+// [NOTCHECKED]: A package-level variable is not followed.
+func notCheckedGlobalFunc(ctx context.Context) {
+	go globalFn()
+}
+
+// [NOTCHECKED]: A field of a struct given as a parameter is not followed.
+func notCheckedParamField(ctx context.Context, s *partHolder) {
+	go s.fn()
+}
+
+// [NOTCHECKED]: A field through a pointer a closure writes is not followed.
+func notCheckedPointerWrittenInClosure(ctx context.Context) {
+	p := &partHolder{fn: func() {}}
+	func() { p = &partHolder{fn: func() {}} }()
+	go p.fn()
+}
+
+func takePart(h *partHolder) { _ = h }
+
+// [NOTCHECKED]: A struct whose nested field's address is passed on is not followed.
+func notCheckedNestedFieldAddressPassed(ctx context.Context) {
+	s := nestedPartHolder{inner: partHolder{fn: func() {}}}
+	takePart(&s.inner)
+	go s.inner.fn()
+}
+
+// [GOOD]: A closure taking an error, a named type with no package, beside ctx it uses.
+func goodClosureWithErrorParam(ctx context.Context) {
+	go func(err error) { _ = err; use(ctx) }(nil)
+}

@@ -27,17 +27,22 @@
 //
 // # Parsing
 //
-// Use [Build] to find all spawner-marked functions in a package:
+// [Analyzer] finds the spawner-marked functions of a package. It exports a
+// [Fact] for each exported one, and gives them, with those of the packages
+// the package imports, as a [*Marked]. It reads only comments, so the driver
+// can run it on every dependency cheaply. The goroutinectx analyzer requires
+// it, and builds SSA only for the packages analyzed.
 //
-//	spawners := spawner.Build(pass, externalSpawners)
+// [Build] adds the specs of -external-spawner:
 //
-// This returns a set of *types.Func that are marked as spawners.
+//	marked := pass.ResultOf[spawner.Analyzer].(*spawner.Marked)
+//	spawners := spawner.Build(marked, externalSpawners)
 //
 // # Map Structure
 //
 // The returned map can be queried with [Map.IsSpawner]:
 //
-//	spawners := spawner.Build(pass, externalSpawners)
+//	spawners := spawner.Build(marked, externalSpawners)
 //	if spawners.IsSpawner(fn) {
 //	    // Function is marked with //goroutinectx:spawner
 //	}

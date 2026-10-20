@@ -7,10 +7,8 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/inspect"
 
 	"github.com/mpyw/goroutinectx/internal/run"
-	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // analyzerConfig holds the flags' values. It starts from the defaults.
@@ -37,12 +35,11 @@ func init() {
 
 // Analyzer is the main analyzer for goroutinectx.
 var Analyzer = &analysis.Analyzer{
-	Name:      "goroutinectx",
-	Doc:       "checks that context.Context is properly propagated to downstream calls",
-	Requires:  []*analysis.Analyzer{inspect.Analyzer, ssa.ProgramAnalyzer},
-	FactTypes: run.FactTypes,
-	Run:       analyzerRun,
-	Flags:     flag.FlagSet{},
+	Name:     "goroutinectx",
+	Doc:      "checks that context.Context is properly propagated to downstream calls",
+	Requires: run.Requires,
+	Run:      analyzerRun,
+	Flags:    flag.FlagSet{},
 }
 
 // ErrNoInspector is returned when the inspect analyzer's result is missing.

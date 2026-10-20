@@ -123,3 +123,13 @@ func carrierWorker(c echo.Context) func() error {
 		return nil
 	}
 }
+
+// [GOOD]: Goroutine takes an error beside the carrier it uses
+//
+// An error, a named type with no package, is neither a context nor a carrier.
+func goodGoroutineErrorParam(c echo.Context) {
+	go func(err error) {
+		_ = err
+		_ = c
+	}(nil)
+}

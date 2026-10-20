@@ -150,7 +150,7 @@ type SpawnerType struct{}
 // Method with spawner label and spawn call
 //
 //goroutinectx:spawner
-func (s *SpawnerType) SpawnWork() { // want SpawnWork:"spawner"
+func (s *SpawnerType) SpawnWork() {
 	g := new(errgroup.Group)
 	g.Go(func() error {
 		return nil
