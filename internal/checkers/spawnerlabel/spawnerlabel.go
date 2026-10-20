@@ -45,11 +45,54 @@ func hasFuncParams(fn *types.Func) bool {
 			paramType = slice.Elem()
 		}
 
-		if _, isFunc := paramType.Underlying().(*types.Signature); isFunc {
+		if isFuncType(paramType) {
 			return true
 		}
 	}
 
+	return false
+}
+
+// isFuncType reports whether t is a func type, or a type parameter whose
+// constraint allows only func types, as F ~func() does.
+func isFuncType(t types.Type) bool {
+	switch u := t.Underlying().(type) {
+	case *types.Signature:
+		return true
+	case *types.Interface:
+		if _, isParam := t.(*types.TypeParam); !isParam {
+			return false
+		}
+		return constraintIsFunc(u)
+	}
+	return false
+}
+
+// constraintIsFunc reports whether the constraint iface allows only func
+// types: one of its embedded types or unions does.
+func constraintIsFunc(iface *types.Interface) bool {
+	for i := range iface.NumEmbeddeds() {
+		switch e := iface.EmbeddedType(i).(type) {
+		case *types.Union:
+			allFunc := e.Len() > 0
+			for j := range e.Len() {
+				if _, isFunc := e.Term(j).Type().Underlying().(*types.Signature); !isFunc {
+					allFunc = false
+				}
+			}
+			if allFunc {
+				return true
+			}
+		default:
+			if inner, ok := e.Underlying().(*types.Interface); ok {
+				if constraintIsFunc(inner) {
+					return true
+				}
+			} else if _, isFunc := e.Underlying().(*types.Signature); isFunc {
+				return true
+			}
+		}
+	}
 	return false
 }
 
@@ -116,8 +159,10 @@ func (c *Checker) getFuncObject(pass *analysis.Pass, fnDecl *ast.FuncDecl) *type
 	return fn
 }
 
-// findSpawnCall searches for spawn calls using SSA analysis.
-// It checks nested function literals, IIFEs, and higher-order function returns.
+// findSpawnCall searches for spawn calls using SSA analysis. It goes into the
+// closures the function runs: IIFEs, closures called through a variable, the
+// goroutines it starts, and the closures a call returns when that result is
+// called. A closure only made, and never run here, does not count.
 func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 	ssaFn := c.ssaProg.FindFuncDecl(fnDecl)
 	if ssaFn == nil {
@@ -125,21 +170,27 @@ func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 	}
 
 	var info *spawnCallInfo
-	w := &internalssa.CallWalker{Closures: true}
+	w := &internalssa.CallWalker{Goroutines: true}
 	var visit func(internalssa.WalkedCall) bool
 	visit = func(site internalssa.WalkedCall) bool {
 		info = c.spawnCallInfoOf(site.Call)
 		if info != nil {
 			return false
 		}
-		// A call to a function that returns a spawning closure spawns too.
-		callee := site.Call.StaticCallee()
-		if callee == nil || w.Walked(callee) {
+		if site.Call.IsInvoke() {
 			return true
 		}
-		for _, closure := range returnedClosures(callee) {
-			if !w.Walk(closure, visit) {
-				return false
+		// Calling what a function returns runs the closures it returns.
+		values, _ := internalssa.ResolvedValues(site.Call.Value)
+		for _, v := range values {
+			inner, ok := v.(*ssa.Call)
+			if !ok || inner.Call.StaticCallee() == nil {
+				continue
+			}
+			for _, closure := range returnedClosures(inner.Call.StaticCallee()) {
+				if !w.Walk(closure, visit) {
+					return false
+				}
 			}
 		}
 		return true
@@ -184,9 +235,15 @@ func returnedClosures(fn *ssa.Function) []*ssa.Function {
 				continue
 			}
 			for _, result := range ret.Results {
-				if mc, ok := result.(*ssa.MakeClosure); ok {
-					if closureFn, ok := mc.Fn.(*ssa.Function); ok {
+				switch r := result.(type) {
+				case *ssa.MakeClosure:
+					if closureFn, ok := r.Fn.(*ssa.Function); ok {
 						closures = append(closures, closureFn)
+					}
+				case *ssa.Function:
+					// A function literal that captures nothing.
+					if r.Parent() != nil {
+						closures = append(closures, r)
 					}
 				}
 			}

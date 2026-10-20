@@ -152,10 +152,10 @@ func limitationInterfaceCall(r Runner) {
 	})
 }
 
-// [LIMITATION]: Higher-order return spawn not detected
+// [BAD]: Higher-order return spawn
 //
-// Higher-order return - can't trace through function return
-func limitationHigherOrderReturn() {
+// Calling what a function returns runs the closure it returns (#137).
+func badHigherOrderReturn() { // want `function "badHigherOrderReturn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
 	fn := getSpawnerFunc()
 	fn()
 }
@@ -420,4 +420,54 @@ func badNestedIIFEContainingSpawn() { // want `function "badNestedIIFEContaining
 		}()
 	}()
 	_ = g.Wait()
+}
+
+// ===== CLOSURES MADE BUT NOT RUN (#137) =====
+
+// [GOOD]: Spawning closure that captures a variable, only made
+//
+// The closure is never run here, so the function spawns nothing.
+func goodSpawningClosureOnlyMade(n int) {
+	fn := func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}
+	_ = fn
+}
+
+// [GOOD]: Factory whose spawning result is never run
+//
+// Calling the factory only makes the closure.
+func goodFactoryResultNotRun() {
+	w := makeSpawningWorker(1)
+	_ = w
+}
+
+// [BAD]: Factory whose spawning result is run
+//
+// Calling what the factory returns runs the spawn.
+func badFactoryResultRun() { // want `function "badFactoryResultRun" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	makeSpawningWorker(1)()
+}
+
+// [BAD]: Spawning closure run in a goroutine
+//
+// The goroutine runs the closure, so the function spawns.
+func badSpawnInGoroutine(n int) { // want `function "badSpawnInGoroutine" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	go func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}()
+}
+
+// makeSpawningWorker returns a closure that spawns. It makes the closure but
+// does not run it, so it needs no label.
+func makeSpawningWorker(n int) func() {
+	return func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}
 }

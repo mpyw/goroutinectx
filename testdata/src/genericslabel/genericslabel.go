@@ -22,3 +22,51 @@ func callsMethod(fn func()) { // want `function "callsMethod" should have //goro
 func callsExplicit(fn func()) { // want `function "callsExplicit" should have //goroutinectx:spawner directive \(calls GSpawn with func argument\)`
 	GSpawn[int](fn)
 }
+
+// GenRun runs f, whose type is a type parameter, in a goroutine. The label
+// is needed: the spawner checker checks its func arguments (#136).
+//
+//goroutinectx:spawner
+func GenRun[F ~func()](f F) { go f() } // want GenRun:"spawner"
+
+// funcConstraint allows func types only.
+type funcConstraint interface {
+	~func() | ~func() error
+}
+
+// GenRunUnion runs f, whose constraint is a union of func types.
+//
+//goroutinectx:spawner
+func GenRunUnion[F funcConstraint](f F) { _ = f } // want GenRunUnion:"spawner"
+
+// GenNotFunc takes a type parameter that is not a func, so its label is
+// unnecessary.
+//
+//goroutinectx:spawner
+func GenNotFunc[T any](v T) { _ = v } // want `function "GenNotFunc" has unnecessary //goroutinectx:spawner directive` GenNotFunc:"spawner"
+
+// nestedFuncConstraint embeds a constraint that allows only func types.
+type nestedFuncConstraint interface {
+	funcConstraint
+}
+
+// GenRunNested runs f, whose constraint embeds a func-only one.
+//
+//goroutinectx:spawner
+func GenRunNested[F nestedFuncConstraint](f F) { _ = f } // want GenRunNested:"spawner"
+
+// GenRunExact runs f, whose constraint is the exact func type.
+//
+//goroutinectx:spawner
+func GenRunExact[F interface{ func() }](f F) { _ = f } // want GenRunExact:"spawner"
+
+// GenNotFuncUnion takes a type parameter that may be a func or an int, so
+// its label is unnecessary.
+//
+//goroutinectx:spawner
+func GenNotFuncUnion[T ~func() | ~int](v T) { _ = v } // want `function "GenNotFuncUnion" has unnecessary //goroutinectx:spawner directive` GenNotFuncUnion:"spawner"
+
+// AnyParam takes an interface, not a func, so its label is unnecessary.
+//
+//goroutinectx:spawner
+func AnyParam(v any) { _ = v } // want `function "AnyParam" has unnecessary //goroutinectx:spawner directive` AnyParam:"spawner"
