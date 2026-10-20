@@ -270,3 +270,125 @@ func evilInterleavedLayersGoodWaitGroup(outerCtx context.Context) {
 		}(outerCtx)
 	}()
 }
+
+// ===== Context through a captured closure or struct =====
+
+// [GOOD]: Context through a captured closure
+//
+// The closure it calls uses ctx, so it carries ctx (#149).
+func goodCapturedClosureUsesCtxGoroutine(ctx context.Context) {
+	work := func() { _ = ctx }
+	go func() { work() }()
+}
+
+// [GOOD]: Context through a captured struct field
+//
+// The field it reads holds ctx (#149).
+func goodCapturedStructCtxFieldGoroutine(ctx context.Context) {
+	h := &ctxHolder{ctx: ctx}
+	go func() { _ = h.ctx }()
+}
+
+// [BAD]: Captured struct without reading its context
+//
+// Capturing a struct that holds ctx is not using it.
+func badCapturedStructOtherFieldGoroutine(ctx context.Context) {
+	h := &ctxHolder{ctx: ctx, name: "x"}
+	go func() { _ = h.name }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Context through a captured closure
+//
+// The closure it calls uses ctx, so it carries ctx (#149).
+func goodCapturedClosureUsesCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	work := func() { _ = ctx }
+	g.Go(func() error { work(); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context through a captured struct field
+//
+// The field it reads holds ctx (#149).
+func goodCapturedStructCtxFieldErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: ctx}
+	g.Go(func() error { _ = h.ctx; return nil })
+	_ = g.Wait()
+}
+
+// [BAD]: Captured struct without reading its context
+//
+// Capturing a struct that holds ctx is not using it.
+func badCapturedStructOtherFieldErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: ctx, name: "x"}
+	g.Go(func() error { _ = h.name; return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Context through a captured closure
+//
+// The closure it calls uses ctx, so it carries ctx (#149).
+func goodCapturedClosureUsesCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	work := func() { _ = ctx }
+	wg.Go(func() { work() })
+	wg.Wait()
+}
+
+// [GOOD]: Context through a captured struct field
+//
+// The field it reads holds ctx (#149).
+func goodCapturedStructCtxFieldWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := &ctxHolder{ctx: ctx}
+	wg.Go(func() { _ = h.ctx })
+	wg.Wait()
+}
+
+// [BAD]: Captured struct without reading its context
+//
+// Capturing a struct that holds ctx is not using it.
+func badCapturedStructOtherFieldWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := &ctxHolder{ctx: ctx, name: "x"}
+	wg.Go(func() { _ = h.name }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [GOOD]: Context through a captured closure
+//
+// The closure it calls uses ctx, so it carries ctx (#149).
+func goodCapturedClosureUsesCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	work := func() { _ = ctx }
+	runWithGroup(g, func() error { work(); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context through a captured struct field
+//
+// The field it reads holds ctx (#149).
+func goodCapturedStructCtxFieldSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: ctx}
+	runWithGroup(g, func() error { _ = h.ctx; return nil })
+	_ = g.Wait()
+}
+
+// [BAD]: Captured struct without reading its context
+//
+// Capturing a struct that holds ctx is not using it.
+func badCapturedStructOtherFieldSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: ctx, name: "x"}
+	runWithGroup(g, func() error { _ = h.name; return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ctxHolder holds a context in a field.
+type ctxHolder struct {
+	ctx  context.Context
+	name string
+}
