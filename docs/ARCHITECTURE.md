@@ -251,7 +251,7 @@ func UsesContext(pass *analysis.Pass, body *ast.BlockStmt, contextVar *types.Var
 **Key behaviors:**
 - Uses type identity, not name matching (handles shadowing correctly)
 - Checks ALL context parameters, not just the first one
-- Context usage in nested closures does NOT count (intentional design)
+- Context usage in nested closures counts: a closure captures what its inner closures capture
 
 ### Higher-Order Function Support
 
@@ -360,13 +360,9 @@ Separating interfaces allows checkers to implement only what they need, avoiding
 
 ### 6. Nested Closure Context Rule
 
-**Decision:** Context usage in nested closures does NOT satisfy the outer goroutine's requirement.
+**Decision:** Context usage in nested closures satisfies the outer goroutine's requirement.
 
-**Rationale:** This ensures every goroutine level explicitly acknowledges context propagation. Without this rule:
-- Code readers can't tell if context propagation was intentional
-- Refactoring (e.g., removing the inner goroutine) could silently break context propagation
-
-The pattern `_ = ctx` serves as explicit acknowledgment.
+**Rationale:** The check reads the SSA free variables of the spawned closure. A closure gets a free variable for each one its inner closures capture, so a context used in a deferred or recovery closure, or in an inner goroutine, is captured by the outer goroutine too. That goroutine does carry the context, so reporting it would be a false positive (see 7). Each `go` statement and spawn call is still checked on its own, so an inner goroutine that does not use the context is reported.
 
 ### 7. Zero False Positives Philosophy
 

@@ -9,7 +9,7 @@ This guide explains how the goroutinectx analyzer works, starting from the basic
 3. [Understanding Context Scope](#understanding-context-scope)
 4. [Higher-Order Function Support](#higher-order-function-support)
 5. [The Deriver Matching System](#the-deriver-matching-system)
-6. [Why Nested Closures Don't Count](#why-nested-closures-dont-count)
+6. [Why Nested Closures Count](#why-nested-closures-count)
 
 ---
 
@@ -296,26 +296,33 @@ This means: `(NewGoroutine AND NewContext) OR NewGoroutineContext`
 
 ---
 
-## Why Nested Closures Don't Count
+## Why Nested Closures Count
 
 ### The Rule
 
-Context usage in nested closures does NOT satisfy the outer goroutine's requirement:
+A goroutine passes when its function captures the context, in its own body or in any closure inside it:
 
 ```go
 func handler(ctx context.Context) {
-    // BAD: ctx is only in the nested closure
+    // GOOD: ctx is used in a deferred closure inside the goroutine
     go func() {
-        go func() {
-            doWork(ctx)  // ctx is here...
+        defer func() {
+            doWork(ctx)
         }()
-    }()  // ...but outer goroutine still reports error!
+    }()
 
-    // GOOD: outer explicitly acknowledges ctx
+    // GOOD: the outer goroutine captures ctx through the inner one
     go func() {
-        _ = ctx  // "I know ctx exists and I'm propagating it"
         go func() {
             doWork(ctx)
+        }()
+    }()
+
+    // BAD: the inner goroutine does not use ctx
+    go func() {
+        _ = ctx
+        go func() {
+            doWork()
         }()
     }()
 }
@@ -323,34 +330,24 @@ func handler(ctx context.Context) {
 
 ### Why This Design?
 
-1. **Visibility**: When reading code, `_ = ctx` makes it immediately clear the goroutine is context-aware
+1. **How it is checked**: the check reads the closure's SSA free variables. A closure gets a free variable for each one its inner closures capture, so a context used anywhere inside it is captured by it too
 
-2. **Intentionality**: It shows the programmer consciously considered context propagation
+2. **Zero false positives**: a goroutine that captures the context does carry it, so reporting it would be wrong
 
-3. **Consistency**: Every level of goroutine nesting has the same rule
+3. **Every level is still checked**: each `go` statement is checked on its own, so an inner goroutine that drops the context is reported
 
-4. **Refactoring Safety**: If the inner goroutine is later removed, the outer still properly propagates context
+### Deferred Deriver Calls Are Different
 
-Think of `_ = ctx` as a "context checkpoint" - a declaration that "yes, context flows through here."
-
-### Similarly for Deferred Functions
+With `-goroutine-deriver`, the deriver must be called when the goroutine starts. A call only in a deferred function is reported, since the goroutine has done its work by then:
 
 ```go
 func handler(ctx context.Context) {
-    // BAD: ctx only in defer
+    // BAD: the deriver runs only when the goroutine ends
     go func() {
         defer func() {
-            cleanup(ctx)
+            _ = apm.NewGoroutineContext(ctx)
         }()
-        doWork()  // No ctx in main body!
-    }()
-
-    // GOOD: ctx in main body
-    go func() {
         doWork(ctx)
-        defer func() {
-            cleanup(ctx)
-        }()
     }()
 }
 ```
@@ -460,6 +457,6 @@ func handler(ctx context.Context) {
 
 4. **Deriver matching** enforces APM-specific context derivation with OR/AND logic
 
-5. **Nested closures** don't count - each goroutine level must explicitly reference context
+5. **Nested closures** count - a context used in a closure inside the goroutine is captured by it too
 
 6. **Directives** allow suppressing warnings and marking goroutine-spawning functions

@@ -163,28 +163,35 @@ func handler(ctx context.Context) {
 }
 ```
 
-**Important**: Each goroutine must **directly** reference the context in its own function body. Context usage in nested closures doesn't count:
+A goroutine passes when its function captures the context, in its own body or in any closure inside it. Each `go` statement is checked on its own, so the inner goroutine below must use the context too:
 
 ```go
 func handler(ctx context.Context) {
-    // Bad: ctx is only used in the nested closure, not in the goroutine itself
+    // Good: the deferred closure inside the goroutine uses ctx
+    go func() {
+        defer func() {
+            doSomething(ctx)
+        }()
+    }()
+
+    // Good: the outer goroutine captures ctx through the inner one
     go func() {
         go func() {
             doSomething(ctx)
         }()
     }()
 
-    // Good: goroutine directly references ctx (even if not "using" it)
+    // Bad: the inner goroutine does not use ctx
     go func() {
-        _ = ctx  // Explicit acknowledgment of context
+        _ = ctx
         go func() {
-            doSomething(ctx)
+            doSomething()
         }()
     }()
 }
 ```
 
-This design ensures every goroutine explicitly acknowledges context propagation. If your goroutine doesn't need to use context directly but spawns nested goroutines that do, add `_ = ctx` to signal intentional propagation.
+A context made with [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) does not count, wherever the goroutine gets it.
 
 ### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 
