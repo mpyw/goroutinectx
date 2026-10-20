@@ -160,11 +160,16 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 }
 
 // expandedArgDerives judges the slice of a variadic expansion, v being its
-// SSA value. A slice made by a call, as lo.Map makes one, passes when calling
-// one of the call's callbacks gives a task function that derives. The
-// elements of a slice variable are not traced, so it is reported.
+// SSA value. The elements of a slice literal, of gotask.TasksFrom, or of the
+// slices a function returns are judged one by one. Otherwise a slice made by
+// a call, as lo.Map makes one, passes when calling one of the call's
+// callbacks gives a task function that derives. A slice variable whose
+// elements are not traced, as a parameter, is reported.
 func (c *GotaskChecker) expandedArgDerives(cctx *probe.Context, arg ast.Expr, v gossa.Value, r *ssa.FuncResolver) bool {
-	switch arg := arg.(type) {
+	if elems, ok := gotaskSliceElems(v); ok {
+		return !slices.ContainsFunc(elems, func(e gossa.Value) bool { return !r.Passes(e) })
+	}
+	switch arg := ast.Unparen(arg).(type) {
 	case *ast.Ident:
 		obj, ok := cctx.Pass.TypesInfo.ObjectOf(arg).(*types.Var)
 		if !ok {
@@ -277,6 +282,25 @@ func (c *GotaskChecker) taskDerives(cctx *probe.Context, v gossa.Value) bool {
 		passes, handled := r.Call(call.Common())
 		return !handled || !passes
 	})
+}
+
+// gotaskSliceElems gives the elements of a slice of tasks or task functions,
+// as ssa.ResolvedSliceElems does, and for gotask.TasksFrom, the functions it
+// is given.
+func gotaskSliceElems(v gossa.Value) ([]gossa.Value, bool) {
+	if call, ok := v.(*gossa.Call); ok {
+		fn := ssa.ExtractCalledFunc(call.Common())
+		if fn != nil && (funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: "TasksFrom"}).Matches(fn) {
+			if len(call.Call.Args) != 1 {
+				return nil, false
+			}
+			return ssa.ResolvedSliceElems(call.Call.Args[0])
+		}
+	}
+	if v == nil {
+		return nil, false
+	}
+	return ssa.ResolvedSliceElems(v)
 }
 
 // gotaskIsConstructor reports whether fn is the task constructor.

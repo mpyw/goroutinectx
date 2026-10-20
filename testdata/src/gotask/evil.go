@@ -118,20 +118,19 @@ func goodCancelableChainDoAsyncWithDeriver(ctx context.Context) {
 	}).Cancelable().DoAsync(apm.NewGoroutineContext(ctx), nil)
 }
 
-// ===== VARIADIC EXPANSION FROM VARIABLE - LIMITATION (can't trace variable) =====
+// ===== VARIADIC EXPANSION FROM VARIABLE =====
 
-// [LIMITATION]: Variable slice expansion
+// [GOOD]: Variable slice expansion
 //
-// Function in slice element does not capture context.
-func limitationVariadicExpansionVariable(ctx context.Context) {
+// The elements of a slice literal in a variable are judged one by one (#142).
+func goodVariadicExpansionVariable(ctx context.Context) {
 	tasks := []func(context.Context) error{
 		func(ctx context.Context) error {
 			_ = apm.NewGoroutineContext(ctx)
 			return nil
 		},
 	}
-	// Reports because we can't trace into variable assignment
-	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(ctx, tasks...)
 }
 
 // ===== VARIABLE TASK - SHOULD NOT REPORT (variable tracing works) =====
@@ -570,4 +569,54 @@ func goodDoAsyncDerivedWithValue(ctx context.Context) {
 func badDoAsyncWrappedNotDerived(ctx context.Context) {
 	task := gotask.NewTask(func(ctx context.Context) error { return nil })
 	task.DoAsync(context.WithValue(ctx, gotaskCtxKey{}, 1), nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// ===== EXPANDED SLICES (#142) =====
+
+func derivingTasks() []func(context.Context) error {
+	return []func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+}
+
+// [GOOD]: TasksFrom of deriving functions, expanded
+//
+// The functions TasksFrom is given are judged.
+func goodExpandedTasksFrom(ctx context.Context) {
+	_ = gotask.DoAllSettled(ctx, gotask.TasksFrom(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})...)
+}
+
+// [BAD]: TasksFrom of a function that does not derive, expanded
+//
+// The functions TasksFrom is given are judged.
+func badExpandedTasksFrom(ctx context.Context) {
+	_ = gotask.DoAllSettled(ctx, gotask.TasksFrom(func(ctx context.Context) error { // want `gotask\.DoAllSettled\(\) variadic argument should call goroutine deriver`
+		return nil
+	})...)
+}
+
+// [GOOD]: A helper's slice of deriving functions, expanded
+//
+// The slices the helper returns are judged by their elements.
+func goodExpandedHelper(ctx context.Context) {
+	_ = gotask.DoAllFnsSettled(ctx, derivingTasks()...)
+}
+
+// [BAD]: An inline slice literal that does not derive, expanded
+//
+// Its elements are judged.
+func badExpandedSliceLiteral(ctx context.Context) {
+	_ = gotask.DoAllFnsSettled(ctx, []func(context.Context) error{ // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+		func(ctx context.Context) error { return nil },
+	}...)
+}
+
+// [LIMITATION]: A slice parameter, expanded
+//
+// Its elements can't be traced, so it is reported.
+func limitationExpandedParam(ctx context.Context, tasks []func(context.Context) error) {
+	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
 }
