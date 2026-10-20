@@ -58,8 +58,9 @@
 // [Program.GoAt] and [Program.CallAt] find the instruction of an AST go
 // statement or call, and [ResolvedArgs] lines its SSA arguments up with the
 // AST ones. [FuncResolver] then follows a func-typed value back through Phi
-// nodes, loads of local variables and calls of factories to each function
-// literal it can hold, and judges each one:
+// nodes, loads of local variables, of their struct fields and constant-index
+// elements, map lookups at constant keys, and calls of factories, to each
+// function literal it can hold, and judges each one:
 //
 //	r := &ssa.FuncResolver{
 //	    Closure: func(fn *ssa.Function) bool { return ssa.ClosureCapturesContext(fn, carriers) },
@@ -67,6 +68,8 @@
 //	ok := r.Passes(goInstr.Call.Value)
 //
 // A value it cannot follow passes, so that only what is resolved is reported.
+// That includes a variable whose address is passed on, or a part written in
+// a closure, since the code there may write it.
 //
 // # Walking Calls
 //

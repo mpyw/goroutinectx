@@ -2,6 +2,7 @@ package ssa
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"slices"
@@ -55,12 +56,9 @@ func (r *FuncResolver) passes(v ssa.Value, seen map[ssa.Value]bool) bool {
 		return !slices.ContainsFunc(v.Edges, func(e ssa.Value) bool { return !r.passes(e, seen) })
 	case *ssa.ChangeType:
 		return r.passes(v.X, seen)
-	case *ssa.UnOp:
-		if v.Op != token.MUL {
-			return true
-		}
-		stored, ok := resolvedStores(v.X, v)
-		return !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.passes(s, seen) })
+	case *ssa.UnOp, *ssa.Lookup:
+		stored, isLoad, ok := resolvedLoaded(v, 0)
+		return !isLoad || !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.passes(s, seen) })
 	case *ssa.Call:
 		return r.callPasses(v.Common(), seen)
 	}
@@ -118,12 +116,9 @@ func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]b
 		return !slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return !r.resultPasses(e, depth, seen) })
 	case *ssa.ChangeType:
 		return r.resultPasses(x.X, depth, seen)
-	case *ssa.UnOp:
-		if x.Op != token.MUL {
-			return true
-		}
-		stored, ok := resolvedStores(x.X, x)
-		return !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.resultPasses(s, depth, seen) })
+	case *ssa.UnOp, *ssa.Lookup:
+		stored, isLoad, ok := resolvedLoaded(x, 0)
+		return !isLoad || !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.resultPasses(s, depth, seen) })
 	}
 	return true
 }
@@ -192,9 +187,14 @@ func ResolvedReceiver(common *ssa.CallCommon) ssa.Value {
 	return common.Args[0]
 }
 
-// ResolvedValues gives each value v can be, through Phi nodes, type changes
-// and loads of local variables. ok is false when a load cannot be followed.
+// ResolvedValues gives each value v can be, through Phi nodes, type changes,
+// loads of local variables and of their parts, and map lookups. ok is false
+// when a load cannot be followed.
 func ResolvedValues(v ssa.Value) (values []ssa.Value, ok bool) {
+	return resolvedValues(v, 0)
+}
+
+func resolvedValues(v ssa.Value, depth int) (values []ssa.Value, ok bool) {
 	ok = true
 	seen := make(map[ssa.Value]bool)
 	var visit func(v ssa.Value)
@@ -210,25 +210,40 @@ func ResolvedValues(v ssa.Value) (values []ssa.Value, ok bool) {
 			}
 		case *ssa.ChangeType:
 			visit(x.X)
-		case *ssa.UnOp:
-			if x.Op != token.MUL {
-				values = append(values, v)
-				return
-			}
-			stored, followed := resolvedStores(x.X, x)
-			if !followed {
-				ok = false
-				return
-			}
-			for _, s := range stored {
-				visit(s)
-			}
 		default:
-			values = append(values, v)
+			stored, isLoad, followed := resolvedLoaded(v, depth)
+			switch {
+			case !isLoad:
+				values = append(values, v)
+			case !followed:
+				ok = false
+			default:
+				for _, s := range stored {
+					visit(s)
+				}
+			}
 		}
 	}
 	visit(v)
 	return values, ok
+}
+
+// resolvedLoaded gives the values v can read when it is a load through a
+// pointer or a map lookup, and isLoad false for any other value. ok is false
+// when the load cannot be followed.
+func resolvedLoaded(v ssa.Value, depth int) (values []ssa.Value, isLoad, ok bool) {
+	switch x := v.(type) {
+	case *ssa.UnOp:
+		if x.Op != token.MUL {
+			return nil, false, false
+		}
+		values, ok = resolvedStoresAt(x.X, x, depth)
+		return values, true, ok
+	case *ssa.Lookup:
+		values, ok = resolvedLookups(x, depth)
+		return values, true, ok
+	}
+	return nil, false, false
 }
 
 // resolvedFreeVarValues gives each value the variable a closure captures as
@@ -304,6 +319,13 @@ func resolvedReturns(fn *ssa.Function) []ssa.Value {
 // every store there counts. ok is false when the variable may be written in a
 // way not followed: through a closure, or through its address.
 func resolvedStores(addr ssa.Value, at ssa.Instruction) (stored []ssa.Value, ok bool) {
+	return resolvedStoresAt(addr, at, 0)
+}
+
+// resolvedStoresAt is resolvedStores, depth steps into the parts of
+// variables. A struct field, or an element at a constant index, is followed
+// as a part of the variable it is in.
+func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, depth int) (stored []ssa.Value, ok bool) {
 	switch a := addr.(type) {
 	case *ssa.Alloc:
 		if !resolvedAllocOnlyStored(a) {
@@ -324,7 +346,10 @@ func resolvedStores(addr ssa.Value, at ssa.Instruction) (stored []ssa.Value, ok 
 		if !ok {
 			return nil, false
 		}
-		return resolvedStores(binding, nil)
+		return resolvedStoresAt(binding, nil, depth)
+
+	case *ssa.FieldAddr, *ssa.IndexAddr:
+		return resolvedPartStores(a, nil, at, depth)
 	}
 	return nil, false
 }
@@ -413,12 +438,24 @@ func resolvedCaptureOnlyRead(mc *ssa.MakeClosure, a ssa.Value) bool {
 // the last store on each path to it.
 func resolvedReachingStores(a *ssa.Alloc, at ssa.Instruction) []ssa.Value {
 	var stored []ssa.Value
+	resolvedScanBack(at, func(instr ssa.Instruction) bool {
+		st, ok := instr.(*ssa.Store)
+		if ok && st.Addr == a {
+			stored = append(stored, st.Val)
+		}
+		return ok && st.Addr == a
+	})
+	return stored
+}
+
+// resolvedScanBack visits the instructions before at, on every path to it,
+// the latest first. visit returns true to stop the path there.
+func resolvedScanBack(at ssa.Instruction, visit func(ssa.Instruction) bool) {
 	visited := make(map[*ssa.BasicBlock]bool)
 	var scan func(b *ssa.BasicBlock, end int)
 	scan = func(b *ssa.BasicBlock, end int) {
 		for i := end - 1; i >= 0; i-- {
-			if st, ok := b.Instrs[i].(*ssa.Store); ok && st.Addr == a {
-				stored = append(stored, st.Val)
+			if visit(b.Instrs[i]) {
 				return
 			}
 		}
@@ -431,5 +468,302 @@ func resolvedReachingStores(a *ssa.Alloc, at ssa.Instruction) []ssa.Value {
 	}
 	block := at.Block()
 	scan(block, slices.Index(block.Instrs, at))
-	return stored
+}
+
+// resolvedMaxDepth bounds how many parts and loads a part is followed
+// through, so that a value that refers to itself, as p = p.next does, ends.
+const resolvedMaxDepth = 16
+
+// resolvedPartStores gives the values stored at the part of a variable addr
+// addresses, extra steps further in, that a load at at can read. For a
+// variable of at's function, only the stores that reach at count; for one
+// captured from an outer function, every store there does. A store of the
+// whole variable, or of a part holding the one read, counts too, and the
+// part is taken from the value stored. ok is false when a variable may be
+// written in a way not followed, or a part was written after the value that
+// holds it.
+func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, depth int) ([]ssa.Value, bool) {
+	if depth > resolvedMaxDepth {
+		return nil, false
+	}
+	base, path, ok := resolvedAddrPath(addr)
+	if !ok {
+		return nil, false
+	}
+	path = append(path, extra...)
+	roots, ok := resolvedRoots(base, depth+1)
+	if !ok {
+		return nil, false
+	}
+
+	var values []ssa.Value
+	for _, root := range roots {
+		writes, ok := resolvedPartWrites(root)
+		if !ok {
+			return nil, false
+		}
+		var found []*ssa.Store
+		partial := false
+		take := func(st *ssa.Store) bool {
+			q, ok := writes[st]
+			if !ok {
+				return false
+			}
+			covers, part := resolvedPathCovers(q, path)
+			partial = partial || part
+			if covers {
+				found = append(found, st)
+			}
+			return covers
+		}
+		if at != nil && at.Parent() == root.Parent() {
+			resolvedScanBack(at, func(instr ssa.Instruction) bool {
+				st, ok := instr.(*ssa.Store)
+				return ok && take(st)
+			})
+		} else {
+			for st := range writes {
+				take(st)
+			}
+		}
+		if partial {
+			return nil, false
+		}
+		for _, st := range found {
+			parts, ok := resolvedPart(st.Val, path[len(writes[st]):], depth+1)
+			if !ok {
+				return nil, false
+			}
+			values = append(values, parts...)
+		}
+	}
+	return values, true
+}
+
+// resolvedPart gives the values the part of v at path can be: v itself for
+// an empty path.
+func resolvedPart(v ssa.Value, path []int, depth int) ([]ssa.Value, bool) {
+	if len(path) == 0 {
+		return []ssa.Value{v}, true
+	}
+	if depth > resolvedMaxDepth {
+		return nil, false
+	}
+	switch x := v.(type) {
+	case *ssa.UnOp:
+		if x.Op == token.MUL {
+			return resolvedPartStores(x.X, path, x, depth+1)
+		}
+	case *ssa.Phi:
+		var values []ssa.Value
+		for _, e := range x.Edges {
+			parts, ok := resolvedPart(e, path, depth+1)
+			if !ok {
+				return nil, false
+			}
+			values = append(values, parts...)
+		}
+		return values, true
+	case *ssa.Field:
+		return resolvedPart(x.X, append([]int{x.Field}, path...), depth+1)
+	case *ssa.Index:
+		if i, ok := resolvedConstIndex(x.Index); ok {
+			return resolvedPart(x.X, append([]int{i}, path...), depth+1)
+		}
+	}
+	return nil, false
+}
+
+// resolvedAddrPath gives the address addr is a part of, and the path to the
+// part: a field index, or a constant index, for each step in. ok is false for
+// an index that is not constant.
+func resolvedAddrPath(addr ssa.Value) (base ssa.Value, path []int, ok bool) {
+	for {
+		switch a := addr.(type) {
+		case *ssa.FieldAddr:
+			path = append(path, a.Field)
+			addr = a.X
+		case *ssa.IndexAddr:
+			i, ok := resolvedConstIndex(a.Index)
+			if !ok {
+				return nil, nil, false
+			}
+			path = append(path, i)
+			addr = a.X
+		default:
+			slices.Reverse(path)
+			return addr, path, true
+		}
+	}
+}
+
+// resolvedConstIndex gives the value of an index that is a constant.
+func resolvedConstIndex(v ssa.Value) (int, bool) {
+	c, ok := v.(*ssa.Const)
+	if !ok || c.Value == nil || c.Value.Kind() != constant.Int {
+		return 0, false
+	}
+	i, exact := constant.Int64Val(c.Value)
+	return int(i), exact
+}
+
+// resolvedRoots gives the variables base can address the start of: a
+// variable, or the array a slice of it from its start covers. ok is false
+// for any other base.
+func resolvedRoots(base ssa.Value, depth int) ([]*ssa.Alloc, bool) {
+	values, ok := resolvedValues(base, depth)
+	if !ok || len(values) == 0 {
+		return nil, false
+	}
+	var roots []*ssa.Alloc
+	for _, v := range values {
+		switch x := v.(type) {
+		case *ssa.Alloc:
+			roots = append(roots, x)
+		case *ssa.Slice:
+			a, ok := x.X.(*ssa.Alloc)
+			if !ok || x.Low != nil {
+				return nil, false
+			}
+			roots = append(roots, a)
+		case *ssa.FreeVar:
+			binding, ok := resolvedBinding(x)
+			if !ok {
+				return nil, false
+			}
+			bound, ok := resolvedRoots(binding, depth+1)
+			if !ok {
+				return nil, false
+			}
+			roots = append(roots, bound...)
+		default:
+			return nil, false
+		}
+	}
+	return roots, true
+}
+
+// resolvedPartWrites gives each store into root, or into a part of it, with
+// the path to what it writes. ok is false when root may be written in a way
+// not followed: through an address that is passed on, at an index that is
+// not constant, or in a closure.
+func resolvedPartWrites(root *ssa.Alloc) (map[*ssa.Store][]int, bool) {
+	writes := make(map[*ssa.Store][]int)
+	var walk func(v ssa.Value, path []int, inClosure bool) bool
+	walk = func(v ssa.Value, path []int, inClosure bool) bool {
+		for _, ref := range *v.Referrers() {
+			switch r := ref.(type) {
+			case *ssa.Store:
+				if r.Addr != v || inClosure {
+					return false
+				}
+				writes[r] = path
+			case *ssa.UnOp:
+				if r.Op != token.MUL {
+					return false
+				}
+			case *ssa.FieldAddr:
+				if !walk(r, append(slices.Clone(path), r.Field), inClosure) {
+					return false
+				}
+			case *ssa.IndexAddr:
+				i, ok := resolvedConstIndex(r.Index)
+				if !ok || !walk(r, append(slices.Clone(path), i), inClosure) {
+					return false
+				}
+			case *ssa.Slice:
+				if r.Low != nil || !walk(r, path, inClosure) {
+					return false
+				}
+			case *ssa.MakeClosure:
+				fn, ok := r.Fn.(*ssa.Function)
+				if !ok {
+					return false
+				}
+				for i, b := range r.Bindings {
+					if b == v && !walk(fn.FreeVars[i], path, true) {
+						return false
+					}
+				}
+			case *ssa.DebugRef:
+			default:
+				return false
+			}
+		}
+		return true
+	}
+	return writes, walk(root, nil, false)
+}
+
+// resolvedPathCovers tells how a write to path q bears on a read of path p.
+// It covers the read when q is p or holds it, and is partial when it writes
+// a part of p.
+func resolvedPathCovers(q, p []int) (covers, partial bool) {
+	n := min(len(q), len(p))
+	if !slices.Equal(q[:n], p[:n]) {
+		return false, false
+	}
+	return len(q) <= len(p), len(q) > len(p)
+}
+
+// resolvedLookups gives the values a lookup of a constant key can read from
+// a map made in its function: the values the updates of that key that reach
+// it store. ok is false for any other lookup, and for a map that is used in
+// any way but a lookup or an update at a constant key, as when it is passed
+// on or captured.
+func resolvedLookups(l *ssa.Lookup, depth int) ([]ssa.Value, bool) {
+	key, ok := l.Index.(*ssa.Const)
+	if l.CommaOk || !ok || key.Value == nil || depth > resolvedMaxDepth {
+		return nil, false
+	}
+	if _, isMap := l.X.Type().Underlying().(*types.Map); !isMap {
+		return nil, false
+	}
+	maps, ok := resolvedValues(l.X, depth+1)
+	if !ok || len(maps) == 0 {
+		return nil, false
+	}
+
+	var values []ssa.Value
+	for _, v := range maps {
+		m, ok := v.(*ssa.MakeMap)
+		if !ok || m.Parent() != l.Parent() || !resolvedMapOnlyUpdated(m) {
+			return nil, false
+		}
+		take := func(instr ssa.Instruction) bool {
+			u, ok := instr.(*ssa.MapUpdate)
+			if !ok || u.Map != m {
+				return false
+			}
+			k, _ := u.Key.(*ssa.Const)
+			if k == nil || k.Value == nil || !constant.Compare(k.Value, token.EQL, key.Value) {
+				return false
+			}
+			values = append(values, u.Value)
+			return true
+		}
+		resolvedScanBack(l, take)
+	}
+	return values, true
+}
+
+// resolvedMapOnlyUpdated reports whether the map m is only looked up, and
+// updated at constant keys.
+func resolvedMapOnlyUpdated(m *ssa.MakeMap) bool {
+	for _, ref := range *m.Referrers() {
+		switch r := ref.(type) {
+		case *ssa.MapUpdate:
+			if _, isConst := r.Key.(*ssa.Const); r.Map != m || !isConst {
+				return false
+			}
+		case *ssa.Lookup:
+			if r.X != m {
+				return false
+			}
+		case *ssa.DebugRef:
+		default:
+			return false
+		}
+	}
+	return true
 }

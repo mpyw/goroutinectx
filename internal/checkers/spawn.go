@@ -67,7 +67,7 @@ func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.Cal
 	if args := spawnedCallArgs(cctx, call); args != nil {
 		v = args[idx]
 	}
-	if spawnedFuncPasses(cctx, call.Args[idx], v, spawnedContextResolver(cctx, c.derivers), true) {
+	if spawnedFuncPasses(cctx, call.Args[idx], v, spawnedContextResolver(cctx, c.derivers)) {
 		return nil
 	}
 
@@ -147,7 +147,7 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []an
 		if args != nil {
 			v = args[i]
 		}
-		if !spawnedFuncPasses(cctx, arg, v, r, true) {
+		if !spawnedFuncPasses(cctx, arg, v, r) {
 			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
 		}
 	}

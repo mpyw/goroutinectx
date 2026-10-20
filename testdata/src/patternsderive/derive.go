@@ -242,3 +242,35 @@ func badVariableNoDeriverSpawner(ctx context.Context) {
 	}
 	runWithGroup(g, fn) // want `runWithGroup\(\) func argument should use context "ctx" or call goroutine deriver`
 }
+
+// ===== A struct field that does not call the deriver =====
+
+// [BAD]: Struct field go s.fn() - missing deriver.
+//
+// A func in a struct field is judged as a variable is (#116).
+func badStructFieldMissingDeriver(ctx context.Context) {
+	s := struct{ fn func() }{fn: func() {
+		_ = ctx
+	}}
+	go s.fn() // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+}
+
+// [GOOD]: Struct field go s.fn() - calls the deriver.
+//
+// A func in a struct field that calls the deriver passes.
+func goodStructFieldCallsDeriver(ctx context.Context) {
+	s := struct{ fn func() }{fn: func() {
+		ctx := apm.NewGoroutineContext(ctx)
+		_ = ctx
+	}}
+	go s.fn()
+}
+
+// [BAD]: Struct field callback without deriver
+func badStructFieldNoDeriverErrgroup(ctx context.Context) {
+	g, _ := errgroup.WithContext(ctx)
+	s := struct{ fn func() error }{fn: func() error {
+		return nil
+	}}
+	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx" or call goroutine deriver`
+}

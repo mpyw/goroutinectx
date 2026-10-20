@@ -1,0 +1,419 @@
+// Forms of struct fields and map values that SSA follows (#116).
+
+package patterns
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
+)
+
+// ===== Struct field - var declaration =====
+
+// [BAD]: Struct field - var declaration
+//
+// A struct literal in a var declaration is followed (#116).
+func badStructFieldVarDeclarationGoroutine(ctx context.Context) {
+	var s = funcHolder{fn: func() { fmt.Println("no ctx") }}
+	go s.fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Struct field - var declaration
+//
+// A struct literal in a var declaration is followed (#116).
+func badStructFieldVarDeclarationErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var s = errFuncHolder{fn: func() error { return nil }}
+	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - var declaration
+//
+// A struct literal in a var declaration is followed (#116).
+func badStructFieldVarDeclarationWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var s = funcHolder{fn: func() {}}
+	wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Struct field - var declaration
+//
+// A struct literal in a var declaration is followed (#116).
+func badStructFieldVarDeclarationSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var s = errFuncHolder{fn: func() error { return nil }}
+	runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Struct field - field assignment =====
+
+// [BAD]: Struct field - field assignment
+//
+// A func assigned to the field is followed (#116).
+func badStructFieldFieldAssignmentGoroutine(ctx context.Context) {
+	var s funcHolder
+	s.fn = func() { fmt.Println("no ctx") }
+	go s.fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Struct field - field assignment
+//
+// A func assigned to the field is followed (#116).
+func badStructFieldFieldAssignmentErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var s errFuncHolder
+	s.fn = func() error { return nil }
+	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - field assignment
+//
+// A func assigned to the field is followed (#116).
+func badStructFieldFieldAssignmentWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var s funcHolder
+	s.fn = func() {}
+	wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Struct field - field assignment
+//
+// A func assigned to the field is followed (#116).
+func badStructFieldFieldAssignmentSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var s errFuncHolder
+	s.fn = func() error { return nil }
+	runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Struct field - pointer literal =====
+
+// [BAD]: Struct field - pointer literal
+//
+// A field of a struct made with &T{} is followed (#116).
+func badStructFieldPointerLiteralGoroutine(ctx context.Context) {
+	s := &funcHolder{fn: func() { fmt.Println("no ctx") }}
+	go s.fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Struct field - pointer literal
+//
+// A field of a struct made with &T{} is followed (#116).
+func badStructFieldPointerLiteralErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &errFuncHolder{fn: func() error { return nil }}
+	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - pointer literal
+//
+// A field of a struct made with &T{} is followed (#116).
+func badStructFieldPointerLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := &funcHolder{fn: func() {}}
+	wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Struct field - pointer literal
+//
+// A field of a struct made with &T{} is followed (#116).
+func badStructFieldPointerLiteralSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &errFuncHolder{fn: func() error { return nil }}
+	runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Struct field - assigned on one branch =====
+
+// [BAD]: Struct field - assigned on one branch
+//
+// Each func the field can hold on the way to the spawn is checked (#116).
+func badStructFieldAssignedOnOneBranchGoroutine(ctx context.Context, b bool) {
+	s := funcHolder{fn: func() { _ = ctx }}
+	if b {
+		s.fn = func() { fmt.Println("no ctx") }
+	}
+	go s.fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Struct field - assigned on one branch
+//
+// Each func the field can hold on the way to the spawn is checked (#116).
+func badStructFieldAssignedOnOneBranchErrgroup(ctx context.Context, b bool) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { _ = ctx; return nil }}
+	if b {
+		s.fn = func() error { return nil }
+	}
+	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - assigned on one branch
+//
+// Each func the field can hold on the way to the spawn is checked (#116).
+func badStructFieldAssignedOnOneBranchWaitGroup(ctx context.Context, b bool) {
+	var wg sync.WaitGroup
+	s := funcHolder{fn: func() { _ = ctx }}
+	if b {
+		s.fn = func() {}
+	}
+	wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Struct field - assigned on one branch
+//
+// Each func the field can hold on the way to the spawn is checked (#116).
+func badStructFieldAssignedOnOneBranchSpawner(ctx context.Context, b bool) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { _ = ctx; return nil }}
+	if b {
+		s.fn = func() error { return nil }
+	}
+	runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Map value - var declaration =====
+
+// [BAD]: Map value - var declaration
+//
+// A map literal in a var declaration is followed (#116).
+func badMapValueVarDeclarationGoroutine(ctx context.Context) {
+	var m = map[string]func(){"a": func() { fmt.Println("no ctx") }}
+	go m["a"]() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Map value - var declaration
+//
+// A map literal in a var declaration is followed (#116).
+func badMapValueVarDeclarationErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var m = map[string]func() error{"a": func() error { return nil }}
+	g.Go(m["a"]) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Map value - var declaration
+//
+// A map literal in a var declaration is followed (#116).
+func badMapValueVarDeclarationWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var m = map[string]func(){"a": func() {}}
+	wg.Go(m["a"]) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Map value - var declaration
+//
+// A map literal in a var declaration is followed (#116).
+func badMapValueVarDeclarationSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var m = map[string]func() error{"a": func() error { return nil }}
+	runWithGroup(g, m["a"]) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Struct field - only a fresh context =====
+
+// [BAD]: Struct field - only a fresh context
+//
+// The func is judged by SSA, so a context it makes itself does not count (#116).
+func badStructFieldOnlyAFreshContextGoroutine(ctx context.Context) {
+	s := funcHolder{fn: func() { use(context.Background()) }}
+	go s.fn() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Struct field - only a fresh context
+//
+// The func is judged by SSA, so a context it makes itself does not count (#116).
+func badStructFieldOnlyAFreshContextErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { use(context.Background()); return nil }}
+	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - only a fresh context
+//
+// The func is judged by SSA, so a context it makes itself does not count (#116).
+func badStructFieldOnlyAFreshContextWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := funcHolder{fn: func() { use(context.Background()) }}
+	wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Struct field - only a fresh context
+//
+// The func is judged by SSA, so a context it makes itself does not count (#116).
+func badStructFieldOnlyAFreshContextSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { use(context.Background()); return nil }}
+	runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Struct field - replaced before the spawn =====
+
+// [GOOD]: Struct field - replaced before the spawn
+//
+// Only the func the field holds at the spawn counts (#116).
+func goodStructFieldReplacedBeforeTheSpawnGoroutine(ctx context.Context) {
+	s := funcHolder{fn: func() { fmt.Println("no ctx") }}
+	s = funcHolder{fn: func() { _ = ctx }}
+	go s.fn()
+}
+
+// [GOOD]: Struct field - replaced before the spawn
+//
+// Only the func the field holds at the spawn counts (#116).
+func goodStructFieldReplacedBeforeTheSpawnErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { return nil }}
+	s = errFuncHolder{fn: func() error { _ = ctx; return nil }}
+	g.Go(s.fn)
+	_ = g.Wait()
+}
+
+// [GOOD]: Struct field - replaced before the spawn
+//
+// Only the func the field holds at the spawn counts (#116).
+func goodStructFieldReplacedBeforeTheSpawnWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := funcHolder{fn: func() {}}
+	s = funcHolder{fn: func() { _ = ctx }}
+	wg.Go(s.fn)
+	wg.Wait()
+}
+
+// [GOOD]: Struct field - replaced before the spawn
+//
+// Only the func the field holds at the spawn counts (#116).
+func goodStructFieldReplacedBeforeTheSpawnSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { return nil }}
+	s = errFuncHolder{fn: func() error { _ = ctx; return nil }}
+	runWithGroup(g, s.fn)
+	_ = g.Wait()
+}
+
+// ===== Struct field - read in a closure =====
+
+// [BAD]: Struct field - read in a closure
+//
+// A struct captured by the goroutine is followed into it (#116).
+func badStructFieldReadInAClosureGoroutine(ctx context.Context) {
+	s := funcHolder{fn: func() { fmt.Println("no ctx") }}
+	go func() {
+		_ = ctx
+		go s.fn() // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [BAD]: Struct field - read in a closure
+//
+// A struct captured by the goroutine is followed into it (#116).
+func badStructFieldReadInAClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { return nil }}
+	func() {
+		g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - read in a closure
+//
+// A struct captured by the goroutine is followed into it (#116).
+func badStructFieldReadInAClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := funcHolder{fn: func() {}}
+	func() {
+		wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	}()
+	wg.Wait()
+}
+
+// [BAD]: Struct field - read in a closure
+//
+// A struct captured by the goroutine is followed into it (#116).
+func badStructFieldReadInAClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { return nil }}
+	func() {
+		runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// ===== Struct field - passed by pointer =====
+
+// [NOTCHECKED]: Struct field - passed by pointer
+//
+// A struct whose address is passed on may be written there, so it passes.
+func notCheckedStructFieldPassedByPointerGoroutine(ctx context.Context) {
+	s := funcHolder{fn: func() { fmt.Println("no ctx") }}
+	fill(&s)
+	go s.fn()
+}
+
+// [NOTCHECKED]: Struct field - passed by pointer
+//
+// A struct whose address is passed on may be written there, so it passes.
+func notCheckedStructFieldPassedByPointerErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { return nil }}
+	fill(&s)
+	g.Go(s.fn)
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Struct field - passed by pointer
+//
+// A struct whose address is passed on may be written there, so it passes.
+func notCheckedStructFieldPassedByPointerWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := funcHolder{fn: func() {}}
+	fill(&s)
+	wg.Go(s.fn)
+	wg.Wait()
+}
+
+// [NOTCHECKED]: Struct field - passed by pointer
+//
+// A struct whose address is passed on may be written there, so it passes.
+func notCheckedStructFieldPassedByPointerSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := errFuncHolder{fn: func() error { return nil }}
+	fill(&s)
+	runWithGroup(g, s.fn)
+	_ = g.Wait()
+}
+
+// funcHolder holds a func in a field.
+type funcHolder struct {
+	fn func()
+}
+
+// errFuncHolder holds a func that returns an error in a field.
+type errFuncHolder struct {
+	fn func() error
+}
+
+func use(ctx context.Context) { _ = ctx }
+
+// fill may write the fields of s.
+func fill(s any) { _ = s }

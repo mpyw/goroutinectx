@@ -15,22 +15,14 @@ import (
 // spawnedFuncPasses judges the function a goroutine or a callback runs. expr
 // is its AST expression, and v its SSA value, nil when SSA has none. The value
 // is resolved through SSA to each function literal it can hold, and r judges
-// them. Parentheses around expr are looked through. A struct field or an
-// indexed element is looked up on the AST instead, when fieldLookup is set;
-// otherwise it passes.
+// them. A struct field or an element is followed as a part of the variable
+// it is in. A literal SSA has no value for is found by its syntax.
 //
 //declscope:shared // goroutine.go, spawn.go and gotask.go judge spawned functions alike
-func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa.FuncResolver, fieldLookup bool) bool {
-	switch e := ast.Unparen(expr).(type) {
-	case *ast.SelectorExpr:
-		return !fieldLookup || cctx.SelectorExprCapturesContext(e)
-	case *ast.IndexExpr:
-		return !fieldLookup || cctx.IndexExprCapturesContext(e)
-	case *ast.FuncLit:
-		if v == nil {
-			fn := cctx.SSAProg.FindFuncLit(e)
-			return fn == nil || r.Closure(fn)
-		}
+func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa.FuncResolver) bool {
+	if lit, ok := ast.Unparen(expr).(*ast.FuncLit); ok && v == nil {
+		fn := cctx.SSAProg.FindFuncLit(lit)
+		return fn == nil || r.Closure(fn)
 	}
 	if v == nil {
 		return true
