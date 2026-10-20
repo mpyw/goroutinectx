@@ -443,7 +443,7 @@ func resolvedCaptureOnlyRead(mc *ssa.MakeClosure, a ssa.Value) bool {
 // the last store on each path to it.
 func resolvedReachingStores(a *ssa.Alloc, at ssa.Instruction) []ssa.Value {
 	var stored []ssa.Value
-	resolvedScanBack(at, func(instr ssa.Instruction) bool {
+	resolvedScanBack(at, a, func(instr ssa.Instruction) bool {
 		st, ok := instr.(*ssa.Store)
 		if ok && st.Addr == a {
 			stored = append(stored, st.Val)
@@ -454,13 +454,15 @@ func resolvedReachingStores(a *ssa.Alloc, at ssa.Instruction) []ssa.Value {
 }
 
 // resolvedScanBack visits the instructions before at, on every path to it,
-// the latest first. visit returns true to stop the path there.
-func resolvedScanBack(at ssa.Instruction, visit func(ssa.Instruction) bool) {
+// the latest first. visit returns true to stop the path there. A path also
+// stops at origin, the instruction that makes the variable or map scanned
+// for: what comes before it belongs to an earlier one, as in a loop.
+func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bool) {
 	visited := make(map[*ssa.BasicBlock]bool)
 	var scan func(b *ssa.BasicBlock, end int)
 	scan = func(b *ssa.BasicBlock, end int) {
 		for i := end - 1; i >= 0; i-- {
-			if visit(b.Instrs[i]) {
+			if b.Instrs[i] == origin || visit(b.Instrs[i]) {
 				return
 			}
 		}
@@ -522,7 +524,7 @@ func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, depth i
 			return covers
 		}
 		if at != nil && at.Parent() == root.Parent() {
-			resolvedScanBack(at, func(instr ssa.Instruction) bool {
+			resolvedScanBack(at, root, func(instr ssa.Instruction) bool {
 				st, ok := instr.(*ssa.Store)
 				return ok && take(st)
 			})
@@ -747,7 +749,7 @@ func resolvedLookups(l *ssa.Lookup, depth int) ([]ssa.Value, bool) {
 			values = append(values, u.Value)
 			return true
 		}
-		resolvedScanBack(l, take)
+		resolvedScanBack(l, m, take)
 	}
 	return values, true
 }
