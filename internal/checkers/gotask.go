@@ -212,8 +212,18 @@ func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
 	return r
 }
 
-// ctxIsDerived reports whether every value v can be is a call of the deriver.
+// ctxIsDerived reports whether every value v can be is a call of the
+// deriver, or a context the context package's With functions, as
+// context.WithCancel, make from one.
 func (c *GotaskChecker) ctxIsDerived(v gossa.Value) bool {
+	return c.ctxIsDerivedFrom(v, make(map[gossa.Value]bool))
+}
+
+func (c *GotaskChecker) ctxIsDerivedFrom(v gossa.Value, seen map[gossa.Value]bool) bool {
+	if seen[v] {
+		return false
+	}
+	seen[v] = true
 	values, ok := ssa.ResolvedValues(v)
 	if !ok || len(values) == 0 {
 		return false
@@ -227,8 +237,25 @@ func (c *GotaskChecker) ctxIsDerived(v gossa.Value) bool {
 			return true
 		}
 		fn := ssa.ExtractCalledFunc(call.Common())
-		return fn == nil || !c.derivers.MatchesFunc(fn)
+		switch {
+		case fn == nil:
+			return true
+		case c.derivers.MatchesFunc(fn):
+			return false
+		case gotaskIsContextWith(fn) && len(call.Call.Args) > 0:
+			return !c.ctxIsDerivedFrom(call.Call.Args[0], seen)
+		}
+		return true
 	})
+}
+
+// gotaskIsContextWith reports whether fn is a function of the context
+// package that makes a context from the one it is given first, as
+// context.WithCancel and context.WithValue do.
+func gotaskIsContextWith(fn *types.Func) bool {
+	sig, ok := fn.Type().(*types.Signature)
+	return ok && fn.Pkg() != nil && fn.Pkg().Path() == "context" && strings.HasPrefix(fn.Name(), "With") &&
+		sig.Recv() == nil && sig.Params().Len() > 0 && typeutil.IsContextType(sig.Params().At(0).Type())
 }
 
 // taskDerives reports whether every task v can be wraps a function that
