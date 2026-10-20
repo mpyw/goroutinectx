@@ -48,12 +48,13 @@ func UnwrapPointer(t types.Type) types.Type {
 	}
 }
 
-// PkgPathMatches checks if pkgPath matches targetPkg, allowing version suffixes.
+// PkgPathMatches checks if pkgPath matches targetPkg, allowing a major
+// version suffix such as /v2. Only the suffix may follow: neither
+// /v1alpha1 nor /v2/sub matches.
 func PkgPathMatches(pkgPath, targetPkg string) bool {
 	if pkgPath == targetPkg {
 		return true
 	}
-	// Check for version suffix like /v2, /v3, etc.
 	rest, ok := strings.CutPrefix(pkgPath, targetPkg+"/v")
-	return ok && len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9'
+	return ok && rest != "" && strings.Trim(rest, "0123456789") == ""
 }
