@@ -194,3 +194,40 @@ func goodCapturedCtxAddressTaken(ctx context.Context, set func(*context.Context)
 	set(&c)
 	go func() { use(c) }()
 }
+
+// ===== NAMED FUNCTIONS GIVEN A CONTEXT (#151) =====
+
+func worker(c context.Context) { use(c) }
+
+func workerWith(n int, c context.Context) { _ = n; use(c) }
+
+type service struct{ ctx context.Context }
+
+func (s *service) run(c context.Context) { use(s.ctx); use(c) }
+
+// [BAD]: A named function given only context.Background() does not propagate ctx.
+func badNamedFuncFreshCtx(ctx context.Context) {
+	go worker(context.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: The same with other arguments and context.TODO() through a variable.
+func badNamedFuncFreshCtxViaIdent(ctx context.Context) {
+	todo := context.TODO()
+	go workerWith(1, todo) // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: A named function given ctx.
+func goodNamedFuncCtx(ctx context.Context) {
+	go worker(ctx)
+}
+
+// [GOOD]: A named function given no context is not looked into.
+func goodNamedFuncNoCtx(ctx context.Context) {
+	go use(nil)
+}
+
+// [NOTCHECKED]: A method given a fresh context may get ctx from its receiver.
+func notCheckedMethodFreshCtx(ctx context.Context) {
+	s := &service{ctx: ctx}
+	go s.run(context.Background())
+}

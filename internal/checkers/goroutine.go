@@ -37,6 +37,13 @@ func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 	r := spawnedContextResolver(cctx, nil)
 	if g := cctx.SSAProg.GoAt(stmt); g != nil && !g.Call.IsInvoke() {
+		// A named function is not looked into, but one given only a fresh
+		// context does not get ctx. A method is left alone, as its receiver
+		// may hold a context.
+		if fn, ok := g.Call.Value.(*gossa.Function); ok && fn.Parent() == nil && fn.Synthetic == "" && fn.Signature.Recv() == nil &&
+			ssa.GivesOnlyFreshContext(&g.Call, cctx.Carriers) {
+			return false
+		}
 		// A context parameter counts only when the go statement gives it a
 		// context other than a fresh context.Background() or TODO().
 		args := g.Call.Args

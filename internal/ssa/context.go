@@ -44,6 +44,23 @@ func ArgsInvolveContext(call *ssa.CallCommon, carriers []carrier.Carrier) bool {
 	return slices.ContainsFunc(call.Args, func(arg ssa.Value) bool { return contextInvolved(arg, carriers, seen) })
 }
 
+// GivesOnlyFreshContext reports whether call gives a context argument, and
+// every argument built from a context or a carrier is a fresh
+// context.Background() or TODO() itself.
+func GivesOnlyFreshContext(call *ssa.CallCommon, carriers []carrier.Carrier) bool {
+	given := false
+	for _, arg := range call.Args {
+		if !contextInvolved(arg, carriers, make(map[ssa.Value]bool)) {
+			continue
+		}
+		if !typeutil.IsContextType(arg.Type()) || !IsFreshContext(arg) {
+			return false
+		}
+		given = true
+	}
+	return given
+}
+
 func contextInvolved(v ssa.Value, carriers []carrier.Carrier, seen map[ssa.Value]bool) bool {
 	if v == nil || seen[v] {
 		return false
