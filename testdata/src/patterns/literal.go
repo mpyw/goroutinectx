@@ -56,6 +56,61 @@ func badInlineFuncLiteral(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Parenthesized literal =====
+
+// [BAD]: Parenthesized literal
+//
+// Parentheses around the literal are looked through (#118).
+func badParenGoroutine(ctx context.Context) {
+	go (func() { // want `goroutine does not propagate context "ctx"`
+		fmt.Println("no context")
+	})()
+}
+
+// [BAD]: Parenthesized literal
+//
+// Parentheses around the literal are looked through (#118).
+func badParenErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go((func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		fmt.Println("no context")
+		return nil
+	}))
+	_ = g.Wait()
+}
+
+// [BAD]: Parenthesized literal
+//
+// Parentheses around the literal are looked through (#118).
+func badParenWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go((func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		fmt.Println("no context")
+	}))
+	wg.Wait()
+}
+
+// [BAD]: Parenthesized literal
+//
+// Parentheses around the literal are looked through (#118).
+func badParenSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, (func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
+		fmt.Println("no context")
+		return nil
+	}))
+	_ = g.Wait()
+}
+
+// [GOOD]: Parenthesized literal with ctx
+//
+// A parenthesized literal that uses ctx passes.
+func goodParenGoroutine(ctx context.Context) {
+	go (func() {
+		_ = ctx
+	})()
+}
+
 // ===== Literal with ctx =====
 
 // [GOOD]: Literal with ctx - basic good case

@@ -162,7 +162,6 @@ func caller(ctx context.Context) {
 - Channel receives - can't trace func from channel
 - `interface{}` type assertion - can't trace func through type assertion
 - A variable written by a closure - not followed, so it passes
-- A parenthesized function, as `go (fn)()` - not traced
 
 ### Derive Function Matching (DeriveMatcher)
 
