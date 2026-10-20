@@ -107,7 +107,6 @@ func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, en
 	return []analysis.Diagnostic{{Pos: pos, Message: entry.Spec.FullName() + "() 1st argument should call goroutine deriver"}}
 }
 
-
 func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
 	startIdx := entry.CallbackArgIdx
 	if startIdx >= len(call.Args) {
