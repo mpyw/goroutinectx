@@ -522,3 +522,18 @@ func packageFactoryWithCtxParam(ctx context.Context) func() {
 func packageFactoryWithoutCtx() func() {
 	return func() { fmt.Println("no ctx") }
 }
+
+// ===== SELF-RETURNING FACTORY (#150) =====
+
+// stateFn is a state function that returns the next state.
+type stateFn func() stateFn
+
+func stepState() stateFn { return stepState()() }
+
+// [NOTCHECKED]: Factory whose type returns itself
+//
+// The factory returns its own call without end, so the result is not
+// followed. It used to overflow the stack.
+func notCheckedSelfReturningFactory(ctx context.Context) {
+	go stepState()()
+}
