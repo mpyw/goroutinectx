@@ -18,6 +18,29 @@ func TestErrgroup(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroup")
 }
 
+// TestResolve checks closures given through variables, resolved through SSA
+// (#82, #83).
+func TestResolve(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "resolve")
+}
+
+// TestResolveDerive is TestResolve with -goroutine-deriver set.
+func TestResolveDerive(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
+	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "resolvederive")
+}
+
 func TestErrgroupDerive(t *testing.T) {
 	testdata := analysistest.TestData()
 

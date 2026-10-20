@@ -4,30 +4,6 @@ import (
 	"go/ast"
 )
 
-// FuncLitCapturesContext checks if a func literal captures context (AST-based).
-func (c *Context) FuncLitCapturesContext(lit *ast.FuncLit) bool {
-	return c.FuncLitHasContextParam(lit) || c.FuncLitUsesContext(lit)
-}
-
-// FuncLitsAllCaptureContext checks if func literals properly capture context.
-// Uses conditionality information to determine the correct check:
-// - Find the last unconditional assignment
-// - Check all assignments from that point onwards (including conditional ones)
-// - ALL must capture context for the check to pass
-func (c *Context) FuncLitsAllCaptureContext(assigns []FuncLitAssignment) bool {
-	if len(assigns) == 0 {
-		return true
-	}
-
-	// ALL must capture context (because conditional assignments may override)
-	for _, assign := range EffectiveFuncLitAssignments(assigns) {
-		if !c.FuncLitCapturesContext(assign.Lit) {
-			return false
-		}
-	}
-	return true
-}
-
 // SelectorExprCapturesContext checks if a struct field func captures context.
 func (c *Context) SelectorExprCapturesContext(sel *ast.SelectorExpr) bool {
 	ident, ok := sel.X.(*ast.Ident)

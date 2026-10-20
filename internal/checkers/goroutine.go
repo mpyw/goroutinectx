@@ -2,8 +2,10 @@ package checkers
 
 import (
 	"go/ast"
+	"slices"
 
 	"golang.org/x/tools/go/analysis"
+	gossa "golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
@@ -31,46 +33,23 @@ func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 }
 
 func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
-	// Try SSA-based check first
-	if lit, ok := stmt.Call.Fun.(*ast.FuncLit); ok {
-		if result, ok := cctx.SSAProg.FuncLitCapturesContext(lit, cctx.Carriers); ok {
-			return result
-		}
+	r := &ssa.FuncResolver{
+		Closure: func(fn *gossa.Function) bool {
+			return ssa.HasContextParam(fn) || ssa.ClosureCapturesContext(fn, cctx.Carriers)
+		},
+		FactoryCall: func(call *gossa.CallCommon) bool { return ssa.ArgsInvolveContext(call, cctx.Carriers) },
+		Factory:     ssa.HasContextParam,
 	}
-
-	// Fall back to AST-based check
-	return c.checkFromAST(cctx, stmt)
+	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), r, true)
 }
 
-// checkFromAST falls back to AST-based analysis for go statements.
-func (*Goroutine) checkFromAST(cctx *probe.Context, stmt *ast.GoStmt) bool {
-	call := stmt.Call
-
-	if lit, ok := call.Fun.(*ast.FuncLit); ok {
-		return cctx.FuncLitCapturesContext(lit)
+// goroutineSpawnedValue gives the SSA value of the function stmt runs, or nil.
+func goroutineSpawnedValue(cctx *probe.Context, stmt *ast.GoStmt) gossa.Value {
+	g := cctx.SSAProg.GoAt(stmt)
+	if g == nil || g.Call.IsInvoke() {
+		return nil
 	}
-
-	if innerCall, ok := call.Fun.(*ast.CallExpr); ok {
-		return cctx.FactoryCallReturnsContextUsingFunc(innerCall)
-	}
-
-	if ident, ok := call.Fun.(*ast.Ident); ok {
-		assigns := cctx.FuncLitAssignmentsOfIdent(ident)
-		if len(assigns) == 0 {
-			return true
-		}
-		return cctx.FuncLitsAllCaptureContext(assigns)
-	}
-
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		return cctx.SelectorExprCapturesContext(sel)
-	}
-
-	if idx, ok := call.Fun.(*ast.IndexExpr); ok {
-		return cctx.IndexExprCapturesContext(idx)
-	}
-
-	return true
+	return g.Call.Value
 }
 
 // GoroutineDerive checks that go statements call a deriver function.
@@ -103,38 +82,14 @@ func (c *GoroutineDerive) failure(cctx *probe.Context, stmt *ast.GoStmt) string 
 		return ""
 	}
 
-	call := stmt.Call
-
-	if lit, ok := call.Fun.(*ast.FuncLit); ok {
-		if cctx.FuncLitHasContextParam(lit) {
-			return ""
-		}
-
-		if msg, ok := c.checkFromSSA(cctx, lit); ok {
-			return msg
-		}
-
-		if c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
-			return ""
-		}
-		return c.message()
+	v := goroutineSpawnedValue(cctx, stmt)
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(true), false) {
+		return ""
 	}
-
-	if innerCall, ok := call.Fun.(*ast.CallExpr); ok {
-		if c.checkHigherOrder(cctx, innerCall) {
-			return ""
-		}
-		return c.message()
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(false), false) {
+		return c.deferMessage()
 	}
-
-	if ident, ok := call.Fun.(*ast.Ident); ok {
-		if c.checkIdent(cctx, ident) {
-			return ""
-		}
-		return c.message()
-	}
-
-	return ""
+	return c.message()
 }
 
 func (c *GoroutineDerive) message() string {
@@ -145,129 +100,25 @@ func (c *GoroutineDerive) deferMessage() string {
 	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
-// checkFromSSA gives the message to report for lit, or "" when it derives.
-// ok is false when lit has no SSA function.
-func (c *GoroutineDerive) checkFromSSA(cctx *probe.Context, lit *ast.FuncLit) (msg string, ok bool) {
-	ssaFn := cctx.SSAProg.FindFuncLit(lit)
-	if ssaFn == nil {
-		return "", false
+// resolver judges a closure by whether it takes a context or calls the
+// deriver: at its start when atStart is set, or else in defer too.
+func (c *GoroutineDerive) resolver(atStart bool) *ssa.FuncResolver {
+	return &ssa.FuncResolver{
+		Closure: func(fn *gossa.Function) bool {
+			if ssa.HasContextParam(fn) {
+				return true
+			}
+			result := ssa.ClosureCallsDeriver(fn, c.derivers)
+			return result.FoundAtStart || (!atStart && result.FoundOnlyInDefer)
+		},
+		Factory: c.factoryDerives,
 	}
-
-	result := ssa.ClosureCallsDeriver(ssaFn, c.derivers)
-
-	if result.FoundAtStart {
-		return "", true
-	}
-
-	if result.FoundOnlyInDefer {
-		return c.deferMessage(), true
-	}
-
-	return c.message(), true
 }
 
-func (c *GoroutineDerive) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
-	assigns := cctx.FuncLitAssignmentsOfIdent(ident)
-	if len(assigns) == 0 {
-		return true
-	}
-
-	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-		if !c.funcLitDerives(cctx, assign.Lit) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func (c *GoroutineDerive) checkHigherOrder(cctx *probe.Context, innerCall *ast.CallExpr) bool {
-	fun := innerCall.Fun
-	if paren, ok := fun.(*ast.ParenExpr); ok {
-		fun = paren.X
-	}
-
-	if lit, ok := fun.(*ast.FuncLit); ok {
-		if cctx.FuncLitHasContextParam(lit) {
-			return true
-		}
-		return c.factoryReturnsCallingFunc(cctx, lit)
-	}
-
-	if ident, ok := fun.(*ast.Ident); ok {
-		assigns := cctx.FuncLitAssignmentsOfIdent(ident)
-		if len(assigns) == 0 {
-			return true
-		}
-
-		for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-			lit := assign.Lit
-			if !cctx.FuncLitHasContextParam(lit) && !c.factoryReturnsCallingFunc(cctx, lit) {
-				return false
-			}
-		}
-		return true
-	}
-
-	return true
-}
-
-func (c *GoroutineDerive) factoryReturnsCallingFunc(cctx *probe.Context, factory *ast.FuncLit) bool {
-	callsDeriver := false
-
-	ast.Inspect(factory.Body, func(n ast.Node) bool {
-		if callsDeriver {
-			return false
-		}
-		if fl, ok := n.(*ast.FuncLit); ok && fl != factory {
-			if c.funcLitDerives(cctx, fl) {
-				callsDeriver = true
-			}
-			return false
-		}
-
-		ret, ok := n.(*ast.ReturnStmt)
-		if !ok {
-			return true
-		}
-
-		for _, result := range ret.Results {
-			if c.returnedValueCalls(cctx, result) {
-				callsDeriver = true
-				return false
-			}
-		}
-		return true
+// factoryDerives passes a factory that takes a context, or that makes a
+// closure taking a context or calling the deriver.
+func (c *GoroutineDerive) factoryDerives(fn *gossa.Function) bool {
+	return ssa.HasContextParam(fn) || slices.ContainsFunc(fn.AnonFuncs, func(anon *gossa.Function) bool {
+		return ssa.HasContextParam(anon) || ssa.ClosureCallsDeriver(anon, c.derivers).FoundAtStart
 	})
-
-	return callsDeriver
-}
-
-func (c *GoroutineDerive) returnedValueCalls(cctx *probe.Context, result ast.Expr) bool {
-	if innerFuncLit, ok := result.(*ast.FuncLit); ok {
-		return c.funcLitDerives(cctx, innerFuncLit)
-	}
-
-	ident, ok := result.(*ast.Ident)
-	if !ok {
-		return false
-	}
-
-	assigns := cctx.FuncLitAssignmentsOfIdent(ident)
-	if len(assigns) == 0 {
-		return false
-	}
-
-	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-		if !c.funcLitDerives(cctx, assign.Lit) {
-			return false
-		}
-	}
-	return true
-}
-
-// funcLitDerives reports whether lit takes a context parameter or calls the
-// deriver.
-func (c *GoroutineDerive) funcLitDerives(cctx *probe.Context, lit *ast.FuncLit) bool {
-	return cctx.FuncLitHasContextParam(lit) || c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body)
 }

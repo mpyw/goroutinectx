@@ -4,10 +4,10 @@
     "gotask"
   ],
   "variants": {
-    "limitation": {
-      "description": "Variable assignment in callback is not traced (would need SSA).",
+    "good": {
+      "description": "The closure assigned to a variable before its return is resolved through SSA.",
       "functions": {
-        "gotask": "limitationLoMapVariableAssignment"
+        "gotask": "goodLoMapVariableAssignment"
       }
     }
   },

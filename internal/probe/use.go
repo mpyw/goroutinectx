@@ -2,7 +2,6 @@ package probe
 
 import (
 	"go/ast"
-	"slices"
 
 	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
@@ -11,31 +10,19 @@ import (
 // FuncLitUsesContext checks if a function literal references any context variable.
 // Does NOT descend into nested func literals.
 func (c *Context) FuncLitUsesContext(lit *ast.FuncLit) bool {
-	return c.nodeUsesContext(lit.Body, true)
+	return c.nodeUsesContext(lit.Body)
 }
 
-// ArgUsesContext checks if an expression references a context variable.
-// Unlike FuncLitUsesContext, this DOES descend into nested func literals.
-func (c *Context) ArgUsesContext(expr ast.Expr) bool {
-	return c.nodeUsesContext(expr, false)
-}
-
-// ArgsUseContext checks if any argument references a context variable.
-func (c *Context) ArgsUseContext(args []ast.Expr) bool {
-	return slices.ContainsFunc(args, c.ArgUsesContext)
-}
-
-// nodeUsesContext checks if a node references any context variable.
-func (c *Context) nodeUsesContext(node ast.Node, skipNestedFuncLit bool) bool {
+// nodeUsesContext checks if a node references any context variable, outside
+// nested func literals.
+func (c *Context) nodeUsesContext(node ast.Node) bool {
 	found := false
 	ast.Inspect(node, func(n ast.Node) bool {
 		if found {
 			return false
 		}
-		if skipNestedFuncLit {
-			if _, ok := n.(*ast.FuncLit); ok {
-				return false
-			}
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
 		}
 		ident, ok := n.(*ast.Ident)
 		if !ok {

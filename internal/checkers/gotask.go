@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+	gossa "golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
@@ -15,6 +16,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	"github.com/mpyw/goroutinectx/internal/ssa"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // gotaskConstructor defines how gotask tasks are created.
@@ -74,19 +76,19 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []ana
 }
 
 func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
-	if len(call.Args) == 0 {
+	instr := cctx.SSAProg.CallAt(call)
+	if len(call.Args) == 0 || instr == nil {
 		return nil
 	}
-
-	ctxArg := call.Args[0]
+	common := instr.Common()
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
-	if c.argIsDeriverCall(cctx, ctxArg) {
+	if args := ssa.ResolvedArgs(common, call); args != nil && c.ctxIsDerived(args[0]) {
 		return nil
 	}
 
 	// Check 2: Does the task's callback call the deriver?
-	if c.taskCallbackCallsDeriver(cctx, call) {
+	if recv := ssa.ResolvedReceiver(common); recv != nil && c.taskDerives(cctx, recv) {
 		return nil
 	}
 
@@ -119,309 +121,160 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 	// Check if this is a variadic expansion (e.g., DoAllFns(ctx, slice...))
 	isVariadicExpansion := call.Ellipsis.IsValid()
 
+	args := spawnedCallArgs(cctx, call)
+	r := c.resolver(cctx)
 	var diags []analysis.Diagnostic
 	for i := startIdx; i < len(call.Args); i++ {
-		if !c.argCallsDeriver(cctx, call.Args[i], entry) {
-			var msg string
-			if isVariadicExpansion {
-				msg = fmt.Sprintf("%s() variadic argument should call goroutine deriver", entry.Spec.FullName())
-			} else {
-				// Report each failing argument with 1-based position
-				argNum := i + 1
-				msg = fmt.Sprintf("%s() %s argument should call goroutine deriver",
-					entry.Spec.FullName(), gotaskArgOrdinal(argNum))
-			}
-			diags = append(diags, analysis.Diagnostic{Pos: call.Pos(), Message: msg})
+		var passes bool
+		var v gossa.Value
+		if args != nil {
+			v = args[i]
 		}
+		if isVariadicExpansion {
+			passes = c.expandedArgDerives(cctx, call.Args[i], v, r)
+		} else {
+			passes = spawnedFuncPasses(cctx, call.Args[i], v, r, false)
+		}
+		if passes {
+			continue
+		}
+
+		var msg string
+		if isVariadicExpansion {
+			msg = fmt.Sprintf("%s() variadic argument should call goroutine deriver", entry.Spec.FullName())
+		} else {
+			// Report each failing argument with 1-based position
+			msg = fmt.Sprintf("%s() %s argument should call goroutine deriver",
+				entry.Spec.FullName(), gotaskArgOrdinal(i+1))
+		}
+		diags = append(diags, analysis.Diagnostic{Pos: call.Pos(), Message: msg})
 	}
 	return diags
 }
 
-// argIsDeriverCall checks if the argument expression IS a call to the deriver.
-func (c *GotaskChecker) argIsDeriverCall(cctx *probe.Context, expr ast.Expr) bool {
-	call, ok := expr.(*ast.CallExpr)
-	if !ok {
-		// Not a call expression - check if it's a variable assigned a deriver call
-		if ident, ok := expr.(*ast.Ident); ok {
-			return c.identIsDeriverCall(cctx, ident)
-		}
-		return false
-	}
-
-	// Check if this call IS a deriver call
-	fn := funcspec.ExtractFunc(cctx.Pass, call)
-	return fn != nil && c.derivers.MatchesFunc(fn)
-}
-
-// identIsDeriverCall checks if a variable holds a deriver call result.
-func (c *GotaskChecker) identIsDeriverCall(cctx *probe.Context, ident *ast.Ident) bool {
-	call := cctx.CallExprAssignedToIdent(ident)
-	if call == nil {
-		return false
-	}
-
-	fn := funcspec.ExtractFunc(cctx.Pass, call)
-	return fn != nil && c.derivers.MatchesFunc(fn)
-}
-
-// taskCallbackCallsDeriver checks if the task's callback (from constructor) calls the deriver.
-func (c *GotaskChecker) taskCallbackCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
-	// Task is always the method receiver (e.g., task.DoAsync)
-	taskExpr := gotaskMethodReceiver(call)
-	if taskExpr == nil {
-		return false
-	}
-
-	// Find the constructor call that created this task
-	constructorCall := c.findConstructorCall(cctx, taskExpr)
-	if constructorCall == nil {
-		return false
-	}
-
-	// Check if constructor's callback argument calls the deriver
-	argIdx := gotaskConstructor.callbackArgIdx
-	if argIdx < 0 || argIdx >= len(constructorCall.Args) {
-		return false
-	}
-
-	callbackArg := constructorCall.Args[argIdx]
-	return c.callbackCallsDeriver(cctx, callbackArg)
-}
-
-// gotaskMethodReceiver extracts the receiver from a method call.
-func gotaskMethodReceiver(call *ast.CallExpr) ast.Expr {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return nil
-	}
-	return sel.X
-}
-
-// findConstructorCall traces the receiver back to find the constructor call.
-func (c *GotaskChecker) findConstructorCall(cctx *probe.Context, receiver ast.Expr) *ast.CallExpr {
-	switch r := receiver.(type) {
-	case *ast.CallExpr:
-		return c.findConstructorFromCall(cctx, r)
-
+// expandedArgDerives judges the slice of a variadic expansion, v being its
+// SSA value. A slice made by a call, as lo.Map makes one, passes when calling
+// one of the call's callbacks gives a task function that derives. The
+// elements of a slice variable are not traced, so it is reported.
+func (c *GotaskChecker) expandedArgDerives(cctx *probe.Context, arg ast.Expr, v gossa.Value, r *ssa.FuncResolver) bool {
+	switch arg := arg.(type) {
 	case *ast.Ident:
-		return c.findConstructorFromIdent(cctx, r)
-
-	case *ast.UnaryExpr:
-		if r.Op.String() == "*" {
-			return c.findConstructorCall(cctx, r.X)
-		}
-
-	case *ast.StarExpr:
-		return c.findConstructorCall(cctx, r.X)
-
-	case *ast.ParenExpr:
-		return c.findConstructorCall(cctx, r.X)
-	}
-
-	return nil
-}
-
-// findConstructorFromCall handles call expressions in the receiver chain.
-func (c *GotaskChecker) findConstructorFromCall(cctx *probe.Context, call *ast.CallExpr) *ast.CallExpr {
-	if c.isTaskConstructorCall(cctx, call) {
-		return call
-	}
-
-	// Check if it's a method call on a Task (e.g., Cancelable())
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return nil
-	}
-
-	// Recurse into the receiver
-	return c.findConstructorCall(cctx, sel.X)
-}
-
-// findConstructorFromIdent traces a variable back to its constructor assignment.
-func (c *GotaskChecker) findConstructorFromIdent(cctx *probe.Context, ident *ast.Ident) *ast.CallExpr {
-	call := cctx.CallExprAssignedToIdent(ident)
-	if call == nil {
-		return nil
-	}
-
-	return c.findConstructorFromCall(cctx, call)
-}
-
-// isTaskConstructorCall checks if call matches the gotask task constructor.
-func (c *GotaskChecker) isTaskConstructorCall(cctx *probe.Context, call *ast.CallExpr) bool {
-	fn := funcspec.ExtractFunc(cctx.Pass, call)
-	if fn == nil {
-		return false
-	}
-
-	spec := funcspec.Spec{
-		PkgPath:  gotaskConstructor.pkgPath,
-		FuncName: gotaskConstructor.funcName,
-	}
-	return spec.Matches(fn)
-}
-
-// callbackCallsDeriver checks if a callback expression calls the deriver.
-func (c *GotaskChecker) callbackCallsDeriver(cctx *probe.Context, arg ast.Expr) bool {
-	// For function literals, check if body calls deriver
-	if lit, ok := arg.(*ast.FuncLit); ok {
-		// Try SSA-based check first
-		if ssaFn := cctx.SSAProg.FindFuncLit(lit); ssaFn != nil {
-			return ssa.ClosureCallsDeriver(ssaFn, c.derivers).FoundAtStart
-		}
-		// Fall back to AST-based check
-		return c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body)
-	}
-
-	// For identifiers, try to trace to FuncLit
-	if ident, ok := arg.(*ast.Ident); ok {
-		funcLit := cctx.FuncLitAssignedToIdent(ident)
-		if funcLit != nil {
-			return c.derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
-		}
-	}
-
-	// For other expressions, check if deriver is called in the expression
-	return c.derivers.SatisfiesAnyGroup(cctx.Pass, arg)
-}
-
-// argCallsDeriver checks if a variadic argument calls deriver.
-func (c *GotaskChecker) argCallsDeriver(cctx *probe.Context, arg ast.Expr, entry registry.Entry) bool {
-	// For function literals, check if body calls deriver
-	if lit, ok := arg.(*ast.FuncLit); ok {
-		// Try SSA-based check first
-		if ssaFn := cctx.SSAProg.FindFuncLit(lit); ssaFn != nil {
-			return ssa.ClosureCallsDeriver(ssaFn, c.derivers).FoundAtStart
-		}
-		// Fall back to AST-based check
-		return c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body)
-	}
-
-	// For call expressions
-	if call, ok := arg.(*ast.CallExpr); ok {
-		return c.checkCallExpr(cctx, call)
-	}
-
-	// For identifiers, try to trace to the value
-	if ident, ok := arg.(*ast.Ident); ok {
-		return c.checkIdent(cctx, ident)
-	}
-
-	// Can't trace - assume OK to avoid false positives
-	return true
-}
-
-// checkIdent checks if a variable contains a deriver by tracing its assignment.
-func (c *GotaskChecker) checkIdent(cctx *probe.Context, ident *ast.Ident) bool {
-	v := cctx.VarOf(ident)
-	if v == nil {
-		return true // Can't trace (not a variable)
-	}
-
-	// Check if this is a slice type - we can't trace slice contents
-	if _, isSlice := v.Type().Underlying().(*types.Slice); isSlice {
-		return false // Can't trace slice contents, report error
-	}
-
-	// Try to find FuncLit assignment
-	funcLit := cctx.FuncLitAssignedToIdent(ident)
-	if funcLit != nil {
-		return c.derivers.SatisfiesAnyGroup(cctx.Pass, funcLit.Body)
-	}
-
-	// Try to find CallExpr assignment (e.g., task := NewTask(fn))
-	callExpr := cctx.CallExprAssignedToIdent(ident)
-	if callExpr != nil {
-		return c.checkCallExpr(cctx, callExpr)
-	}
-
-	// Can't trace
-	return true
-}
-
-// checkCallExpr checks if a call expression contains a deriver.
-func (c *GotaskChecker) checkCallExpr(cctx *probe.Context, call *ast.CallExpr) bool {
-	// Case 1: Task constructor (e.g., NewTask(fn)) - check fn
-	if c.isTaskConstructorCall(cctx, call) {
-		argIdx := gotaskConstructor.callbackArgIdx
-		if argIdx >= 0 && argIdx < len(call.Args) {
-			return c.callbackCallsDeriver(cctx, call.Args[argIdx])
-		}
-	}
-
-	// Case 2: Factory function - trace return statements
-	if c.factoryReturnCallsDeriver(cctx, call) {
-		return true
-	}
-
-	// Case 3: Higher-order callback returns deriver-calling func
-	if c.callbackReturnCallsDeriver(cctx, call) {
-		return true
-	}
-
-	// Case 4: Check if the call itself calls deriver
-	return c.derivers.SatisfiesAnyGroup(cctx.Pass, call)
-}
-
-// factoryReturnCallsDeriver traces a factory call to its FuncLit and checks returns.
-func (c *GotaskChecker) factoryReturnCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
-	ident, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return false
-	}
-
-	funcLit := cctx.FuncLitAssignedToIdent(ident)
-	if funcLit == nil {
-		return false
-	}
-
-	return c.funcLitReturnCallsDeriver(cctx, funcLit)
-}
-
-// callbackReturnCallsDeriver checks if any FuncLit argument returns a deriver-calling func.
-func (c *GotaskChecker) callbackReturnCallsDeriver(cctx *probe.Context, call *ast.CallExpr) bool {
-	return slices.ContainsFunc(call.Args, func(arg ast.Expr) bool {
-		funcLit, ok := arg.(*ast.FuncLit)
-		return ok && c.funcLitReturnCallsDeriver(cctx, funcLit)
-	})
-}
-
-// funcLitReturnCallsDeriver checks if any return statement returns a deriver-calling expr.
-func (c *GotaskChecker) funcLitReturnCallsDeriver(cctx *probe.Context, funcLit *ast.FuncLit) bool {
-	var found bool
-
-	ast.Inspect(funcLit.Body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		// Skip nested func literals
-		if fl, ok := n.(*ast.FuncLit); ok && fl != funcLit {
-			return false
-		}
-
-		ret, ok := n.(*ast.ReturnStmt)
+		obj, ok := cctx.Pass.TypesInfo.ObjectOf(arg).(*types.Var)
 		if !ok {
 			return true
 		}
+		_, isSlice := obj.Type().Underlying().(*types.Slice)
+		return !isSlice
+	case *ast.CallExpr:
+		call, ok := v.(*gossa.Call)
+		if !ok {
+			return true
+		}
+		return slices.ContainsFunc(call.Call.Args, func(arg gossa.Value) bool {
+			_, isFunc := arg.Type().Underlying().(*types.Signature)
+			return isFunc && r.ResultPasses(arg)
+		})
+	}
+	return true
+}
 
-		for _, result := range ret.Results {
-			switch r := result.(type) {
-			case *ast.CallExpr:
-				if c.checkCallExpr(cctx, r) {
-					found = true
-					return false
-				}
-			case *ast.FuncLit:
-				if c.derivers.SatisfiesAnyGroup(cctx.Pass, r.Body) {
-					found = true
-					return false
-				}
-			}
+// resolver judges a task function by whether it calls the deriver at its
+// start. A task built by NewTask, or by a method of a task, is judged by the
+// function it wraps.
+func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
+	r := &ssa.FuncResolver{
+		Closure: func(fn *gossa.Function) bool { return ssa.ClosureCallsDeriver(fn, c.derivers).FoundAtStart },
+	}
+	r.Call = func(call *gossa.CallCommon) (bool, bool) {
+		if call.IsInvoke() {
+			// An interface method is not traced, so the task it gives is
+			// reported.
+			return false, true
+		}
+		fn := ssa.ExtractCalledFunc(call)
+		switch {
+		case fn == nil:
+			return false, false
+		case gotaskIsConstructor(fn):
+			return len(call.Args) > 0 && r.Passes(call.Args[0]), true
+		case gotaskIsTaskMethod(fn):
+			return c.taskDerives(cctx, ssa.ResolvedReceiver(call)), true
+		}
+		return false, false
+	}
+	return r
+}
+
+// ctxIsDerived reports whether every value v can be is a call of the deriver.
+func (c *GotaskChecker) ctxIsDerived(v gossa.Value) bool {
+	values, ok := ssa.ResolvedValues(v)
+	if !ok || len(values) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(values, func(v gossa.Value) bool {
+		if ext, ok := v.(*gossa.Extract); ok {
+			v = ext.Tuple
+		}
+		call, ok := v.(*gossa.Call)
+		if !ok {
+			return true
+		}
+		fn := ssa.ExtractCalledFunc(call.Common())
+		return fn == nil || !c.derivers.MatchesFunc(fn)
+	})
+}
+
+// taskDerives reports whether every task v can be wraps a function that
+// calls the deriver. A task traced to nothing does not.
+func (c *GotaskChecker) taskDerives(cctx *probe.Context, v gossa.Value) bool {
+	if v == nil {
+		return false
+	}
+	values, ok := ssa.ResolvedValues(v)
+	if !ok || len(values) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(values, func(v gossa.Value) bool {
+		call, ok := v.(*gossa.Call)
+		if !ok {
+			return true
+		}
+		fn := ssa.ExtractCalledFunc(call.Common())
+		switch {
+		case fn == nil:
+			return true
+		case gotaskIsConstructor(fn):
+			return len(call.Call.Args) == 0 || !c.resolver(cctx).Passes(call.Call.Args[0])
+		case gotaskIsTaskMethod(fn):
+			return !c.taskDerives(cctx, ssa.ResolvedReceiver(call.Common()))
 		}
 		return true
 	})
+}
 
-	return found
+// gotaskIsConstructor reports whether fn is the task constructor.
+func gotaskIsConstructor(fn *types.Func) bool {
+	return funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: gotaskConstructor.funcName}.Matches(fn)
+}
+
+// gotaskIsTaskMethod reports whether fn is a method of a gotask task that
+// gives a task, as Cancelable does.
+func gotaskIsTaskMethod(fn *types.Func) bool {
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil || sig.Results().Len() != 1 {
+		return false
+	}
+	return gotaskIsTaskType(sig.Recv().Type()) && gotaskIsTaskType(sig.Results().At(0).Type())
+}
+
+// gotaskIsTaskType reports whether t is a gotask Task or CancelableTask.
+func gotaskIsTaskType(t types.Type) bool {
+	named, ok := typeutil.UnwrapPointer(t).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil || !typeutil.PkgPathMatches(named.Obj().Pkg().Path(), gotaskConstructor.pkgPath) {
+		return false
+	}
+	name := named.Obj().Name()
+	return name == "Task" || name == "CancelableTask"
 }
 
 // gotaskArgOrdinal converts an argument number to its ordinal string (1st, 2nd, 3rd, etc.).

@@ -7,6 +7,7 @@ import (
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
+	gossa "golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
@@ -63,8 +64,11 @@ func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.Cal
 		return nil
 	}
 
-	arg := call.Args[entry.CallbackArgIdx]
-	if c.checkArg(cctx, arg) {
+	var v gossa.Value
+	if args := spawnedCallArgs(cctx, call); args != nil {
+		v = args[entry.CallbackArgIdx]
+	}
+	if spawnedFuncPasses(cctx, call.Args[entry.CallbackArgIdx], v, c.resolver(cctx), true) {
 		return nil
 	}
 
@@ -87,102 +91,17 @@ func spawnReportPos(call *ast.CallExpr) token.Pos {
 	return call.Pos()
 }
 
-func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
-	// Try SSA-based check first
-	if lit, ok := arg.(*ast.FuncLit); ok {
-		if result, ok := c.checkFuncLitSSA(cctx, lit); ok {
-			return result
-		}
+// resolver judges a closure by whether it takes or captures a context, or
+// calls the deriver at its start.
+func (c *spawnClosureCheck) resolver(cctx *probe.Context) *ssa.FuncResolver {
+	return &ssa.FuncResolver{
+		Closure: func(fn *gossa.Function) bool {
+			return ssa.HasContextParam(fn) || ssa.ClosureCapturesContext(fn, cctx.Carriers) ||
+				(!c.derivers.IsEmpty() && ssa.ClosureCallsDeriver(fn, c.derivers).FoundAtStart)
+		},
+		FactoryCall: func(call *gossa.CallCommon) bool { return ssa.ArgsInvolveContext(call, cctx.Carriers) },
+		Factory:     ssa.HasContextParam,
 	}
-
-	// Fall back to AST-based check
-	return c.checkArgFromAST(cctx, arg)
-}
-
-// checkFuncLitSSA checks a func literal using SSA analysis.
-// Returns (result, true) if SSA succeeded, or (false, false) if SSA failed.
-func (c *spawnClosureCheck) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
-	// If func lit has context param, it's OK
-	if cctx.FuncLitHasContextParam(lit) {
-		return true, true
-	}
-
-	ssaFn := cctx.SSAProg.FindFuncLit(lit)
-	if ssaFn == nil {
-		return false, false
-	}
-
-	// Check if closure captures context
-	if ssa.ClosureCapturesContext(ssaFn, cctx.Carriers) {
-		return true, true
-	}
-
-	// If derivers configured, also check if deriver is called
-	if !c.derivers.IsEmpty() {
-		result := ssa.ClosureCallsDeriver(ssaFn, c.derivers)
-		if result.FoundAtStart {
-			return true, true
-		}
-	}
-
-	return false, true
-}
-
-func (c *SpawnCallbackChecker) checkArgFromAST(cctx *probe.Context, arg ast.Expr) bool {
-	if lit, ok := arg.(*ast.FuncLit); ok {
-		return c.checkFuncLitAST(cctx, lit)
-	}
-
-	if ident, ok := arg.(*ast.Ident); ok {
-		assigns := cctx.FuncLitAssignmentsOfIdent(ident)
-		if len(assigns) == 0 {
-			return true
-		}
-		return c.checkFuncLitAssignments(cctx, assigns)
-	}
-
-	if call, ok := arg.(*ast.CallExpr); ok {
-		return cctx.FactoryCallReturnsContextUsingFunc(call)
-	}
-
-	if sel, ok := arg.(*ast.SelectorExpr); ok {
-		return cctx.SelectorExprCapturesContext(sel)
-	}
-
-	if idx, ok := arg.(*ast.IndexExpr); ok {
-		return cctx.IndexExprCapturesContext(idx)
-	}
-
-	return true
-}
-
-// checkFuncLitAssignments checks all func literal assignments from last unconditional onwards.
-// ALL must pass for the check to succeed.
-func (c *spawnClosureCheck) checkFuncLitAssignments(cctx *probe.Context, assigns []probe.FuncLitAssignment) bool {
-	// ALL must pass (because conditional assignments may override)
-	for _, assign := range probe.EffectiveFuncLitAssignments(assigns) {
-		if !c.checkFuncLitAST(cctx, assign.Lit) {
-			return false
-		}
-	}
-	return true
-}
-
-// checkFuncLitAST checks a func literal using AST-based analysis.
-func (c *spawnClosureCheck) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLit) bool {
-	// Check context capture
-	if cctx.FuncLitCapturesContext(lit) {
-		return true
-	}
-
-	// If derivers configured, also check if deriver is called
-	if !c.derivers.IsEmpty() {
-		if c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // =============================================================================
@@ -222,12 +141,6 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []an
 		return nil
 	}
 
-	// Find func-typed arguments
-	funcArgs := findSpawnableFuncArgs(cctx.Pass, call)
-	if len(funcArgs) == 0 {
-		return nil
-	}
-
 	ctxName := cctx.CtxNames[0]
 
 	// Format error message based on whether deriver is configured
@@ -236,54 +149,32 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []an
 		msgFormat = "%s() func argument should use context %q or call goroutine deriver"
 	}
 
-	// Report each failing argument at its position
+	// Report each failing func argument at its position. A struct field or
+	// an indexed element is not looked up.
+	args := spawnedCallArgs(cctx, call)
+	r := c.resolver(cctx)
 	var diags []analysis.Diagnostic
-	for _, arg := range funcArgs {
-		if !c.checkFuncArg(cctx, arg) {
+	for i, arg := range call.Args {
+		if !spawnIsFuncArg(cctx.Pass, arg) {
+			continue
+		}
+		var v gossa.Value
+		if args != nil {
+			v = args[i]
+		}
+		if !spawnedFuncPasses(cctx, arg, v, r, false) {
 			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
 		}
 	}
 	return diags
 }
 
-func (c *SpawnerChecker) checkFuncArg(cctx *probe.Context, arg ast.Expr) bool {
-	// Try SSA-based check first
-	if lit, ok := arg.(*ast.FuncLit); ok {
-		if result, ok := c.checkFuncLitSSA(cctx, lit); ok {
-			return result
-		}
-		return c.checkFuncLitAST(cctx, lit)
+// spawnIsFuncArg reports whether arg is of a func type.
+func spawnIsFuncArg(pass *analysis.Pass, arg ast.Expr) bool {
+	tv, ok := pass.TypesInfo.Types[arg]
+	if !ok {
+		return false
 	}
-
-	if ident, ok := arg.(*ast.Ident); ok {
-		assigns := cctx.FuncLitAssignmentsOfIdent(ident)
-		if len(assigns) == 0 {
-			return true
-		}
-		return c.checkFuncLitAssignments(cctx, assigns)
-	}
-
-	if call, ok := arg.(*ast.CallExpr); ok {
-		return cctx.FactoryCallReturnsContextUsingFunc(call)
-	}
-
-	return true
-}
-
-// findSpawnableFuncArgs finds all arguments in a call that are func types.
-func findSpawnableFuncArgs(pass *analysis.Pass, call *ast.CallExpr) []ast.Expr {
-	var funcArgs []ast.Expr
-
-	for _, arg := range call.Args {
-		tv, ok := pass.TypesInfo.Types[arg]
-		if !ok {
-			continue
-		}
-
-		if _, isFunc := tv.Type.Underlying().(*types.Signature); isFunc {
-			funcArgs = append(funcArgs, arg)
-		}
-	}
-
-	return funcArgs
+	_, isFunc := tv.Type.Underlying().(*types.Signature)
+	return isFunc
 }

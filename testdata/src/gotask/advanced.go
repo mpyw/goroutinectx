@@ -114,14 +114,13 @@ func goodLoMapEarlyReturn(ctx context.Context) {
 		})...)
 }
 
-// [LIMITATION]: Callback with variable assignment before return
+// [GOOD]: Callback with variable assignment before return
 //
-// Variable assignment in callback is not traced (would need SSA).
-func limitationLoMapVariableAssignment(ctx context.Context) {
+// The closure assigned to a variable before its return is resolved through SSA.
+func goodLoMapVariableAssignment(ctx context.Context) {
 	chunk := []UnprocessedProduct{{ID: "1"}, {ID: "2"}}
-	_ = gotask.DoAllFnsSettled(ctx, // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(ctx,
 		lo.Map(chunk, func(p UnprocessedProduct, _ int) func(context.Context) ProcessedProduct {
-			// Variable assignment - can't trace without SSA
 			fn := func(ctx context.Context) ProcessedProduct {
 				_ = apm.NewGoroutineContext(ctx)
 				return ProcessedProduct{ID: p.ID}
@@ -169,14 +168,14 @@ func makeTaskFactoryNoDeriver(p UnprocessedProduct) func(context.Context) Proces
 	}
 }
 
-// [LIMITATION]: lo.Map callback calling external factory function
+// [GOOD]: lo.Map callback calling external factory function
 //
-// Factory function calls in callback return cannot be traced.
-func limitationLoMapExternalFactory(ctx context.Context) {
+// The factory function the callback calls is resolved through SSA.
+func goodLoMapExternalFactory(ctx context.Context) {
 	chunk := []UnprocessedProduct{{ID: "1"}, {ID: "2"}}
-	_ = gotask.DoAllFnsSettled(ctx, // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(ctx,
 		lo.Map(chunk, func(p UnprocessedProduct, _ int) func(context.Context) ProcessedProduct {
-			return makeTaskFactory(p) // Returns func with deriver, but can't trace
+			return makeTaskFactory(p) // Returns func with deriver
 		})...)
 }
 

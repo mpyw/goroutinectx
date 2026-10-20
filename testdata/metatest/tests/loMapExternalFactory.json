@@ -4,10 +4,10 @@
     "gotask"
   ],
   "variants": {
-    "limitation": {
-      "description": "Factory function calls in callback return cannot be traced.",
+    "good": {
+      "description": "The factory function the callback calls is resolved through SSA.",
       "functions": {
-        "gotask": "limitationLoMapExternalFactory"
+        "gotask": "goodLoMapExternalFactory"
       }
     }
   },

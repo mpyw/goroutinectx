@@ -1,10 +1,5 @@
-// Package probe provides AST analysis helpers for context propagation detection.
-//
-// # Overview
-//
-// The probe package provides [Context] which encapsulates the analysis state
-// and provides methods for probing AST nodes. It is the primary interface
-// between checkers and the underlying analysis infrastructure.
+// Package probe holds the per-node state the checkers get, and the AST
+// lookups that SSA does not cover.
 //
 // # Context Structure
 //
@@ -16,64 +11,18 @@
 //	    Carriers  []carrier.Carrier     // Configured carrier types
 //	}
 //
-// # Analysis Methods
+// # AST Lookups
 //
-// Context provides several categories of analysis methods:
+// A spawned function or callback is resolved through SSA (see package ssa).
+// Two forms are still looked up on the AST: a struct field and an indexed
+// element of a composite literal assigned to a variable.
 //
-//	┌─────────────────────────────────────────────────────────────────────┐
-//	│                      Analysis Method Categories                      │
-//	├──────────────────────┬──────────────────────────────────────────────┤
-//	│ Context Capture      │ FuncLitCapturesContext, FuncLitUsesContext   │
-//	│ Parameter Detection  │ FuncLitHasContextParam, FuncTypeHasContextParam│
-//	│ Factory Functions    │ FactoryCallReturnsContextUsingFunc           │
-//	│ Variable Resolution  │ FuncLitAssignedToIdent                       │
-//	└──────────────────────┴──────────────────────────────────────────────┘
+//	s := S{F: func() { ... }}
+//	go s.F()        // SelectorExprCapturesContext
 //
-// # SSA vs AST Analysis
+//	fs := []func(){func() { ... }}
+//	go fs[0]()      // IndexExprCapturesContext
 //
-// The probe package uses a two-tier analysis approach:
-//
-//  1. SSA-based analysis (preferred): More accurate but may not always succeed
-//  2. AST-based analysis (fallback): Always available, conservative
-//
-// Example pattern used by checkers:
-//
-//	func checkFunc(cctx *probe.Context, lit *ast.FuncLit) bool {
-//	    // Try SSA first
-//	    if result, ok := cctx.SSAProg.FuncLitCapturesContext(lit, cctx.Carriers); ok {
-//	        return result
-//	    }
-//	    // Fall back to AST
-//	    return cctx.FuncLitCapturesContext(lit)
-//	}
-//
-// # Context Capture Detection
-//
-// The package determines if a closure "captures" context through several mechanisms:
-//
-//	// Direct capture - context variable referenced in closure body
-//	go func() {
-//	    doWork(ctx)  // ctx is captured from enclosing scope
-//	}()
-//
-//	// Parameter capture - closure has context parameter
-//	go func(ctx context.Context) {
-//	    doWork(ctx)  // ctx passed as parameter
-//	}(ctx)
-//
-//	// Factory capture - closure returned by factory that receives context
-//	go makeWorker(ctx)()  // factory receives context
-//
-// # Carrier Types
-//
-// Beyond context.Context, the analyzer supports custom carrier types configured
-// via the -context-carriers flag. These are types that wrap or carry context:
-//
-//	// Example: echo.Context carries request context
-//	// Configure with: -context-carriers=github.com/labstack/echo/v4.Context
-//	func handler(c echo.Context) {
-//	    go func() {
-//	        processRequest(c)  // c is a carrier type
-//	    }()
-//	}
+// The function literal found is checked by [Context.FuncLitUsesContext]: its
+// body references a context or a configured carrier, outside nested literals.
 package probe

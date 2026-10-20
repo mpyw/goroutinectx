@@ -66,10 +66,10 @@ goroutinectx/
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
-│   ├── probe/                 # AST checks over one function
+│   ├── probe/                 # AST lookups of struct fields and indexed elements
 │   ├── registry/              # The one table of supported spawning APIs
 │   ├── scope/                 # Context scope detection
-│   ├── ssa/                   # SSA program, closure checks, call walker
+│   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
 │   ├── metatest/              # Test metadata validation (structure.json)
@@ -141,6 +141,8 @@ Four checkers handle goroutine context propagation:
 - Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory
 - Directive: Functions marked with `//goroutinectx:spawner` check their func arguments
 
+**How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `ssa.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A value it cannot follow passes: a parameter, an interface method, a variable a closure writes. A struct field or an indexed element is still looked up on the AST.
+
 **spawner Directive:**
 ```go
 //goroutinectx:spawner
@@ -158,8 +160,9 @@ func caller(ctx context.Context) {
 
 **Known Limitations:**
 - Channel receives - can't trace func from channel
-- Nested closure ctx (e.g., `defer func() { _ = ctx }()`) - intentionally not counted
 - `interface{}` type assertion - can't trace func through type assertion
+- A variable written by a closure - not followed, so it passes
+- A parenthesized function, as `go (fn)()` - not traced
 
 ### Derive Function Matching (DeriveMatcher)
 
@@ -196,9 +199,8 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 
 **Known Limitations:**
-- Variable references can't be traced (e.g., `task := NewTask(fn); DoAll(ctx, task)`)
-- Nested function literals aren't traversed (e.g., deriver in `defer func(){}()` inside task)
-- Higher-order function returns can't be traced (e.g., `DoAll(ctx, makeTask())`)
+- The elements of a slice variable expanded with `...` can't be traced, so it is reported
+- A task from an interface method can't be traced, so it is reported
 
 ## Development Commands
 
