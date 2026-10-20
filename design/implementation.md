@@ -54,7 +54,6 @@ goroutinectx/
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
-│   ├── apis.go                # Spawning APIs registered for spawnerlabel
 │   ├── checker/               # Checker names
 │   ├── checkers/              # Checker implementations
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
@@ -68,7 +67,7 @@ goroutinectx/
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
 │   ├── probe/                 # AST checks over one function
-│   ├── registry/              # Registry of spawning APIs
+│   ├── registry/              # The one table of supported spawning APIs
 │   ├── scope/                 # Context scope detection
 │   ├── ssa/                   # SSA program, closure checks, call walker
 │   └── typeutil/              # Type checking utilities
@@ -112,7 +111,6 @@ type goStmtChecker interface {
 
 type callChecker interface {
     Name() checker.Name
-    MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
     CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
 }
 ```
@@ -242,10 +240,11 @@ type MyChecker struct{}
 
 func (*MyChecker) Name() checker.Name { return checker.My }
 
-// For call expression checks
-func (c *MyChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool { ... }
+// For call expression checks. A spawning API goes in the table in
+// internal/registry, with this checker's name.
 func (c *MyChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
-    // Return one diagnostic per report, at its own position
+    // Return nil for a call it does not check, else one diagnostic per
+    // report, at its own position
 }
 
 // OR for go statement checks
