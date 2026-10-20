@@ -93,10 +93,15 @@ func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool)
 }
 
 // resultPasses reports whether calling v depth times gives a function that
-// passes. Of a factory, any value it returns passing is enough.
+// passes. Of a factory, any value it returns passing is enough. A result
+// more than resolvedMaxDepth calls away passes, so that a factory whose
+// type returns itself, as type stateFn func() stateFn, ends.
 func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]bool) bool {
 	if depth == 0 {
 		return r.passes(v, seen)
+	}
+	if depth > resolvedMaxDepth {
+		return true
 	}
 	switch x := v.(type) {
 	case *ssa.MakeClosure:
