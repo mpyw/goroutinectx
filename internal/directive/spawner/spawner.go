@@ -12,13 +12,25 @@ import (
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 )
 
+// Fact marks a function of an imported package as a spawner. The package
+// that declares the function exports it, so that //goroutinectx:spawner
+// applies to calls from other packages too.
+type Fact struct{}
+
+// AFact makes Fact an analysis.Fact.
+func (*Fact) AFact() {}
+
+func (*Fact) String() string { return "spawner" }
+
 // Map tracks functions marked with //goroutinectx:spawner.
 type Map struct {
+	pass     *analysis.Pass
 	local    map[*types.Func]struct{}
 	external []funcspec.Spec
 }
 
-// IsSpawner checks if a function is marked as a spawner.
+// IsSpawner checks if a function is marked as a spawner: by a directive in
+// this package or an imported one, or by -external-spawner.
 func (m *Map) IsSpawner(fn *types.Func) bool {
 	if m == nil {
 		return false
@@ -28,15 +40,11 @@ func (m *Map) IsSpawner(fn *types.Func) bool {
 		return true
 	}
 
-	return m.matchesExternal(fn)
-}
-
-// Len returns the total number of spawners.
-func (m *Map) Len() int {
-	if m == nil {
-		return 0
+	if fn.Pkg() != nil && fn.Pkg() != m.pass.Pkg && m.pass.ImportObjectFact(fn, new(Fact)) {
+		return true
 	}
-	return len(m.local) + len(m.external)
+
+	return m.matchesExternal(fn)
 }
 
 // matchesExternal checks if fn matches any external spec.
@@ -48,12 +56,19 @@ func (m *Map) matchesExternal(fn *types.Func) bool {
 // and parses the external spawner flag.
 func Build(pass *analysis.Pass, externalSpawners []string) *Map {
 	m := &Map{
+		pass:     pass,
 		local:    make(map[*types.Func]struct{}),
 		external: parseExternal(externalSpawners),
 	}
 
 	for _, file := range pass.Files {
 		buildForFile(pass, file, m.local)
+	}
+	// Only an exported function can be called from another package.
+	for fn := range m.local {
+		if fn.Exported() {
+			pass.ExportObjectFact(fn, new(Fact))
+		}
 	}
 
 	return m
@@ -73,27 +88,16 @@ func parseExternal(parts []string) []funcspec.Spec {
 	return specs
 }
 
-// buildForFile scans a single file for spawner directives.
+// buildForFile scans a single file for functions whose doc comment holds a
+// spawner directive. The directive may sit on any line of it.
 func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{}) {
-	lineComments := make(map[int]string)
-
-	for _, cg := range file.Comments {
-		for _, c := range cg.List {
-			if isSpawnerComment(c.Text) {
-				line := pass.Fset.PositionFor(c.Pos(), false).Line
-				lineComments[line] = c.Text
-			}
-		}
-	}
-
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok {
+		if !ok || funcDecl.Doc == nil {
 			continue
 		}
 
-		funcLine := pass.Fset.PositionFor(funcDecl.Pos(), false).Line
-		if _, hasDirective := lineComments[funcLine-1]; !hasDirective {
+		if !slices.ContainsFunc(funcDecl.Doc.List, func(c *ast.Comment) bool { return isSpawnerComment(c.Text) }) {
 			continue
 		}
 

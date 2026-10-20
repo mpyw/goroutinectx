@@ -57,6 +57,10 @@ func DefaultConfig() Config {
 	}
 }
 
+// FactTypes are the facts Run exports and imports. The analyzer that calls
+// it must declare them.
+var FactTypes = []analysis.Fact{new(spawner.Fact)}
+
 // ErrNoInspector is returned when the inspect analyzer's result is missing.
 var ErrNoInspector = errors.New("inspector analyzer result not found")
 
@@ -288,7 +292,7 @@ func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map)
 		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Conc, derivers))
 	}
 
-	if cfg.Spawner && spawners.Len() > 0 {
+	if cfg.Spawner {
 		callCheckers = append(callCheckers, checkers.NewSpawnerChecker(spawners, derivers))
 	}
 

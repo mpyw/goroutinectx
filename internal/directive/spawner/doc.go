@@ -8,7 +8,9 @@
 //
 // # Directive Usage
 //
-// Mark a function with the directive in its doc comment:
+// Mark a function with the directive on any line of its doc comment. An
+// exported spawner is exported as a [Fact], so calls from importing packages
+// are checked too:
 //
 //	//goroutinectx:spawner
 //	func runInBackground(fn func()) {
@@ -25,9 +27,9 @@
 //
 // # Parsing
 //
-// Use [Parse] to find all spawner-marked functions in a package:
+// Use [Build] to find all spawner-marked functions in a package:
 //
-//	spawners := spawner.Parse(pass)
+//	spawners := spawner.Build(pass, externalSpawners)
 //
 // This returns a set of *types.Func that are marked as spawners.
 //
@@ -35,7 +37,7 @@
 //
 // The returned map can be queried with [Map.IsSpawner]:
 //
-//	spawners := spawner.Parse(pass)
+//	spawners := spawner.Build(pass, externalSpawners)
 //	if spawners.IsSpawner(fn) {
 //	    // Function is marked with //goroutinectx:spawner
 //	}

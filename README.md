@@ -361,7 +361,9 @@ An ignore that silences no report is reported as unused.
 
 ### `//goroutinectx:spawner`
 
-Mark a function as one that spawns goroutines with its func arguments. The analyzer will check that func arguments passed to marked functions properly use context:
+Mark a function as one that spawns goroutines with its func arguments. The analyzer will check that func arguments passed to marked functions properly use context.
+
+The directive goes anywhere in the function's doc comment. An exported spawner is also a spawner for calls from other packages, as long as goroutinectx analyzes the package that declares it (as `go vet` and golangci-lint do).
 
 ```go
 //goroutinectx:spawner

@@ -17,6 +17,9 @@
     "linedirectivelabel",
     "ignoreforms",
     "resolve",
-    "resolvederive"
+    "resolvederive",
+    "spawnerfact",
+    "spawnerfactlib",
+    "spawnerlabeldoc"
   ]
 }
