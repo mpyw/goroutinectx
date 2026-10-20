@@ -194,6 +194,44 @@ func TestSpawnerlabelDoc(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerlabeldoc")
 }
 
+// TestGenerics checks calls of generic functions and of methods of generic
+// types (#86).
+func TestGenerics(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "generics")
+}
+
+// TestGenericsDerive is TestGenerics for gotask, with -goroutine-deriver set.
+func TestGenericsDerive(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
+	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "genericsderive")
+}
+
+// TestGenericsLabel checks -spawnerlabel with generic spawners (#86).
+func TestGenericsLabel(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "genericslabel")
+}
+
 func TestDirective(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "directive")
