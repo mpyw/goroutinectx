@@ -91,9 +91,26 @@ func (s Spec) Matches(fn *types.Func) bool {
 	return named.Obj().Name() == s.TypeName
 }
 
-// ExtractFunc extracts the types.Func from a call expression.
+// ExtractFunc extracts the types.Func from a call expression. Explicit type
+// arguments are looked through, and a function or method of a generic type
+// is given as its generic origin.
 func ExtractFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
-	switch fun := call.Fun.(type) {
+	if fn := extractCalledFunc(pass, call); fn != nil {
+		return fn.Origin()
+	}
+	return nil
+}
+
+func extractCalledFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {
+	fun := ast.Unparen(call.Fun)
+	switch index := fun.(type) {
+	case *ast.IndexExpr:
+		fun = index.X
+	case *ast.IndexListExpr:
+		fun = index.X
+	}
+
+	switch fun := fun.(type) {
 	case *ast.Ident:
 		obj := pass.TypesInfo.ObjectOf(fun)
 		if f, ok := obj.(*types.Func); ok {

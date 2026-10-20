@@ -35,6 +35,7 @@ func (m *Map) IsSpawner(fn *types.Func) bool {
 	if m == nil {
 		return false
 	}
+	fn = fn.Origin()
 
 	if _, ok := m.local[fn]; ok {
 		return true

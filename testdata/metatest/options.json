@@ -20,6 +20,9 @@
     "resolvederive",
     "spawnerfact",
     "spawnerfactlib",
-    "spawnerlabeldoc"
+    "spawnerlabeldoc",
+    "generics",
+    "genericsderive",
+    "genericslabel"
   ]
 }
