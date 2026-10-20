@@ -223,7 +223,7 @@ goroutines/b.go:50:2: goroutine does not propagate context "ctx"
 			args: []string{"-goroutine-deriver=example.com/e2e/apm.NewGoroutineContext", "./tasks/..."},
 			want: `tasks/tasks.go:12:31: gotask.DoAllSettled() 2nd argument should call goroutine deriver
 tasks/tasks.go:25:34: gotask.DoAllFnsSettled() 2nd argument should call goroutine deriver
-tasks/tasks.go:45:7: gotask.(*Task).DoAsync() 1st argument should call goroutine deriver
+tasks/tasks.go:45:7: gotask.Task.DoAsync() 1st argument should call goroutine deriver
 `,
 		},
 	}

@@ -253,7 +253,7 @@ func badDoAsyncCallbackVariable(ctx context.Context) {
 	}
 	task := gotask.NewTask(callback)
 	errChan := make(chan error, 1)
-	task.DoAsync(ctx, errChan) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task.DoAsync(ctx, errChan) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [GOOD]: DoAllFnsSettled with callback variable
@@ -299,5 +299,5 @@ func badDoAsyncNonDeriverVariable(ctx context.Context) {
 	})
 	nonDerivedCtx := context.Background()
 	errChan := make(chan error, 1)
-	task.DoAsync(nonDerivedCtx, errChan) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task.DoAsync(nonDerivedCtx, errChan) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }

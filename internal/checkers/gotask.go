@@ -99,25 +99,14 @@ func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, en
 		return nil
 	}
 
-	// Neither condition satisfied - report error with pointer receiver format,
-	// at the method name.
+	// Neither condition satisfied - report at the method name.
 	pos := call.Pos()
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 		pos = sel.Sel.Pos()
 	}
-	return []analysis.Diagnostic{{Pos: pos, Message: formatGotaskMethodMessage(entry.Spec.FullName())}}
+	return []analysis.Diagnostic{{Pos: pos, Message: entry.Spec.FullName() + "() 1st argument should call goroutine deriver"}}
 }
 
-// formatGotaskMethodMessage formats a method name with pointer receiver.
-// Input: "gotask.Task.DoAsync"
-// Output: "gotask.(*Task).DoAsync() 1st argument should call goroutine deriver"
-func formatGotaskMethodMessage(apiName string) string {
-	parts := strings.Split(apiName, ".")
-	if len(parts) == 3 {
-		return parts[0] + ".(*" + parts[1] + ")." + parts[2] + "() 1st argument should call goroutine deriver"
-	}
-	return apiName + "() 1st argument should call goroutine deriver"
-}
 
 func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
 	startIdx := entry.CallbackArgIdx
@@ -275,6 +264,10 @@ func (c *GotaskChecker) taskDerives(cctx *probe.Context, v gossa.Value) bool {
 	}
 	r := c.resolver(cctx)
 	return !slices.ContainsFunc(values, func(v gossa.Value) bool {
+		// DoAsync of a CancelableTask runs the Task it embeds.
+		if f, ok := v.(*gossa.Field); ok && gotaskIsTaskType(f.X.Type()) {
+			return !c.taskDerives(cctx, f.X)
+		}
 		call, ok := v.(*gossa.Call)
 		if !ok {
 			return true

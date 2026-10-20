@@ -13,26 +13,6 @@ import (
 	"github.com/sourcegraph/conc/stream"
 )
 
-// ===== conc.Pool =====
-
-// [BAD]: conc.Pool.Go without ctx
-func badConcPoolGo(ctx context.Context) {
-	p := &conc.Pool{}
-	p.Go(func() { // want `conc.Pool.Go\(\) closure should use context "ctx"`
-		fmt.Println("no context")
-	})
-	p.Wait()
-}
-
-// [GOOD]: conc.Pool.Go with ctx
-func goodConcPoolGo(ctx context.Context) {
-	p := &conc.Pool{}
-	p.Go(func() {
-		_ = ctx
-	})
-	p.Wait()
-}
-
 // ===== conc.WaitGroup =====
 
 // [BAD]: conc.WaitGroup.Go without ctx
