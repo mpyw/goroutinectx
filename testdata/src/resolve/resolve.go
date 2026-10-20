@@ -231,3 +231,48 @@ func notCheckedMethodFreshCtx(ctx context.Context) {
 	s := &service{ctx: ctx}
 	go s.run(context.Background())
 }
+
+// ===== PARTS OF VALUES THAT ARE NOT VARIABLES =====
+
+type partHolder struct{ fn func() }
+
+type nestedPartHolder struct{ inner partHolder }
+
+func makePartHolders() [1]partHolder { return [1]partHolder{{fn: func() {}}} }
+
+func makeNestedPartHolder() nestedPartHolder {
+	return nestedPartHolder{inner: partHolder{fn: func() {}}}
+}
+
+func makePartHolder() partHolder { return partHolder{fn: func() {}} }
+
+// [NOTCHECKED]: A part of a call's result, or of a value chosen on a branch, is not followed.
+func notCheckedPartOfCallResult(ctx context.Context, c bool) {
+	a := makePartHolders()[0]
+	go a.fn()
+	b := makeNestedPartHolder().inner
+	go b.fn()
+	var t partHolder
+	if c {
+		t = makePartHolder()
+	} else {
+		t = makePartHolder()
+	}
+	s := t
+	go s.fn()
+}
+
+// [BAD]: A struct chosen on a branch from two variables, one holding a func without ctx.
+func badPartOfValueChosenOnBranch(ctx context.Context, c bool) {
+	var x, y partHolder
+	x.fn = func() { use(ctx) }
+	y.fn = func() {}
+	var t partHolder
+	if c {
+		t = x
+	} else {
+		t = y
+	}
+	s := t
+	go s.fn() // want `goroutine does not propagate context "ctx"`
+}
