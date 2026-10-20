@@ -47,3 +47,35 @@ func CallHasFuncArgs(call *ssa.CallCommon, startIdx int) bool {
 	}
 	return false
 }
+
+// CallsInArgs gives the functions called to make the arguments of call, as
+// txn.NewGoroutine() in go worker(txn.NewGoroutine()), however deep in them.
+func CallsInArgs(call *ssa.CallCommon) []*types.Func {
+	var fns []*types.Func
+	seen := make(map[ssa.Value]bool)
+	var visit func(v ssa.Value)
+	visit = func(v ssa.Value) {
+		if v == nil || seen[v] {
+			return
+		}
+		seen[v] = true
+		if c, ok := v.(*ssa.Call); ok {
+			if fn := ExtractCalledFunc(c.Common()); fn != nil {
+				fns = append(fns, fn)
+			}
+		}
+		instr, ok := v.(ssa.Instruction)
+		if !ok {
+			return
+		}
+		for _, op := range instr.Operands(nil) {
+			if op != nil {
+				visit(*op)
+			}
+		}
+	}
+	for _, arg := range call.Args {
+		visit(arg)
+	}
+	return fns
+}
