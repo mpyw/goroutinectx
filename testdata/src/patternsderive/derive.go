@@ -274,3 +274,31 @@ func badStructFieldNoDeriverErrgroup(ctx context.Context) {
 	}}
 	g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx" or call goroutine deriver`
 }
+
+// ===== A decorator given a func that calls the deriver =====
+
+func recoverDerive(f func()) func() {
+	return func() {
+		defer func() { _ = recover() }()
+		f()
+	}
+}
+
+// [GOOD]: Decorator given a func that calls the deriver.
+//
+// The decorator runs the func it is given, so that func is judged (#148).
+func goodDecoratorCallsDeriver(ctx context.Context) {
+	go recoverDerive(func() {
+		ctx := apm.NewGoroutineContext(ctx)
+		_ = ctx
+	})()
+}
+
+// [BAD]: Decorator given a func that does not call the deriver.
+//
+// Neither the func nor the decorator calls the deriver.
+func badDecoratorMissingDeriver(ctx context.Context) {
+	go recoverDerive(func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		_ = ctx
+	})()
+}

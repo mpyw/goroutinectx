@@ -76,7 +76,9 @@ func (r *FuncResolver) closurePasses(fn *ssa.Function) bool {
 	return r.Closure(fn)
 }
 
-// callPasses judges the result of call, the function a factory returns.
+// callPasses judges the result of call, the function a factory returns. A
+// call given a function that passes passes too: a decorator, as one that
+// recovers panics, runs the function it is given.
 func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool) bool {
 	if r.Call != nil {
 		if passes, handled := r.Call(call); handled {
@@ -87,6 +89,12 @@ func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool)
 		return true
 	}
 	if r.FactoryCall != nil && r.FactoryCall(call) {
+		return true
+	}
+	if slices.ContainsFunc(call.Args, func(arg ssa.Value) bool {
+		_, isFunc := arg.Type().Underlying().(*types.Signature)
+		return isFunc && r.passes(arg, seen)
+	}) {
 		return true
 	}
 	return r.resultPasses(call.Value, 1, seen)
