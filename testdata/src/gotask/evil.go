@@ -664,3 +664,16 @@ func nonDerivingTasks() []func(context.Context) error {
 		func(ctx context.Context) error { return nil },
 	}
 }
+
+// ===== CONTEXT WRAPPED IN A LOOP =====
+
+// [BAD]: DoAsync given ctx wrapped in a loop, never derived
+//
+// The context the loop makes is followed back to ctx, which is not derived.
+func badDoAsyncWrappedInLoop(ctx context.Context, n int) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	for i := range n {
+		ctx = context.WithValue(ctx, gotaskCtxKey{}, i)
+	}
+	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
