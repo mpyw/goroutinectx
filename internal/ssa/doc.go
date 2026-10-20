@@ -74,7 +74,7 @@
 // # Walking Calls
 //
 // [CallWalker] walks the Call, Defer and Go instructions of a function, going
-// into IIFEs, and with Closures set into every closure. The deriver check and
+// into IIFEs, and with Goroutines set into the literal a go statement runs. The deriver check and
 // the spawnerlabel checker both walk calls with it.
 //
 // # Closure Free Variables

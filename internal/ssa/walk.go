@@ -16,13 +16,14 @@ type WalkedCall struct {
 }
 
 // CallWalker walks the Call, Defer and Go instructions of a function. It goes
-// into each immediately invoked function literal, and with Closures into each
-// closure the function makes. A walker walks each function once as deferred
+// into each immediately invoked function literal, and with Goroutines into
+// each function literal a go statement runs. A walker walks each function once as deferred
 // and once as not, however many times it is asked to, so a function both
 // deferred and called directly is seen called directly too.
 type CallWalker struct {
-	// Closures makes the walk go into every closure made, not only IIFEs.
-	Closures bool
+	// Goroutines makes the walk go into the function literal a go statement
+	// runs.
+	Goroutines bool
 
 	visited map[walkVisit]bool
 }
@@ -37,11 +38,6 @@ type walkVisit struct {
 // returns false. It reports whether the walk ran to the end.
 func (w *CallWalker) Walk(fn *ssa.Function, visit func(WalkedCall) bool) bool {
 	return w.walk(fn, false, visit)
-}
-
-// Walked reports whether fn has been walked already.
-func (w *CallWalker) Walked(fn *ssa.Function) bool {
-	return w.visited[walkVisit{fn, false}] || w.visited[walkVisit{fn, true}]
 }
 
 func (w *CallWalker) walk(fn *ssa.Function, inDefer bool, visit func(WalkedCall) bool) bool {
@@ -73,12 +69,8 @@ func (w *CallWalker) walk(fn *ssa.Function, inDefer bool, visit func(WalkedCall)
 				if !visit(WalkedCall{Call: &v.Call, inDefer: inDefer, isGo: true}) {
 					return false
 				}
-
-			case *ssa.MakeClosure:
-				if closure, ok := v.Fn.(*ssa.Function); ok && w.Closures {
-					if !w.walk(closure, inDefer, visit) {
-						return false
-					}
+				if w.Goroutines && !w.walk(calleeToWalk(&v.Call), false, visit) {
+					return false
 				}
 			}
 		}

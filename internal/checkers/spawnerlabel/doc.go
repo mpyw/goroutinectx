@@ -1,68 +1,38 @@
-// Package spawnerlabel provides spawner label directive validation.
+// Package spawnerlabel checks that //goroutinectx:spawner labels the
+// functions that spawn, and only those. It runs with -spawnerlabel.
 //
-// # Overview
+// # Missing Label
 //
-// This package validates //goroutinectx:spawner directives by checking that
-// the marked function actually calls one of its function arguments in a
-// goroutine.
+// A function needs the label when it calls a supported API, such as
+// errgroup.Group.Go, with a func argument, or calls another spawner with one,
+// or calls gotask's DoAsync:
 //
-// # Why Validate?
-//
-// Without validation, users might incorrectly mark functions that don't
-// actually spawn goroutines:
-//
-//	//goroutinectx:spawner  // Warning: does not spawn goroutine
-//	func notASpawner(fn func()) {
-//	    fn()  // Called synchronously, not in goroutine
+//	func runTask(task func() error) { // should have //goroutinectx:spawner
+//	    g := new(errgroup.Group)
+//	    g.Go(task)
+//	    _ = g.Wait()
 //	}
 //
-// # Valid Spawner Patterns
+// The calls made in the closures the function runs count too: IIFEs, a
+// closure called through a variable, the goroutines it starts, and the
+// closures a call returns when that result is called. A closure it only
+// makes, and does not run, does not count. A go statement on its own, as
+// go fn(), is not such a call.
 //
-// A valid spawner must call a function argument in a goroutine:
+// # Unnecessary Label
 //
-//	//goroutinectx:spawner
-//	func validSpawner(fn func()) {
-//	    go fn()  // OK: fn called in goroutine
+// A labeled function needs it only while it makes such a call or takes a
+// func parameter, the arguments the spawner checker checks. A type parameter
+// whose constraint allows only func types, as F ~func() does, is one:
+//
+//	//goroutinectx:spawner // unnecessary
+//	func simpleHelper() {
+//	    fmt.Println("hello")
 //	}
-//
-//	//goroutinectx:spawner
-//	func alsoValid(fn func()) {
-//	    g.Go(func() error {
-//	        fn()  // OK: fn called in errgroup goroutine
-//	        return nil
-//	    })
-//	}
-//
-// # Checker Interface
-//
-// Unlike other checkers, spawnerlabel operates at the pass level rather
-// than per-node. It implements a different interface:
-//
-//	type Checker struct {
-//	    reg      *registry.Registry
-//	    derivers *deriver.Matcher
-//	}
-//
-//	func (c *Checker) Check(
-//	    pass *analysis.Pass,
-//	    spawners spawner.Map,
-//	    ignoreMaps map[string]ignore.Map,
-//	)
 //
 // # Integration
 //
-// The checker is called separately from the main checker loop:
+// The checker runs over the whole pass, after the per-node checkers:
 //
-//	spawnerlabelChecker := spawnerlabel.New(reg, derivers)
-//	spawnerlabelChecker.Check(pass, spawners, ignoreMaps)
-//
-// # Error Messages
-//
-// When a spawner directive is misused:
-//
-//	//goroutinectx:spawner
-//	func notSpawner(fn func()) {
-//	    fn()  // Warning: function marked as spawner but does not spawn
-//	          // its function arguments in a goroutine
-//	}
+//	diags := spawnerlabel.New(spawners, ssaProg).Check(pass, skipFiles)
 package spawnerlabel
