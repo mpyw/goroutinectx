@@ -147,7 +147,7 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 			msg = fmt.Sprintf("%s() %s argument should call goroutine deriver",
 				entry.Spec.FullName(), gotaskArgOrdinal(i+1))
 		}
-		diags = append(diags, analysis.Diagnostic{Pos: call.Pos(), Message: msg})
+		diags = append(diags, analysis.Diagnostic{Pos: call.Args[i].Pos(), Message: msg})
 	}
 	return diags
 }

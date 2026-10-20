@@ -14,9 +14,9 @@ import (
 //
 // DoAllFnsSettled - func literal without deriver
 func badDoAllFnsSettledNoDeriver(ctx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		ctx,
-		func(ctx context.Context) bool {
+		func(ctx context.Context) bool { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			return true
 		},
 	)
@@ -26,20 +26,20 @@ func badDoAllFnsSettledNoDeriver(ctx context.Context) {
 //
 // Task function does not call the required context deriver.
 func badDoAllFnsSettledPartialDeriver(ctx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 3rd argument should call goroutine deriver` `gotask\.DoAllFnsSettled\(\) 5th argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		ctx,
 		func(ctx context.Context) error {
 			_ = apm.NewGoroutineContext(ctx)
 			return nil
 		},
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 3rd argument should call goroutine deriver`
 			return nil
 		},
 		func(ctx context.Context) error {
 			_ = apm.NewGoroutineContext(ctx)
 			return nil
 		},
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 5th argument should call goroutine deriver`
 			return nil
 		},
 	)
@@ -49,9 +49,9 @@ func badDoAllFnsSettledPartialDeriver(ctx context.Context) {
 //
 // Task function does not call context deriver.
 func badDoAllFnsSettledDerivedParentCtx(ctx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		apm.NewGoroutineContext(ctx),
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			return nil
 		},
 	)
@@ -63,9 +63,9 @@ func badDoAllFnsSettledDerivedParentCtx(ctx context.Context) {
 //
 // DoAllSettled - NewTask without deriver
 func badDoAllSettledNewTaskNoDeriver(ctx context.Context) {
-	_ = gotask.DoAllSettled( // want `gotask\.DoAllSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllSettled(
 		ctx,
-		gotask.NewTask(func(ctx context.Context) bool {
+		gotask.NewTask(func(ctx context.Context) bool { // want `gotask\.DoAllSettled\(\) 2nd argument should call goroutine deriver`
 			return true
 		}),
 	)
@@ -75,9 +75,9 @@ func badDoAllSettledNewTaskNoDeriver(ctx context.Context) {
 //
 // Task function properly calls the context deriver.
 func badDoAllSettledNewTaskDerivedParentCtx(ctx context.Context) {
-	_ = gotask.DoAllSettled( // want `gotask\.DoAllSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllSettled(
 		apm.NewGoroutineContext(ctx),
-		gotask.NewTask(func(ctx context.Context) bool {
+		gotask.NewTask(func(ctx context.Context) bool { // want `gotask\.DoAllSettled\(\) 2nd argument should call goroutine deriver`
 			return true
 		}),
 	)
@@ -253,9 +253,9 @@ func goodTaskDoAsyncBothCallDeriver(ctx context.Context) {
 //
 // DoAll without deriver
 func badDoAllNoDeriver(ctx context.Context) {
-	_ = gotask.DoAll( // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAll(
 		ctx,
-		gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		gotask.NewTask(func(ctx context.Context) gotask.Result[int] { // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
 			return gotask.Result[int]{Value: 1}
 		}),
 	)
@@ -265,9 +265,9 @@ func badDoAllNoDeriver(ctx context.Context) {
 //
 // DoAllFns without deriver
 func badDoAllFnsNoDeriver(ctx context.Context) {
-	_ = gotask.DoAllFns( // want `gotask\.DoAllFns\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFns(
 		ctx,
-		func(ctx context.Context) gotask.Result[int] {
+		func(ctx context.Context) gotask.Result[int] { // want `gotask\.DoAllFns\(\) 2nd argument should call goroutine deriver`
 			return gotask.Result[int]{Value: 1}
 		},
 	)
@@ -277,9 +277,9 @@ func badDoAllFnsNoDeriver(ctx context.Context) {
 //
 // DoRace without deriver
 func badDoRaceNoDeriver(ctx context.Context) {
-	_ = gotask.DoRace( // want `gotask\.DoRace\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoRace(
 		ctx,
-		gotask.NewTask(func(ctx context.Context) int {
+		gotask.NewTask(func(ctx context.Context) int { // want `gotask\.DoRace\(\) 2nd argument should call goroutine deriver`
 			return 1
 		}),
 	)
@@ -289,9 +289,9 @@ func badDoRaceNoDeriver(ctx context.Context) {
 //
 // DoRaceFns without deriver
 func badDoRaceFnsNoDeriver(ctx context.Context) {
-	_ = gotask.DoRaceFns( // want `gotask\.DoRaceFns\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoRaceFns(
 		ctx,
-		func(ctx context.Context) int {
+		func(ctx context.Context) int { // want `gotask\.DoRaceFns\(\) 2nd argument should call goroutine deriver`
 			return 1
 		},
 	)

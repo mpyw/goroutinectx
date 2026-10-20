@@ -177,7 +177,7 @@ type Entry struct {
 type Map map[int]*Entry  // Line numbers with ignore comments
 
 func Build(fset *token.FileSet, file *ast.File) Map
-func (m Map) ShouldIgnore(line int, checker CheckerName) bool  // Checks same line and previous line
+func (m Map) ShouldIgnore(line int, name checker.Name) bool  // Checks same line, and previous line unless that ignore trails code
 func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 ```
 

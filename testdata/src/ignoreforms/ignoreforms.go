@@ -104,3 +104,30 @@ func badUnusedConc(ctx context.Context) {
 	})
 	p.Wait()
 }
+
+// [BAD]: A trailing ignore covers its own line only, not the next (#87).
+func badTrailingIgnoreNextLine(ctx context.Context) {
+	go func() {}() //goroutinectx:ignore goroutine
+	go func() {}() // want `goroutine does not propagate context "ctx"`
+}
+
+//goroutinectx:spawner
+func spawnTwo(a, b func()) { go a(); go b() }
+
+// [BAD]: An ignore above one argument silences that argument only (#88).
+func badIgnoreOneArgument(ctx context.Context) {
+	spawnTwo(
+		//goroutinectx:ignore spawner
+		func() {},
+		func() {}, // want `spawnTwo\(\) func argument should use context "ctx"`
+	)
+}
+
+// [GOOD]: An ignore above a call silences the reports on its arguments.
+func goodIgnoreAboveCall(ctx context.Context) {
+	//goroutinectx:ignore spawner
+	spawnTwo(
+		func() {},
+		func() {},
+	)
+}
