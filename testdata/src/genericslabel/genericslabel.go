@@ -44,3 +44,29 @@ func GenRunUnion[F funcConstraint](f F) { _ = f } // want GenRunUnion:"spawner"
 //
 //goroutinectx:spawner
 func GenNotFunc[T any](v T) { _ = v } // want `function "GenNotFunc" has unnecessary //goroutinectx:spawner directive` GenNotFunc:"spawner"
+
+// nestedFuncConstraint embeds a constraint that allows only func types.
+type nestedFuncConstraint interface {
+	funcConstraint
+}
+
+// GenRunNested runs f, whose constraint embeds a func-only one.
+//
+//goroutinectx:spawner
+func GenRunNested[F nestedFuncConstraint](f F) { _ = f } // want GenRunNested:"spawner"
+
+// GenRunExact runs f, whose constraint is the exact func type.
+//
+//goroutinectx:spawner
+func GenRunExact[F interface{ func() }](f F) { _ = f } // want GenRunExact:"spawner"
+
+// GenNotFuncUnion takes a type parameter that may be a func or an int, so
+// its label is unnecessary.
+//
+//goroutinectx:spawner
+func GenNotFuncUnion[T ~func() | ~int](v T) { _ = v } // want `function "GenNotFuncUnion" has unnecessary //goroutinectx:spawner directive` GenNotFuncUnion:"spawner"
+
+// AnyParam takes an interface, not a func, so its label is unnecessary.
+//
+//goroutinectx:spawner
+func AnyParam(v any) { _ = v } // want `function "AnyParam" has unnecessary //goroutinectx:spawner directive` AnyParam:"spawner"
