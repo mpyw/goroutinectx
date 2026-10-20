@@ -12,7 +12,7 @@
 //	│  - GoroutineDerive   │ go func() { ... }() without deriver call     │
 //	├──────────────────────┼──────────────────────────────────────────────┤
 //	│ CallChecker          │ Checks function call expressions             │
-//	│  - CallArgChecker    │ Generic callback argument checker            │
+//	│  - SpawnCallback     │ Callback argument checker of one table entry │
 //	│    - Errgroup        │ errgroup.Group.Go() callbacks                │
 //	│    - Waitgroup       │ sync.WaitGroup.Go() callbacks (Go 1.25+)     │
 //	│    - Conc            │ github.com/sourcegraph/conc callbacks        │
@@ -38,13 +38,12 @@
 //	    }()
 //	}
 //
-// # CallArgChecker
+// # SpawnCallbackChecker
 //
-// Factory functions create checkers for specific APIs:
+// One checker type covers errgroup, waitgroup and conc. It checks the calls
+// to the registry entries of its checker name:
 //
-//	checker := NewErrgroupSpawnChecker(deriveMatcher)
-//	checker := NewWaitgroupSpawnChecker(deriveMatcher)
-//	checker := NewConcSpawnChecker(deriveMatcher)
+//	c := NewSpawnCallbackChecker(checker.Errgroup, deriveMatcher)
 //
 // Example detection:
 //

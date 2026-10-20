@@ -13,6 +13,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
+	"github.com/mpyw/goroutinectx/internal/registry"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
@@ -30,38 +31,14 @@ type gotaskConstructorConfig struct {
 	callbackArgIdx int
 }
 
-// GotaskChecker checks gotask library API calls.
+// GotaskChecker checks calls to the gotask entries of the registry.
 type GotaskChecker struct {
 	derivers *deriver.Matcher
-	entries  []gotaskEntry
-}
-
-// gotaskEntry defines a gotask API to check.
-type gotaskEntry struct {
-	Spec           funcspec.Spec
-	CallbackArgIdx int
-	Variadic       bool
-	IsDoAsync      bool
 }
 
 // NewGotaskChecker creates a gotask checker.
 func NewGotaskChecker(derivers *deriver.Matcher) *GotaskChecker {
-	return &GotaskChecker{
-		derivers: derivers,
-		entries: []gotaskEntry{
-			// DoAll variants
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", FuncName: "DoAll"}, CallbackArgIdx: 1, Variadic: true},
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", FuncName: "DoAllSettled"}, CallbackArgIdx: 1, Variadic: true},
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", FuncName: "DoRace"}, CallbackArgIdx: 1, Variadic: true},
-			// DoAllFns variants
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", FuncName: "DoAllFns"}, CallbackArgIdx: 1, Variadic: true},
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", FuncName: "DoAllFnsSettled"}, CallbackArgIdx: 1, Variadic: true},
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", FuncName: "DoRaceFns"}, CallbackArgIdx: 1, Variadic: true},
-			// DoAsync
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", TypeName: "Task", FuncName: "DoAsync"}, CallbackArgIdx: 0, IsDoAsync: true},
-			{Spec: funcspec.Spec{PkgPath: "github.com/siketyan/gotask", TypeName: "CancelableTask", FuncName: "DoAsync"}, CallbackArgIdx: 0, IsDoAsync: true},
-		},
-	}
+	return &GotaskChecker{derivers: derivers}
 }
 
 // Name returns the checker name.
@@ -69,45 +46,34 @@ func (*GotaskChecker) Name() checker.Name {
 	return checker.Gotask
 }
 
-// MatchCall returns true if this checker should handle the call.
-func (c *GotaskChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	if c.derivers.IsEmpty() {
-		return false
-	}
-
-	fn := funcspec.ExtractFunc(pass, call)
-	if fn == nil {
-		return false
-	}
-
-	return slices.ContainsFunc(c.entries, func(entry gotaskEntry) bool { return entry.Spec.Matches(fn) })
-}
-
 // CheckCall checks the call expression. A variadic API may give a report
 // for each argument.
 func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
+	if c.derivers.IsEmpty() {
+		return nil
+	}
+
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
 		return nil
 	}
 
-	for _, entry := range c.entries {
-		if !entry.Spec.Matches(fn) {
-			continue
-		}
+	entry, ok := registry.MatchFor(checker.Gotask, fn)
+	if !ok {
+		return nil
+	}
 
-		if entry.IsDoAsync {
-			return c.checkDoAsync(cctx, call, entry)
-		}
-
+	switch {
+	case entry.AlwaysSpawns:
+		return c.checkDoAsync(cctx, call, entry)
+	case entry.Variadic:
 		// For variadic APIs, we report each failing argument separately
 		return c.checkVariadic(cctx, call, entry)
 	}
-
 	return nil
 }
 
-func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) []analysis.Diagnostic {
+func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
 	if len(call.Args) == 0 {
 		return nil
 	}
@@ -144,7 +110,7 @@ func formatGotaskMethodMessage(apiName string) string {
 	return apiName + "() 1st argument should call goroutine deriver"
 }
 
-func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) []analysis.Diagnostic {
+func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
 	startIdx := entry.CallbackArgIdx
 	if startIdx >= len(call.Args) {
 		return nil
@@ -320,7 +286,7 @@ func (c *GotaskChecker) callbackCallsDeriver(cctx *probe.Context, arg ast.Expr) 
 }
 
 // argCallsDeriver checks if a variadic argument calls deriver.
-func (c *GotaskChecker) argCallsDeriver(cctx *probe.Context, arg ast.Expr, entry gotaskEntry) bool {
+func (c *GotaskChecker) argCallsDeriver(cctx *probe.Context, arg ast.Expr, entry registry.Entry) bool {
 	// For function literals, check if body calls deriver
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		// Try SSA-based check first

@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"slices"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -13,20 +12,16 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
+	"github.com/mpyw/goroutinectx/internal/registry"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
-// SpawnCallbackChecker checks function calls that take callbacks spawned as goroutines.
+// SpawnCallbackChecker checks calls to the supported APIs of one checker
+// (errgroup, waitgroup or conc), which spawn their callback argument as a
+// goroutine.
 type SpawnCallbackChecker struct {
 	spawnClosureCheck
 	checkerName checker.Name
-	entries     []SpawnCallbackEntry
-}
-
-// SpawnCallbackEntry defines a function that spawns its callback argument as a goroutine.
-type SpawnCallbackEntry struct {
-	Spec           funcspec.Spec
-	CallbackArgIdx int
 }
 
 // spawnClosureCheck holds the closure checks that SpawnCallbackChecker and
@@ -35,28 +30,18 @@ type spawnClosureCheck struct {
 	derivers *deriver.Matcher
 }
 
-// newSpawnCallbackChecker creates a new SpawnCallbackChecker.
-func newSpawnCallbackChecker(name checker.Name, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
+// NewSpawnCallbackChecker creates the checker of the registry entries of
+// name.
+func NewSpawnCallbackChecker(name checker.Name, derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return &SpawnCallbackChecker{
 		spawnClosureCheck: spawnClosureCheck{derivers: derivers},
 		checkerName:       name,
-		entries:           entries,
 	}
 }
 
 // Name returns the checker name for ignore directive matching.
 func (c *SpawnCallbackChecker) Name() checker.Name {
 	return c.checkerName
-}
-
-// MatchCall returns true if this checker should handle the call.
-func (c *SpawnCallbackChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	fn := funcspec.ExtractFunc(pass, call)
-	if fn == nil {
-		return false
-	}
-
-	return slices.ContainsFunc(c.entries, func(entry SpawnCallbackEntry) bool { return entry.Spec.Matches(fn) })
 }
 
 // CheckCall checks the call expression.
@@ -66,17 +51,14 @@ func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr
 		return nil
 	}
 
-	for _, entry := range c.entries {
-		if !entry.Spec.Matches(fn) {
-			continue
-		}
-		return c.checkSingleArg(cctx, call, entry)
+	entry, ok := registry.MatchFor(c.checkerName, fn)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	return c.checkSingleArg(cctx, call, entry)
 }
 
-func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry SpawnCallbackEntry) []analysis.Diagnostic {
+func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
 	if entry.CallbackArgIdx >= len(call.Args) {
 		return nil
 	}
@@ -204,65 +186,6 @@ func (c *spawnClosureCheck) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLi
 }
 
 // =============================================================================
-// Specific Checker Factories
-// =============================================================================
-
-// NewErrgroupSpawnChecker creates the errgroup checker.
-func NewErrgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(checker.Errgroup, []SpawnCallbackEntry{
-		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"}, CallbackArgIdx: 0},
-		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "TryGo"}, CallbackArgIdx: 0},
-	}, derivers)
-}
-
-// NewWaitgroupSpawnChecker creates the waitgroup checker (Go 1.25+).
-func NewWaitgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(checker.Waitgroup, []SpawnCallbackEntry{
-		{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, CallbackArgIdx: 0},
-	}, derivers)
-}
-
-// NewConcSpawnChecker creates the conc checker.
-func NewConcSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(checker.Conc, []SpawnCallbackEntry{
-		// conc.Pool.Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// conc.WaitGroup.Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "WaitGroup", FuncName: "Go"}, CallbackArgIdx: 0},
-		// pool.Pool.Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// pool.ResultPool[T].Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ResultPool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// pool.ContextPool.Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ContextPool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// pool.ResultContextPool[T].Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ResultContextPool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// pool.ErrorPool.Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ErrorPool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// pool.ResultErrorPool[T].Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ResultErrorPool", FuncName: "Go"}, CallbackArgIdx: 0},
-		// stream.Stream.Go
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/stream", TypeName: "Stream", FuncName: "Go"}, CallbackArgIdx: 0},
-		// iter.ForEach
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", FuncName: "ForEach"}, CallbackArgIdx: 1},
-		// iter.ForEachIdx
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", FuncName: "ForEachIdx"}, CallbackArgIdx: 1},
-		// iter.Map
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", FuncName: "Map"}, CallbackArgIdx: 1},
-		// iter.MapErr
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", FuncName: "MapErr"}, CallbackArgIdx: 1},
-		// iter.Iterator.ForEach
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", TypeName: "Iterator", FuncName: "ForEach"}, CallbackArgIdx: 1},
-		// iter.Iterator.ForEachIdx
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", TypeName: "Iterator", FuncName: "ForEachIdx"}, CallbackArgIdx: 1},
-		// iter.Mapper.Map
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", TypeName: "Mapper", FuncName: "Map"}, CallbackArgIdx: 1},
-		// iter.Mapper.MapErr
-		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc/iter", TypeName: "Mapper", FuncName: "MapErr"}, CallbackArgIdx: 1},
-	}, derivers)
-}
-
-// =============================================================================
 // Spawner Checker
 // =============================================================================
 
@@ -290,18 +213,12 @@ func (*SpawnerChecker) Name() checker.Name {
 	return checker.Spawner
 }
 
-// MatchCall returns true if this checker should handle the call.
-func (c *SpawnerChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	fn := funcspec.ExtractFunc(pass, call)
-	return fn != nil && c.spawners.IsSpawner(fn)
-}
-
 // CheckCall checks the call expression. It reports each failing argument at
 // its own position.
 func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
 	// Get the function being called
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
-	if fn == nil {
+	if fn == nil || !c.spawners.IsSpawner(fn) {
 		return nil
 	}
 

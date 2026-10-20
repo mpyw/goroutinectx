@@ -16,13 +16,12 @@ import (
 // Checker validates that functions are properly labeled with //goroutinectx:spawner.
 type Checker struct {
 	spawners *spawner.Map
-	registry *registry.Registry
 	ssaProg  *internalssa.Program
 }
 
 // New creates a new spawnerlabel checker.
-func New(spawners *spawner.Map, reg *registry.Registry, ssaProg *internalssa.Program) *Checker {
-	return &Checker{spawners: spawners, registry: reg, ssaProg: ssaProg}
+func New(spawners *spawner.Map, ssaProg *internalssa.Program) *Checker {
+	return &Checker{spawners: spawners, ssaProg: ssaProg}
 }
 
 // spawnCallInfo contains information about a detected spawn call.
@@ -159,14 +158,11 @@ func (c *Checker) spawnCallInfoOf(call *ssa.CallCommon) *spawnCallInfo {
 	}
 
 	// Check against registry
-	if match := c.registry.MatchFunc(calledFn); match != nil {
-		// For spawnerlabel, we need func arguments
-		if internalssa.CallHasFuncArgs(call, match.CallbackArgIdx) {
-			return &spawnCallInfo{methodName: match.FullName}
-		}
-		// TaskSource APIs (e.g., DoAsync) always spawn
-		if match.AlwaysSpawns {
-			return &spawnCallInfo{methodName: match.FullName}
+	if entry, ok := registry.Match(calledFn); ok {
+		// For spawnerlabel, we need func arguments. Task APIs (e.g.,
+		// DoAsync) always spawn.
+		if internalssa.CallHasFuncArgs(call, entry.CallbackArgIdx) || entry.AlwaysSpawns {
+			return &spawnCallInfo{methodName: entry.Spec.FullName()}
 		}
 	}
 

@@ -10,7 +10,6 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/checkers"
@@ -20,7 +19,6 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/probe"
-	"github.com/mpyw/goroutinectx/internal/registry"
 	"github.com/mpyw/goroutinectx/internal/scope"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
@@ -108,16 +106,8 @@ func Run(pass *analysis.Pass, cfg Config) error {
 
 	// Run spawnerlabel checker if enabled
 	if cfg.Spawnerlabel {
-		reg := registry.New()
-
-		// Register APIs for spawnerlabel detection
-		internal.RegisterErrgroupAPIs(reg)
-		internal.RegisterWaitgroupAPIs(reg)
-		internal.RegisterConcAPIs(reg)
-		internal.RegisterGotaskAPIs(reg)
-
 		r.enabled[checker.Spawnerlabel] = true
-		r.report(checker.Spawnerlabel, spawnerlabel.New(spawners, reg, ssaProg).Check(pass, skipFiles))
+		r.report(checker.Spawnerlabel, spawnerlabel.New(spawners, ssaProg).Check(pass, skipFiles))
 	}
 
 	// Report unused ignore directives
@@ -141,9 +131,8 @@ type goStmtChecker interface {
 type callChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
 	Name() checker.Name
-	// MatchCall returns true if this checker should handle the call.
-	MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
-	// CheckCall gives the reports for one call.
+	// CheckCall gives the reports for one call, none for a call the checker
+	// does not check.
 	CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
 }
 
@@ -205,9 +194,7 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 			}
 		case *ast.CallExpr:
 			for _, c := range r.callCheckers {
-				if c.MatchCall(r.pass, node) {
-					r.report(c.Name(), c.CheckCall(cctx, node))
-				}
+				r.report(c.Name(), c.CheckCall(cctx, node))
 			}
 		}
 
@@ -287,15 +274,15 @@ func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map)
 
 	// Call checkers
 	if cfg.Errgroup {
-		callCheckers = append(callCheckers, checkers.NewErrgroupSpawnChecker(derivers))
+		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Errgroup, derivers))
 	}
 
 	if cfg.Waitgroup {
-		callCheckers = append(callCheckers, checkers.NewWaitgroupSpawnChecker(derivers))
+		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Waitgroup, derivers))
 	}
 
 	if cfg.Conc {
-		callCheckers = append(callCheckers, checkers.NewConcSpawnChecker(derivers))
+		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Conc, derivers))
 	}
 
 	if cfg.Spawner && spawners.Len() > 0 {
