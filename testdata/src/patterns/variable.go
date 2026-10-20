@@ -208,6 +208,136 @@ func goodConditionalReassignAllUseCtxErrgroup(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Read in a closure =====
+
+// [GOOD]: Read in a closure, replaced before it is made
+//
+// Only the stores that reach the closure, or come after it, count (#146).
+func goodReplacedBeforeClosureGoroutine(ctx context.Context) {
+	fn := func() {}
+	fn = func() { _ = ctx }
+	func() {
+		go fn()
+	}()
+}
+
+// [BAD]: Read in a closure, replaced after it is made
+//
+// The closure may run after the later store, so that store counts.
+func badReplacedAfterClosureGoroutine(ctx context.Context) {
+	fn := func() { _ = ctx }
+	run := func() {
+		go fn() // want `goroutine does not propagate context "ctx"`
+	}
+	fn = func() {}
+	run()
+}
+
+// [GOOD]: Read in a closure, replaced before it is made
+//
+// Only the stores that reach the closure, or come after it, count (#146).
+func goodReplacedBeforeClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	fn := func() error { return nil }
+	fn = func() error { _ = ctx; return nil }
+	func() {
+		g.Go(fn)
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Read in a closure, replaced after it is made
+//
+// The closure may run after the later store, so that store counts.
+func badReplacedAfterClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	fn := func() error { _ = ctx; return nil }
+	run := func() {
+		g.Go(fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	}
+	fn = func() error { return nil }
+	run()
+	_ = g.Wait()
+}
+
+// [GOOD]: Read in a closure, replaced before it is made
+//
+// Only the stores that reach the closure, or come after it, count (#146).
+func goodReplacedBeforeClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	fn := func() {}
+	fn = func() { _ = ctx }
+	func() {
+		wg.Go(fn)
+	}()
+	wg.Wait()
+}
+
+// [BAD]: Read in a closure, replaced after it is made
+//
+// The closure may run after the later store, so that store counts.
+func badReplacedAfterClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	fn := func() { _ = ctx }
+	run := func() {
+		wg.Go(fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	}
+	fn = func() {}
+	run()
+	wg.Wait()
+}
+
+// [GOOD]: Read in a closure, replaced before it is made
+//
+// Only the stores that reach the closure, or come after it, count (#146).
+func goodReplacedBeforeClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	fn := func() error { return nil }
+	fn = func() error { _ = ctx; return nil }
+	func() {
+		runWithGroup(g, fn)
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Read in a closure, replaced after it is made
+//
+// The closure may run after the later store, so that store counts.
+func badReplacedAfterClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	fn := func() error { _ = ctx; return nil }
+	run := func() {
+		runWithGroup(g, fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	}
+	fn = func() error { return nil }
+	run()
+	_ = g.Wait()
+}
+
+// [GOOD]: Read in a range-over-func body, replaced before the loop
+//
+// The loop body is a closure, made after the store that replaced the func.
+func goodReplacedBeforeRangeFuncErrgroup(ctx context.Context, seq func(func(int) bool)) {
+	g := new(errgroup.Group)
+	fn := func() error { return nil }
+	fn = func() error { _ = ctx; return nil }
+	for range seq {
+		g.Go(fn)
+	}
+	_ = g.Wait()
+}
+
+// [GOOD]: Struct field read in a closure, replaced before it is made
+//
+// A part of a variable is judged the same way.
+func goodFieldReplacedBeforeClosureGoroutine(ctx context.Context) {
+	s := struct{ fn func() }{fn: func() {}}
+	s.fn = func() { _ = ctx }
+	func() {
+		go s.fn()
+	}()
+}
+
 // ===== Func from a parameter =====
 
 // [LIMITATION]: Function from parameter - cannot trace
