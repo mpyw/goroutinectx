@@ -31,12 +31,8 @@ func ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier) b
 // closureFreeVarIsFresh reports whether every value fv can hold is a fresh
 // context, as IsFreshContext judges it.
 func closureFreeVarIsFresh(fv *ssa.FreeVar) bool {
-	if _, isPtr := fv.Type().Underlying().(*types.Pointer); !isPtr {
-		binding, ok := resolvedBinding(fv)
-		return ok && IsFreshContext(binding)
-	}
-	stored, ok := resolvedStores(fv, nil)
-	return ok && len(stored) > 0 && !slices.ContainsFunc(stored, func(v ssa.Value) bool { return !IsFreshContext(v) })
+	values, ok := resolvedFreeVarValues(fv)
+	return ok && len(values) > 0 && !slices.ContainsFunc(values, func(v ssa.Value) bool { return !IsFreshContext(v) })
 }
 
 // ClosureDerivation is where a closure calls the deriver.
