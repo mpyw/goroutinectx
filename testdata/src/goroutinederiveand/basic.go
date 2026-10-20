@@ -90,3 +90,35 @@ func badAndCallsNeither(ctx context.Context) {
 }
 
 func doSomething() {}
+
+// ===== DERIVERS IN THE GO STATEMENT'S ARGUMENTS (#144) =====
+
+// [GOOD]: AND - NewGoroutine in the go statement's arguments.
+//
+// The form New Relic documents: NewGoroutine is called for the goroutine
+// and passed to it, and NewContext is called in it.
+func goodAndNewGoroutineAsArgument(ctx context.Context, txn *newrelic.Transaction) {
+	go func(txn *newrelic.Transaction) {
+		ctx := newrelic.NewContext(ctx, txn)
+		_ = ctx
+	}(txn.NewGoroutine())
+}
+
+// [GOOD]: AND - Both in the go statement's arguments.
+//
+// A call nested in an argument counts too.
+func goodAndBothAsArguments(ctx context.Context, txn *newrelic.Transaction) {
+	go func(ctx context.Context) {
+		_ = ctx
+	}(newrelic.NewContext(ctx, txn.NewGoroutine()))
+}
+
+// [BAD]: AND - Only NewGoroutine, in the go statement's arguments.
+//
+// NewContext is called nowhere.
+func badAndOnlyNewGoroutineAsArgument(ctx context.Context, txn *newrelic.Transaction) {
+	go func(txn *newrelic.Transaction) { // want "goroutine should call github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine\\+github.com/newrelic/go-agent/v3/newrelic.NewContext to derive context"
+		_ = ctx
+		_ = txn
+	}(txn.NewGoroutine())
+}

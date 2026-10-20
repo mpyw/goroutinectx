@@ -94,13 +94,19 @@ type ClosureDerivation struct {
 	FoundOnlyInDefer bool
 }
 
-// ClosureCallsDeriver checks if a closure calls any of the required deriver functions.
-func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher) ClosureDerivation {
+// ClosureCallsDeriver checks if a closure calls any of the required deriver
+// functions. given are the functions called for it before it starts, as in
+// the arguments of the go statement that runs it; they count as called at
+// its start.
+func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher, given ...*types.Func) ClosureDerivation {
 	if closure == nil || matcher.IsEmpty() {
 		return ClosureDerivation{FoundAtStart: true}
 	}
 
 	var calls []closureDeriverCall
+	for _, fn := range given {
+		calls = append(calls, closureDeriverCall{fn: fn})
+	}
 	(&CallWalker{}).Walk(closure, func(site WalkedCall) bool {
 		if site.isGo {
 			return true

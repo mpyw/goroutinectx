@@ -2,6 +2,7 @@ package checkers
 
 import (
 	"go/ast"
+	"go/types"
 	"slices"
 
 	"golang.org/x/tools/go/analysis"
@@ -103,10 +104,14 @@ func (c *GoroutineDerive) failure(cctx *probe.Context, stmt *ast.GoStmt) string 
 	}
 
 	v := goroutineSpawnedValue(cctx, stmt)
-	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, true)) {
+	var given []*types.Func
+	if g := cctx.SSAProg.GoAt(stmt); g != nil {
+		given = ssa.CallsInArgs(&g.Call)
+	}
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, given, true)) {
 		return ""
 	}
-	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, false)) {
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, given, false)) {
 		return c.deferMessage()
 	}
 	return c.message()
@@ -122,14 +127,15 @@ func (c *GoroutineDerive) deferMessage() string {
 
 // resolver judges a closure by whether it takes a context or one of
 // carriers, or calls the deriver: at its start when atStart is set, or else
-// in defer too.
-func (c *GoroutineDerive) resolver(carriers []carrier.Carrier, atStart bool) *ssa.FuncResolver {
+// in defer too. given are the functions the go statement calls in its
+// arguments, which count as called at the start.
+func (c *GoroutineDerive) resolver(carriers []carrier.Carrier, given []*types.Func, atStart bool) *ssa.FuncResolver {
 	return &ssa.FuncResolver{
 		Closure: func(fn *gossa.Function) bool {
 			if ssa.HasContextParam(fn, carriers) {
 				return true
 			}
-			result := ssa.ClosureCallsDeriver(fn, c.derivers)
+			result := ssa.ClosureCallsDeriver(fn, c.derivers, given...)
 			return result.FoundAtStart || (!atStart && result.FoundOnlyInDefer)
 		},
 		Factory: func(fn *gossa.Function) bool { return c.factoryDerives(fn, carriers) },
