@@ -3,6 +3,7 @@ package run
 import (
 	"errors"
 	"go/ast"
+	"go/token"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -18,7 +19,9 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
+	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/registry"
+	"github.com/mpyw/goroutinectx/internal/scope"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
@@ -70,17 +73,11 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	// Build set of files to skip
 	skipFiles := buildSkipFiles(pass)
 
-	// Parse configuration
-	carriers := carrier.Parse(cfg.ContextCarriers)
-
 	// Build ignore maps for each file (excluding skipped files)
 	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
 	spawners := spawner.Build(pass, cfg.ExternalSpawner)
-
-	// Build enabled checkers map
-	enabled := buildEnabledCheckers(cfg, spawners)
 
 	// Build SSA program
 	ssaProg := ssa.BuildProgram(pass)
@@ -91,19 +88,23 @@ func Run(pass *analysis.Pass, cfg Config) error {
 		derivers = deriver.NewMatcher(cfg.GoroutineDeriver)
 	}
 
-	// Build checkers
-	goStmtCheckers, callCheckers := buildCheckers(cfg, derivers, spawners)
+	r := &runner{
+		pass:       pass,
+		ssaProg:    ssaProg,
+		carriers:   carrier.Parse(cfg.ContextCarriers),
+		ignoreMaps: ignoreMaps,
+		skipFiles:  skipFiles,
+		enabled:    make(ignore.EnabledCheckers),
+	}
+	r.goStmtCheckers, r.callCheckers = buildCheckers(cfg, derivers, spawners)
+	for _, c := range r.goStmtCheckers {
+		r.enabled[c.Name()] = true
+	}
+	for _, c := range r.callCheckers {
+		r.enabled[c.Name()] = true
+	}
 
-	// Create and run runner
-	runner := internal.NewRunner(
-		goStmtCheckers,
-		callCheckers,
-		ssaProg,
-		carriers,
-		ignoreMaps,
-		skipFiles,
-	)
-	runner.Run(pass, insp)
+	r.checkNodes(insp)
 
 	// Run spawnerlabel checker if enabled
 	if cfg.Spawnerlabel {
@@ -115,17 +116,125 @@ func Run(pass *analysis.Pass, cfg Config) error {
 		internal.RegisterConcAPIs(reg)
 		internal.RegisterGotaskAPIs(reg)
 
-		spawnerlabelChecker := spawnerlabel.New(spawners, reg, ssaProg)
-		spawnerlabelChecker.Check(pass, ignoreMaps, skipFiles)
+		r.enabled[checker.Spawnerlabel] = true
+		r.report(checker.Spawnerlabel, spawnerlabel.New(spawners, reg, ssaProg).Check(pass, skipFiles))
 	}
 
 	// Report unused ignore directives
-	reportUnusedIgnores(pass, ignoreMaps, enabled)
+	reportUnusedIgnores(pass, ignoreMaps, r.enabled)
 
 	// Report directives written in a form other than //goroutinectx:name
 	reportMalformedDirectives(pass, skipFiles)
 
 	return nil
+}
+
+// goStmtChecker checks go statements (go func()...).
+type goStmtChecker interface {
+	// Name returns the checker name, which its reports are ignored by.
+	Name() checker.Name
+	// CheckGoStmt gives the reports for one go statement.
+	CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic
+}
+
+// callChecker checks function call expressions.
+type callChecker interface {
+	// Name returns the checker name, which its reports are ignored by.
+	Name() checker.Name
+	// MatchCall returns true if this checker should handle the call.
+	MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
+	// CheckCall gives the reports for one call.
+	CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
+}
+
+// runner runs the go statement and call checkers over one package.
+type runner struct {
+	pass           *analysis.Pass
+	goStmtCheckers []goStmtChecker
+	callCheckers   []callChecker
+	ssaProg        *ssa.Program
+	carriers       []carrier.Carrier
+	ignoreMaps     map[string]ignore.Map
+	skipFiles      map[string]bool
+	// enabled holds the name of each checker built.
+	enabled ignore.EnabledCheckers
+}
+
+// checkNodes runs the go statement and call checkers on each node inside a
+// function with a context in scope.
+func (r *runner) checkNodes(insp *inspector.Inspector) {
+	// Build context scopes for functions with context parameters
+	funcScopes := scope.Build(r.pass, insp, r.carriers)
+
+	// Node types we're interested in
+	nodeFilter := []ast.Node{
+		(*ast.FuncDecl)(nil),
+		(*ast.FuncLit)(nil),
+		(*ast.GoStmt)(nil),
+		(*ast.CallExpr)(nil),
+	}
+
+	// Check nodes within context-aware functions
+	insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
+		if !push {
+			return true
+		}
+
+		filename := r.pass.Fset.PositionFor(n.Pos(), false).Filename
+		if r.skipFiles[filename] {
+			return true
+		}
+
+		s := scope.FindEnclosing(funcScopes, stack)
+		if s == nil {
+			return true // No context in scope
+		}
+
+		cctx := &probe.Context{
+			Pass:      r.pass,
+			Inspector: insp,
+			SSAProg:   r.ssaProg,
+			CtxNames:  s.CtxNames,
+			Carriers:  r.carriers,
+		}
+
+		switch node := n.(type) {
+		case *ast.GoStmt:
+			for _, c := range r.goStmtCheckers {
+				r.report(c.Name(), c.CheckGoStmt(cctx, node))
+			}
+		case *ast.CallExpr:
+			for _, c := range r.callCheckers {
+				if c.MatchCall(r.pass, node) {
+					r.report(c.Name(), c.CheckCall(cctx, node))
+				}
+			}
+		}
+
+		return true
+	})
+}
+
+// report reports each diagnostic that no ignore for name silences at its
+// position. The ignore is asked only for a report it would silence. Asking
+// it first marked it used on a line with nothing to report, so an ignore that
+// silenced nothing was never reported as unused.
+func (r *runner) report(name checker.Name, diags []analysis.Diagnostic) {
+	for _, d := range diags {
+		if !r.shouldIgnore(d.Pos, name) {
+			r.pass.Report(d)
+		}
+	}
+}
+
+// shouldIgnore checks if the position should be ignored for the given checker.
+func (r *runner) shouldIgnore(pos token.Pos, name checker.Name) bool {
+	position := r.pass.Fset.PositionFor(pos, false)
+	ignoreMap, ok := r.ignoreMaps[position.Filename]
+	if !ok {
+		return false
+	}
+	return ignoreMap.ShouldIgnore(position.Line, name)
 }
 
 // buildSkipFiles creates a set of filenames to skip.
@@ -163,9 +272,9 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 }
 
 // buildCheckers creates the checker instances.
-func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map) ([]internal.GoStmtChecker, []internal.CallChecker) {
-	var goStmtCheckers []internal.GoStmtChecker
-	var callCheckers []internal.CallChecker
+func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map) ([]goStmtChecker, []callChecker) {
+	var goStmtCheckers []goStmtChecker
+	var callCheckers []callChecker
 
 	// Goroutine checkers
 	if cfg.Goroutine {
@@ -198,45 +307,6 @@ func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map)
 	}
 
 	return goStmtCheckers, callCheckers
-}
-
-// buildEnabledCheckers creates a map of which checkers are enabled.
-func buildEnabledCheckers(cfg Config, spawners *spawner.Map) ignore.EnabledCheckers {
-	enabled := make(ignore.EnabledCheckers)
-
-	if cfg.Goroutine {
-		enabled[checker.Goroutine] = true
-	}
-
-	if cfg.GoroutineDeriver != "" {
-		enabled[checker.GoroutineDerive] = true
-	}
-
-	if cfg.Waitgroup {
-		enabled[checker.Waitgroup] = true
-	}
-
-	if cfg.Errgroup {
-		enabled[checker.Errgroup] = true
-	}
-
-	if cfg.Conc {
-		enabled[checker.Conc] = true
-	}
-
-	if cfg.Spawner && spawners.Len() > 0 {
-		enabled[checker.Spawner] = true
-	}
-
-	if cfg.Spawnerlabel {
-		enabled[checker.Spawnerlabel] = true
-	}
-
-	if cfg.GoroutineDeriver != "" && cfg.Gotask {
-		enabled[checker.Gotask] = true
-	}
-
-	return enabled
 }
 
 // reportUnusedIgnores reports any ignore directives that were not used.

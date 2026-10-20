@@ -1,20 +1,17 @@
 package spawnerlabel
 
 import (
+	"fmt"
 	"go/ast"
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
-
-const checkerName = checker.Spawnerlabel
 
 // Checker validates that functions are properly labeled with //goroutinectx:spawner.
 type Checker struct {
@@ -57,14 +54,15 @@ func hasFuncParams(fn *types.Func) bool {
 	return false
 }
 
-// Check runs the spawnerlabel analysis on the given pass.
-func (c *Checker) Check(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, skipFiles map[string]bool) {
+// Check runs the spawnerlabel analysis on the given pass, and gives its
+// reports.
+func (c *Checker) Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic {
+	var diags []analysis.Diagnostic
 	for _, file := range pass.Files {
 		filename := pass.Fset.PositionFor(file.Pos(), false).Filename
 		if skipFiles[filename] {
 			continue
 		}
-		ignoreMap := ignoreMaps[filename]
 
 		for _, decl := range file.Decls {
 			fnDecl, ok := decl.(*ast.FuncDecl)
@@ -77,16 +75,17 @@ func (c *Checker) Check(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, s
 				continue
 			}
 
-			c.checkFunction(pass, fnDecl, ignoreMap)
+			diags = append(diags, c.checkFunction(pass, fnDecl)...)
 		}
 	}
+	return diags
 }
 
 // checkFunction checks a single function declaration.
-func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignoreMap ignore.Map) {
+func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl) []analysis.Diagnostic {
 	fn := c.getFuncObject(pass, fnDecl)
 	if fn == nil {
-		return
+		return nil
 	}
 
 	isMarked := c.spawners.IsSpawner(fn)
@@ -94,28 +93,22 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 
 	// Check for missing label
 	if !isMarked && spawnInfo != nil {
-		line := pass.Fset.PositionFor(fnDecl.Pos(), false).Line
-		if !ignoreMap.ShouldIgnore(line, checkerName) {
-			pass.Reportf(
-				fnDecl.Name.Pos(),
-				"function %q should have //goroutinectx:spawner directive (calls %s with func argument)",
-				fnDecl.Name.Name,
-				spawnInfo.methodName,
-			)
-		}
+		return []analysis.Diagnostic{{
+			Pos: fnDecl.Name.Pos(),
+			Message: fmt.Sprintf("function %q should have //goroutinectx:spawner directive (calls %s with func argument)",
+				fnDecl.Name.Name, spawnInfo.methodName),
+		}}
 	}
 
 	// Check for unnecessary label
 	if isMarked && spawnInfo == nil && !hasFuncParams(fn) {
-		line := pass.Fset.PositionFor(fnDecl.Pos(), false).Line
-		if !ignoreMap.ShouldIgnore(line, checkerName) {
-			pass.Reportf(
-				fnDecl.Name.Pos(),
-				"function %q has unnecessary //goroutinectx:spawner directive",
-				fnDecl.Name.Name,
-			)
-		}
+		return []analysis.Diagnostic{{
+			Pos:     fnDecl.Name.Pos(),
+			Message: fmt.Sprintf("function %q has unnecessary //goroutinectx:spawner directive", fnDecl.Name.Name),
+		}}
 	}
+
+	return nil
 }
 
 // getFuncObject gets the *types.Func for a function declaration.
