@@ -148,6 +148,30 @@ func badDeriverInDeferIIFE(ctx context.Context) {
 	}()
 }
 
+// [GOOD]: Deriver in a closure both deferred and called at start.
+//
+// The direct call counts, though the defer comes first (#143).
+func goodDeriverClosureDeferredAndCalled(ctx context.Context) {
+	go func() {
+		setup := func() { ctx = apm.NewGoroutineContext(ctx) }
+		defer setup()
+		setup()
+		_ = ctx
+	}()
+}
+
+// [BAD]: Deriver in a closure that is only deferred.
+//
+// The closure is deferred twice, but never called at start.
+func badDeriverClosureOnlyDeferred(ctx context.Context) {
+	go func() { // want "goroutine calls github.com/my-example-app/telemetry/apm.NewGoroutineContext in defer, but it should be called at goroutine start"
+		setup := func() { ctx = apm.NewGoroutineContext(ctx) }
+		defer setup()
+		defer setup()
+		_ = ctx
+	}()
+}
+
 // [GOOD]: Deriver at start with defer for cleanup.
 //
 // Deriver called at goroutine start is OK, even if there's also a defer.
