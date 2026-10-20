@@ -56,6 +56,18 @@ func TestPkgPathMatches(t *testing.T) {
 			want:      false,
 		},
 		{
+			name:      "no match - version-like package",
+			pkgPath:   "github.com/example/pkg/v1alpha1",
+			targetPkg: "github.com/example/pkg",
+			want:      false,
+		},
+		{
+			name:      "no match - package under a version suffix",
+			pkgPath:   "github.com/example/pkg/v2/internal/x",
+			targetPkg: "github.com/example/pkg",
+			want:      false,
+		},
+		{
 			name:      "no match - version suffix with non-digit",
 			pkgPath:   "github.com/example/pkg/vX",
 			targetPkg: "github.com/example/pkg",
