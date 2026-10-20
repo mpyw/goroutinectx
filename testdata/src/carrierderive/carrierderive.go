@@ -97,3 +97,13 @@ func badCarrierCapturedDirectNoDeriver(c echo.Context) {
 		_ = c // captures carrier but doesn't call deriver
 	}()
 }
+
+// [NOTCHECKED]: Goroutine takes the carrier as a param
+//
+// The closure takes the carrier as a param, as it would a context, so it is
+// not checked (#115).
+func notCheckedGoroutineCarrierParam(c echo.Context) {
+	go func(c echo.Context) {
+		_ = c
+	}(c)
+}
