@@ -20,6 +20,11 @@
 //	    // ctx available: ["reqCtx", "bgCtx"]
 //	}
 //
+//	// No context scope - a blank parameter cannot be used
+//	func callback(_ context.Context) {
+//	    // Not analyzed for context propagation
+//	}
+//
 //	// No context scope - no context parameter
 //	func helper() {
 //	    // Not analyzed for context propagation
