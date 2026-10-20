@@ -353,20 +353,31 @@ func reportUnusedIgnores(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, 
 }
 
 // reportMalformedDirectives reports comments that look like a directive but
-// are not in the canonical form. Such a comment is not a directive, and would
-// otherwise be dropped with no sign: a spawner would not be checked, and an
-// ignore would not suppress anything.
+// are not in the canonical form, and spawner directives outside the doc
+// comment of a function. Such a comment does nothing, and would otherwise be
+// dropped with no sign: a spawner would not be checked, and an ignore would
+// not suppress anything.
 func reportMalformedDirectives(pass *analysis.Pass, skipFiles map[string]bool) {
 	for _, file := range pass.Files {
 		if skipFiles[pass.Fset.PositionFor(file.Pos(), false).Filename] {
 			continue
 		}
+		funcDocs := make(map[*ast.CommentGroup]bool)
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Doc != nil {
+				funcDocs[fn.Doc] = true
+			}
+		}
 		for _, cg := range file.Comments {
 			for _, c := range cg.List {
-				if directive.Malformed(c.Text) {
+				d, ok := directive.Parse(c.Text)
+				switch {
+				case directive.Malformed(c.Text):
 					pass.Reportf(c.Pos(), "malformed goroutinectx directive: write it as //goroutinectx:name")
-				} else if d, ok := directive.Parse(c.Text); ok && !directive.Known(d.Name) {
+				case ok && !directive.Known(d.Name):
 					pass.Reportf(c.Pos(), "unknown directive goroutinectx:%s", d.Name)
+				case ok && d.Name == "spawner" && !funcDocs[cg]:
+					pass.Reportf(c.Pos(), "goroutinectx:spawner has no effect here: write it in the doc comment of a function")
 				}
 			}
 		}

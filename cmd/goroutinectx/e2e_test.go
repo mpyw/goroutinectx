@@ -385,6 +385,8 @@ func Use(ctx context.Context) {
 	Run(func() {})
 }
 `,
+			wantOut:  []string{"<repro>/coll/with/a.tmpl:10: goroutinectx:spawner has no effect here: write it in the doc comment of a function"},
+			wantExit: 3,
 		},
 		{
 			name: "coll/without",
@@ -401,6 +403,8 @@ func Use(ctx context.Context) {
 	Run(func() {})
 }
 `,
+			wantOut:  []string{"<repro>/coll/without/a.go:5:1: goroutinectx:spawner has no effect here: write it in the doc comment of a function"},
+			wantExit: 3,
 		},
 	}
 
