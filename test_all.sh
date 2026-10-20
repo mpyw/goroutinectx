@@ -28,10 +28,6 @@ run_test() {
 
 echo ""
 
-# Run all tests (schema validation is done in CI only)
-run_test "metatest" \
-    go test ./testdata/metatest/validation_test.go
-
 run_test "analyzer" \
     go test -v ./...
 

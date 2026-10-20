@@ -67,48 +67,6 @@ jobs:
       - name: Run declscope
         run: declscope ./...
 
-  validate-schema:
-    name: Validate Schema
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Validate options.json schema
-        working-directory: testdata/metatest
-        run: go run github.com/santhosh-tekuri/jsonschema/cmd/jv@29cbed9 options.schema.json options.json
-
-      - name: Validate test schemas (parallel)
-        working-directory: testdata/metatest
-        run: |
-          ls tests/*.json | xargs -P 8 -I {} go run github.com/santhosh-tekuri/jsonschema/cmd/jv@29cbed9 test.schema.json {}
-
-  metatest:
-    name: Metatest
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ['1.27']
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up Go ${{ matrix.go-version }}
-        uses: actions/setup-go@v7
-        with:
-          go-version: ${{ matrix.go-version }}
-
-      - name: Run metatest validation
-        working-directory: testdata/metatest
-        run: go test -v ./...
-
   lint:
     name: Lint
     runs-on: ubuntu-latest

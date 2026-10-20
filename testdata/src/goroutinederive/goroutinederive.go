@@ -50,7 +50,6 @@ func notCheckedNamedFuncCall(ctx context.Context) {
 	go namedFunc(ctx)
 }
 
-//vt:helper
 func namedFunc(ctx context.Context) {
 	_ = ctx
 }
@@ -311,7 +310,6 @@ func badReturnedFromExternal(ctx context.Context) {
 	go factory()() // want "goroutine does not propagate context \"ctx\"" "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
 }
 
-//vt:helper
 func getExternalFunc() func() {
 	return func() {}
 }

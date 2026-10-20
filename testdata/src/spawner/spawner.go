@@ -11,12 +11,12 @@ import (
 
 // ===== SPAWNER FUNCTIONS =====
 
-//goroutinectx:spawner //vt:helper
+//goroutinectx:spawner
 func runWithGroup(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }
 
-//goroutinectx:spawner //vt:helper
+//goroutinectx:spawner
 func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 	wg.Add(1)
 	go func() {
@@ -25,7 +25,7 @@ func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 	}()
 }
 
-//goroutinectx:spawner //vt:helper
+//goroutinectx:spawner
 func runMultipleFuncs(fn1, fn2 func()) {
 	go fn1()
 	go fn2()
@@ -178,7 +178,6 @@ func goodFuncHasOwnCtx(ctx context.Context) {
 
 // ===== FACTORY FUNCTION PATTERNS =====
 
-//vt:helper
 func makeWorker() func() error {
 	return func() error {
 		fmt.Println("no ctx")
@@ -186,7 +185,6 @@ func makeWorker() func() error {
 	}
 }
 
-//vt:helper
 func makeWorkerWithCtx(ctx context.Context) func() error {
 	return func() error {
 		_ = ctx
@@ -214,7 +212,6 @@ func badFactoryFunctionNoCtx(ctx context.Context) {
 
 // ===== NON-SPAWNER FUNCTIONS (should not be checked) =====
 
-//vt:helper
 func normalHelper(g *errgroup.Group, fn func() error) {
 	g.Go(fn)
 }

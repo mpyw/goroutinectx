@@ -72,14 +72,12 @@ func badDeeplyNestedGoroutines(ctx context.Context) {
 
 // ===== go fn()() HIGHER-ORDER PATTERNS =====
 
-//vt:helper
 func makeWorker() func() {
 	return func() {
 		fmt.Println("worker")
 	}
 }
 
-//vt:helper
 func makeWorkerWithCtx(ctx context.Context) func() {
 	return func() {
 		_ = ctx
@@ -205,7 +203,6 @@ type Runner interface {
 
 type myRunner struct{}
 
-//vt:helper
 func (r *myRunner) Run() {
 	fmt.Println("running")
 }
@@ -225,7 +222,6 @@ type CtxRunner interface {
 
 type myCtxRunner struct{}
 
-//vt:helper
 func (r *myCtxRunner) RunWithCtx(ctx context.Context) {
 	_ = ctx
 }
@@ -363,10 +359,6 @@ func badGoroutineInInitWithoutCtx(ctx context.Context) {
 // [GOOD]: Three contexts - uses middle one
 //
 // Using the middle of multiple context parameters is valid.
-//
-// See also:
-//   errgroup: goodUsesMiddleOfThreeContexts
-//   waitgroup: goodUsesMiddleOfThreeContexts
 func goodUsesMiddleOfThreeContexts(ctx1, ctx2, ctx3 context.Context) {
 	go func() {
 		_ = ctx2 // uses middle context
@@ -376,10 +368,6 @@ func goodUsesMiddleOfThreeContexts(ctx1, ctx2, ctx3 context.Context) {
 // [GOOD]: Three contexts - uses last one
 //
 // Using the last of multiple context parameters is valid.
-//
-// See also:
-//   errgroup: goodUsesLastOfThreeContexts
-//   waitgroup: goodUsesLastOfThreeContexts
 func goodUsesLastOfThreeContexts(ctx1, ctx2, ctx3 context.Context) {
 	go func() {
 		_ = ctx3 // uses last context
@@ -389,10 +377,6 @@ func goodUsesLastOfThreeContexts(ctx1, ctx2, ctx3 context.Context) {
 // [GOOD]: Multiple ctx in separate param groups
 //
 // Context in separate parameter group is detected and used.
-//
-// See also:
-//   errgroup: goodMultipleCtxSeparateGroups
-//   waitgroup: goodMultipleCtxSeparateGroups
 func goodMultipleCtxSeparateGroups(a int, ctx1 context.Context, b string, ctx2 context.Context) {
 	go func() {
 		_ = ctx2 // uses second ctx from different param group
@@ -402,10 +386,6 @@ func goodMultipleCtxSeparateGroups(a int, ctx1 context.Context, b string, ctx2 c
 // [BAD]: Multiple ctx in separate param groups - none used
 //
 // Context in separate parameter group is not used.
-//
-// See also:
-//   errgroup: badMultipleCtxSeparateGroups
-//   waitgroup: badMultipleCtxSeparateGroups
 func badMultipleCtxSeparateGroups(a int, ctx1 context.Context, b string, ctx2 context.Context) {
 	go func() { // want `goroutine does not propagate context "ctx1"`
 		fmt.Println(a, b) // uses other params but not ctx
@@ -415,10 +395,6 @@ func badMultipleCtxSeparateGroups(a int, ctx1 context.Context, b string, ctx2 co
 // [GOOD]: Both contexts used
 //
 // When multiple contexts exist, using any one satisfies the check.
-//
-// See also:
-//   errgroup: goodUsesBothContexts
-//   waitgroup: goodUsesBothContexts
 func goodUsesBothContexts(ctx1, ctx2 context.Context) {
 	go func() {
 		_ = ctx1
@@ -453,10 +429,6 @@ func badNestedOnlyOuterUsesCtx(ctx1, ctx2 context.Context) {
 // [GOOD]: Higher-order with multiple ctx - factory receives ctx1
 //
 // Factory function receives first context parameter.
-//
-// See also:
-//   errgroup: goodHigherOrderMultipleCtx
-//   waitgroup: goodHigherOrderMultipleCtx
 func goodHigherOrderMultipleCtx(ctx1, ctx2 context.Context) {
 	go makeWorkerWithCtx(ctx1)() // factory uses ctx1
 }
@@ -464,10 +436,6 @@ func goodHigherOrderMultipleCtx(ctx1, ctx2 context.Context) {
 // [GOOD]: Higher-order with multiple ctx - factory receives ctx2
 //
 // Factory function receives second context parameter.
-//
-// See also:
-//   errgroup: goodHigherOrderMultipleCtxSecond
-//   waitgroup: goodHigherOrderMultipleCtxSecond
 func goodHigherOrderMultipleCtxSecond(ctx1, ctx2 context.Context) {
 	go makeWorkerWithCtx(ctx2)() // factory uses ctx2
 }
@@ -548,10 +516,6 @@ func badTwoLevelArguments(ctx1 context.Context) {
 // [GOOD]: Middle layer introduces ctx - goroutine uses it
 //
 // Middle layer introduces context that inner goroutine uses.
-//
-// See also:
-//   errgroup: evilMiddleLayerIntroducesCtx
-//   waitgroup: evilMiddleLayerIntroducesCtx
 func goodMiddleLayerIntroducesCtxUsed() {
 	func(ctx context.Context) {
 		go func() {
@@ -603,10 +567,6 @@ func badInterleavedLayersIgnored(outerCtx context.Context) {
 // [GOOD]: Higher-order returns variable - with ctx
 //
 // Factory function returns a variable that captures context.
-//
-// See also:
-//   errgroup: goodHigherOrderReturnsVariableWithCtx
-//   waitgroup: goodHigherOrderReturnsVariableWithCtx
 func goodHigherOrderReturnsVariableWithCtx(ctx context.Context) {
 	makeWorker := func() func() {
 		worker := func() {
@@ -620,10 +580,6 @@ func goodHigherOrderReturnsVariableWithCtx(ctx context.Context) {
 // [BAD]: Higher-order returns variable - without ctx
 //
 // Factory function returns a variable that does not capture context.
-//
-// See also:
-//   errgroup: badHigherOrderReturnsVariableWithoutCtx
-//   waitgroup: badHigherOrderReturnsVariableWithoutCtx
 func badHigherOrderReturnsVariableWithoutCtx(ctx context.Context) {
 	makeWorker := func() func() {
 		worker := func() {
@@ -637,10 +593,6 @@ func badHigherOrderReturnsVariableWithoutCtx(ctx context.Context) {
 // [GOOD]: Higher-order returns reassigned variable - with ctx
 //
 // Factory function returns a reassigned variable that captures context.
-//
-// See also:
-//   errgroup: goodHigherOrderReturnsReassignedVariableWithCtx
-//   waitgroup: goodHigherOrderReturnsReassignedVariableWithCtx
 func goodHigherOrderReturnsReassignedVariableWithCtx(ctx context.Context) {
 	makeWorker := func() func() {
 		worker := func() {
@@ -702,12 +654,10 @@ func badPackageLevelFactoryWithoutCtx(ctx context.Context) {
 	go packageFactoryWithoutCtx()() // want `goroutine does not propagate context "ctx"`
 }
 
-//vt:helper
 func packageFactoryWithCtxParam(ctx context.Context) func() {
 	return func() { _ = ctx }
 }
 
-//vt:helper
 func packageFactoryWithoutCtx() func() {
 	return func() { fmt.Println("no ctx") }
 }
@@ -716,7 +666,6 @@ func packageFactoryWithoutCtx() func() {
 // These test the analyzer's handling of variable reassignment in conditionals.
 // All paths must propagate context - if ANY assignment doesn't use ctx, warn.
 
-//vt:helper
 var conditionFlag bool
 
 // [BAD]: Conditional reassignment - first uses ctx, conditional doesn't

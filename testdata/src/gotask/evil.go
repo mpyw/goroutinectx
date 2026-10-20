@@ -364,7 +364,6 @@ func goodDerivedUsedInExpression(ctx context.Context) {
 	)
 }
 
-//vt:helper
 func doSomethingWithContext(_ context.Context) {}
 
 // [GOOD]: Deriver result stored and used
