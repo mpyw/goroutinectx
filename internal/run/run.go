@@ -22,24 +22,25 @@ import (
 )
 
 // Config is what the analyzer's flags, or the golangci-lint plugin's
-// settings, resolve to. The strings keep the flags' syntax.
+// settings, resolve to. The json keys are the flags' names, and the plugin
+// decodes its settings onto [DefaultConfig] with them.
 type Config struct {
 	// GoroutineDeriver is -goroutine-deriver: comma-separated OR groups of
 	// functions joined by +.
-	GoroutineDeriver string
-	// ExternalSpawner is -external-spawner, comma-separated.
-	ExternalSpawner string
-	// ContextCarriers is -context-carriers, comma-separated.
-	ContextCarriers string
+	GoroutineDeriver string `json:"goroutine-deriver"`
+	// ExternalSpawner is -external-spawner. The flag is comma-separated.
+	ExternalSpawner []string `json:"external-spawner"`
+	// ContextCarriers is -context-carriers. The flag is comma-separated.
+	ContextCarriers []string `json:"context-carriers"`
 
 	// Each checker is on when its field is true.
-	Goroutine    bool
-	Waitgroup    bool
-	Errgroup     bool
-	Conc         bool
-	Spawner      bool
-	Spawnerlabel bool
-	Gotask       bool
+	Goroutine    bool `json:"goroutine"`
+	Waitgroup    bool `json:"waitgroup"`
+	Errgroup     bool `json:"errgroup"`
+	Conc         bool `json:"conc"`
+	Spawner      bool `json:"spawner"`
+	Spawnerlabel bool `json:"spawnerlabel"`
+	Gotask       bool `json:"gotask"`
 }
 
 // DefaultConfig is the configuration the flags give when none is set.
@@ -192,9 +193,7 @@ func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map)
 	}
 
 	if cfg.Gotask && derivers != nil {
-		if gotaskChecker := checkers.NewGotaskChecker(derivers); gotaskChecker != nil {
-			callCheckers = append(callCheckers, gotaskChecker)
-		}
+		callCheckers = append(callCheckers, checkers.NewGotaskChecker(derivers))
 	}
 
 	return goStmtCheckers, callCheckers

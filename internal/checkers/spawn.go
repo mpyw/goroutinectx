@@ -85,23 +85,16 @@ func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.Cal
 		return internal.CheckPassed()
 	}
 
-	ctxName := "ctx"
-	if len(cctx.CtxNames) > 0 {
-		ctxName = cctx.CtxNames[0]
-	}
+	ctxName := cctx.CtxNames[0]
 
 	// Format error message based on whether deriver is configured
-	if c.derivers != nil && !c.derivers.IsEmpty() {
+	if !c.derivers.IsEmpty() {
 		return internal.CheckFailed(fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName))
 	}
 	return internal.CheckFailed(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
 }
 
 func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
-	if len(cctx.CtxNames) == 0 {
-		return true
-	}
-
 	// Try SSA-based check first
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		if result, ok := c.checkFuncLitSSA(cctx, lit); ok {
@@ -136,7 +129,7 @@ func (c *spawnClosureCheck) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLi
 	}
 
 	// If derivers configured, also check if deriver is called
-	if c.derivers != nil && !c.derivers.IsEmpty() {
+	if !c.derivers.IsEmpty() {
 		result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
 		if result.FoundAtStart {
 			return true, true
@@ -194,7 +187,7 @@ func (c *spawnClosureCheck) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLi
 	}
 
 	// If derivers configured, also check if deriver is called
-	if c.derivers != nil && !c.derivers.IsEmpty() {
+	if !c.derivers.IsEmpty() {
 		if c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body) {
 			return true
 		}
@@ -299,10 +292,6 @@ func (c *SpawnerChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 // CheckCall checks the call expression.
 // Note: This checker reports directly to pass because it may have multiple failing arguments.
 func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
-	if len(cctx.CtxNames) == 0 {
-		return internal.CheckPassed()
-	}
-
 	// Get the function being called
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
@@ -315,14 +304,11 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *int
 		return internal.CheckPassed()
 	}
 
-	ctxName := "ctx"
-	if len(cctx.CtxNames) > 0 {
-		ctxName = cctx.CtxNames[0]
-	}
+	ctxName := cctx.CtxNames[0]
 
 	// Format error message based on whether deriver is configured
 	msgFormat := "%s() func argument should use context %q"
-	if c.derivers != nil && !c.derivers.IsEmpty() {
+	if !c.derivers.IsEmpty() {
 		msgFormat = "%s() func argument should use context %q or call goroutine deriver"
 	}
 

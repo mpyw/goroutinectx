@@ -19,10 +19,6 @@ func (*Goroutine) Name() ignore.CheckerName {
 
 // CheckGoStmt checks a go statement for context propagation.
 func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.CheckResult {
-	if len(cctx.CtxNames) == 0 {
-		return internal.CheckPassed()
-	}
-
 	// Try SSA-based check first
 	if lit, ok := stmt.Call.Fun.(*ast.FuncLit); ok {
 		if result, ok := cctx.FuncLitCapturesContextSSA(lit); ok {
@@ -41,11 +37,7 @@ func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal
 }
 
 func (c *Goroutine) message(cctx *probe.Context) string {
-	ctxName := "ctx"
-	if len(cctx.CtxNames) > 0 {
-		ctxName = cctx.CtxNames[0]
-	}
-	return "goroutine does not propagate context \"" + ctxName + "\""
+	return "goroutine does not propagate context \"" + cctx.CtxNames[0] + "\""
 }
 
 // checkFromAST falls back to AST-based analysis for go statements.
@@ -96,7 +88,7 @@ func (*GoroutineDerive) Name() ignore.CheckerName {
 
 // CheckGoStmt checks a go statement for deriver function calls.
 func (c *GoroutineDerive) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) *internal.CheckResult {
-	if c.derivers == nil || c.derivers.IsEmpty() {
+	if c.derivers.IsEmpty() {
 		return internal.CheckPassed()
 	}
 

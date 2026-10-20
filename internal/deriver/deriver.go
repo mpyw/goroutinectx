@@ -56,6 +56,9 @@ func NewMatcher(deriveFuncsStr string) *Matcher {
 
 // SatisfiesAnyGroup checks if the AST node satisfies ANY of the OR groups.
 func (m *Matcher) SatisfiesAnyGroup(pass *analysis.Pass, node ast.Node) bool {
+	if m.IsEmpty() {
+		return false
+	}
 	calledFuncs := collectCalledFuncs(pass, node)
 
 	return slices.ContainsFunc(m.OrGroups, func(andGroup []funcspec.Spec) bool {
@@ -63,13 +66,17 @@ func (m *Matcher) SatisfiesAnyGroup(pass *analysis.Pass, node ast.Node) bool {
 	})
 }
 
-// IsEmpty returns true if no derive functions are configured.
+// IsEmpty returns true if no derive functions are configured. A nil Matcher
+// is empty, so a run without -goroutine-deriver can pass nil.
 func (m *Matcher) IsEmpty() bool {
-	return len(m.OrGroups) == 0
+	return m == nil || len(m.OrGroups) == 0
 }
 
 // MatchesFunc checks if the given function matches ANY spec in ANY OR group.
 func (m *Matcher) MatchesFunc(fn *types.Func) bool {
+	if m == nil {
+		return false
+	}
 	for _, andGroup := range m.OrGroups {
 		for _, spec := range andGroup {
 			if spec.Matches(fn) {

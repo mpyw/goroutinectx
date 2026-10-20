@@ -46,10 +46,6 @@ type gotaskEntry struct {
 
 // NewGotaskChecker creates a gotask checker.
 func NewGotaskChecker(derivers *deriver.Matcher) *GotaskChecker {
-	if derivers == nil {
-		return nil
-	}
-
 	return &GotaskChecker{
 		derivers: derivers,
 		entries: []gotaskEntry{
@@ -75,7 +71,7 @@ func (*GotaskChecker) Name() ignore.CheckerName {
 
 // MatchCall returns true if this checker should handle the call.
 func (c *GotaskChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool {
-	if c.derivers == nil || c.derivers.IsEmpty() {
+	if c.derivers.IsEmpty() {
 		return false
 	}
 

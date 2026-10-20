@@ -40,7 +40,7 @@ type DeriverTraceResult struct {
 
 // ClosureCallsDeriver checks if a closure calls any of the required deriver functions.
 func (t *Tracer) ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher) DeriverTraceResult {
-	if closure == nil || matcher == nil || matcher.IsEmpty() {
+	if closure == nil || matcher.IsEmpty() {
 		return DeriverTraceResult{FoundAtStart: true}
 	}
 

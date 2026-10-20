@@ -11,7 +11,6 @@ import (
 // Program wraps an SSA program with the analyzed package.
 type Program struct {
 	*ssa.Program
-	Pkg      *ssa.Package
 	SrcFuncs []*ssa.Function
 }
 
@@ -85,7 +84,6 @@ func BuildProgram(pass *analysis.Pass) *Program {
 
 	return &Program{
 		Program:  ssaResult.Pkg.Prog,
-		Pkg:      ssaResult.Pkg,
 		SrcFuncs: ssaResult.SrcFuncs,
 	}
 }
