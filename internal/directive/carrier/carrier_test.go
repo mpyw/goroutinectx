@@ -1,6 +1,7 @@
 package carrier
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -48,7 +49,7 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := Parse(tt.input)
+			got := Parse(strings.Split(tt.input, ","))
 			if len(got) != len(tt.want) {
 				t.Errorf("Parse(%q) returned %d carriers, want %d", tt.input, len(got), len(tt.want))
 				return

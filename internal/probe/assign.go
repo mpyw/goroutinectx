@@ -43,17 +43,6 @@ func (c *Context) FuncLitAssignedToIdent(ident *ast.Ident) *ast.FuncLit {
 	return c.FuncLitAssignedTo(v, token.NoPos)
 }
 
-// FuncLitsAssignedToIdent returns ALL func literals assigned to the identifier's variable.
-// This is needed for conditional reassignment patterns where different branches
-// assign different closures to the same variable.
-func (c *Context) FuncLitsAssignedToIdent(ident *ast.Ident) []*ast.FuncLit {
-	v := c.VarOf(ident)
-	if v == nil {
-		return nil
-	}
-	return c.FuncLitsAssignedTo(v, token.NoPos)
-}
-
 // FuncLitAssignmentsOfIdent returns ALL func literal assignments with conditionality info.
 func (c *Context) FuncLitAssignmentsOfIdent(ident *ast.Ident) []FuncLitAssignment {
 	v := c.VarOf(ident)
@@ -75,21 +64,6 @@ func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.Func
 	}
 
 	return result
-}
-
-// FuncLitsAssignedTo searches for ALL func literals assigned to the variable.
-// If beforePos is token.NoPos, returns ALL assignments found.
-// If beforePos is set, returns all assignments BEFORE that position.
-// This is needed for conditional reassignment patterns.
-func (c *Context) FuncLitsAssignedTo(v *types.Var, beforePos token.Pos) []*ast.FuncLit {
-	var results []*ast.FuncLit
-	for _, assign := range c.assignStmtsBefore(v, beforePos) {
-		if fl := c.funcLitInAssignment(assign, v); fl != nil {
-			results = append(results, fl)
-		}
-	}
-
-	return results
 }
 
 // FuncLitAssignmentsTo searches for ALL func literal assignments with conditionality info.

@@ -101,19 +101,6 @@ func TestAssignmentLookups(t *testing.T) {
 		}
 	})
 
-	t.Run("FuncLitsAssignedTo", func(t *testing.T) {
-		t.Parallel()
-		if got := c.FuncLitsAssignedTo(g, token.NoPos); len(got) != 2 || got[0] != first || got[1] != second {
-			t.Errorf("all assignments: got %v", got)
-		}
-		if got := c.FuncLitsAssignedTo(g, assigns[1].Pos()); len(got) != 1 || got[0] != first {
-			t.Errorf("before the branch: got %v", got)
-		}
-		if got := c.FuncLitsAssignedToIdent(gIdent); len(got) != 2 {
-			t.Errorf("by ident: got %v", got)
-		}
-	})
-
 	t.Run("FuncLitAssignmentsTo", func(t *testing.T) {
 		t.Parallel()
 		got := c.FuncLitAssignmentsTo(g, token.NoPos)
@@ -175,9 +162,6 @@ func TestAssignmentLookupsOutsideThePass(t *testing.T) {
 	v := types.NewVar(token.NoPos, nil, "x", types.NewSignatureType(nil, nil, nil, nil, nil, false))
 	if got := c.FuncLitAssignedTo(v, token.NoPos); got != nil {
 		t.Errorf("FuncLitAssignedTo: got %v", got)
-	}
-	if got := c.FuncLitsAssignedTo(v, token.NoPos); got != nil {
-		t.Errorf("FuncLitsAssignedTo: got %v", got)
 	}
 	if got := c.FuncLitAssignmentsTo(v, token.NoPos); got != nil {
 		t.Errorf("FuncLitAssignmentsTo: got %v", got)

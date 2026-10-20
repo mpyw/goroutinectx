@@ -89,7 +89,7 @@ func (c *Checker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl, ignor
 	}
 
 	isMarked := c.spawners.IsSpawner(fn)
-	spawnInfo := c.findSpawnCall(pass, fnDecl)
+	spawnInfo := c.findSpawnCall(fnDecl)
 
 	// Check for missing label
 	if !isMarked && spawnInfo != nil {
@@ -125,7 +125,7 @@ func (c *Checker) getFuncObject(pass *analysis.Pass, fnDecl *ast.FuncDecl) *type
 
 // findSpawnCall searches for spawn calls using SSA analysis.
 // It checks nested function literals, IIFEs, and higher-order function returns.
-func (c *Checker) findSpawnCall(_ *analysis.Pass, fnDecl *ast.FuncDecl) *spawnCallInfo {
+func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 	if c.ssaProg == nil {
 		return nil
 	}

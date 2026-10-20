@@ -37,13 +37,12 @@ func IsCarrierType(t types.Type, carriers []Carrier) bool {
 	return slices.ContainsFunc(carriers, func(c Carrier) bool { return c.Matches(t) })
 }
 
-// Parse parses a comma-separated list of context carriers.
-func Parse(s string) []Carrier {
-	if s == "" {
+// Parse parses a list of context carriers. Blank entries are skipped.
+func Parse(parts []string) []Carrier {
+	if len(parts) == 0 {
 		return nil
 	}
 
-	parts := strings.Split(s, ",")
 	carriers := make([]Carrier, 0, len(parts))
 
 	for _, part := range parts {

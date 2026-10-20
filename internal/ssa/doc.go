@@ -22,11 +22,11 @@
 //
 //	ssaProg := ssa.BuildProgram(pass)
 //
-// The [Program] type wraps the SSA representation:
+// The [Program] type wraps the SSA program and the package's source functions:
 //
 //	type Program struct {
-//	    prog *ssa.Program
-//	    pkg  *ssa.Package
+//	    *ssa.Program
+//	    SrcFuncs []*ssa.Function
 //	}
 //
 // # Finding Function Literals

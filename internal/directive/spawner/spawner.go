@@ -46,7 +46,7 @@ func (m *Map) matchesExternal(fn *types.Func) bool {
 
 // Build scans files for functions marked with the directive
 // and parses the external spawner flag.
-func Build(pass *analysis.Pass, externalSpawners string) *Map {
+func Build(pass *analysis.Pass, externalSpawners []string) *Map {
 	m := &Map{
 		local:    make(map[*types.Func]struct{}),
 		external: parseExternal(externalSpawners),
@@ -59,14 +59,10 @@ func Build(pass *analysis.Pass, externalSpawners string) *Map {
 	return m
 }
 
-// parseExternal parses the -external-spawner flag value.
-func parseExternal(s string) []funcspec.Spec {
-	if s == "" {
-		return nil
-	}
-
+// parseExternal parses the -external-spawner list. Blank entries are skipped.
+func parseExternal(parts []string) []funcspec.Spec {
 	var specs []funcspec.Spec
-	for part := range strings.SplitSeq(s, ",") {
+	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
