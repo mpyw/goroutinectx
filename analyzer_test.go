@@ -15,6 +15,22 @@ func TestPatterns(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "patterns")
 }
 
+// TestPatternsDerive is TestPatterns with -goroutine-deriver set.
+func TestPatternsDerive(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
+	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "patternsderive")
+}
+
 func TestGoroutine(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutine")
@@ -48,39 +64,9 @@ func TestResolveDerive(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "resolvederive")
 }
 
-func TestErrgroupDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroupderive")
-}
-
 func TestWaitgroup(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "waitgroup")
-}
-
-func TestWaitgroupDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "waitgroupderive")
 }
 
 // TestIgnoreForms checks how //goroutinectx:ignore is read (#65).
@@ -176,21 +162,6 @@ func TestCarrierDerive(t *testing.T) {
 	}()
 
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "carrierderive")
-}
-
-func TestSpawnerDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerderive")
 }
 
 func TestSpawner(t *testing.T) {
