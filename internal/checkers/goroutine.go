@@ -11,6 +11,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/ssa"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Goroutine checks that go statements propagate context.
@@ -33,7 +34,25 @@ func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 }
 
 func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
-	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), spawnedContextResolver(cctx, nil), true)
+	r := spawnedContextResolver(cctx, nil)
+	if g := cctx.SSAProg.GoAt(stmt); g != nil && !g.Call.IsInvoke() {
+		// A context parameter counts only when the go statement gives it a
+		// context other than a fresh context.Background() or TODO().
+		args := g.Call.Args
+		r.Closure = func(fn *gossa.Function) bool {
+			if ssa.ClosureCapturesContext(fn, cctx.Carriers) {
+				return true
+			}
+			return slices.ContainsFunc(fn.Params, func(p *gossa.Parameter) bool {
+				if !typeutil.IsContextType(p.Type()) {
+					return false
+				}
+				i := slices.Index(fn.Params, p)
+				return i >= len(args) || !ssa.IsFreshContext(args[i])
+			})
+		}
+	}
+	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), r, true)
 }
 
 // goroutineSpawnedValue gives the SSA value of the function stmt runs, or nil.

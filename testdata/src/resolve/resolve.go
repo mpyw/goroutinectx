@@ -117,3 +117,34 @@ func goodWrittenByClosure(ctx context.Context) {
 	set()
 	go fn()
 }
+
+// ===== CONTEXT PARAMETERS (#84) =====
+
+// [BAD]: A context parameter given context.Background() does not propagate ctx.
+func badFreshCtxArg(ctx context.Context) {
+	go func(c context.Context) { use(c) }(context.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: The same through a variable, given context.TODO().
+func badFreshCtxArgViaIdent(ctx context.Context) {
+	fn := func(c context.Context) { use(c) }
+	bg := context.TODO()
+	go fn(bg) // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: A context parameter given ctx.
+func goodCtxArg(ctx context.Context) {
+	go func(c context.Context) { use(c) }(ctx)
+}
+
+// [GOOD]: A context parameter given a context derived from ctx.
+func goodDerivedCtxArg(ctx context.Context) {
+	c, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func(c context.Context) { use(c) }(c)
+}
+
+// [GOOD]: A context parameter given a context the caller cannot see the source of.
+func goodUnknownCtxArg(ctx context.Context, other func() context.Context) {
+	go func(c context.Context) { use(c) }(other())
+}

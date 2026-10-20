@@ -14,6 +14,25 @@ func HasContextParam(fn *ssa.Function) bool {
 	return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool { return typeutil.IsContextType(p.Type()) })
 }
 
+// IsFreshContext reports whether every value v can be is a call of
+// context.Background or context.TODO: a context that carries nothing of the
+// caller's.
+func IsFreshContext(v ssa.Value) bool {
+	values, ok := ResolvedValues(v)
+	if !ok || len(values) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(values, func(v ssa.Value) bool {
+		call, ok := v.(*ssa.Call)
+		if !ok {
+			return true
+		}
+		fn := ExtractCalledFunc(call.Common())
+		return fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != "context" ||
+			(fn.Name() != "Background" && fn.Name() != "TODO")
+	})
+}
+
 // ArgsInvolveContext reports whether any argument of call is built from a
 // context or a carrier: one is the argument, or among the values it is made
 // from, as a closure that captures one.
