@@ -28,7 +28,7 @@ This file records design decisions and implementation details. The short, always
 
 Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) is a directive (`go/ast.ParseDirective`). Any other comment starting with `goroutinectx:` is reported as malformed, and a directive with a name goroutinectx does not read is reported as unknown. A trailing `// ...` is a reason and is dropped before parsing, as declscope does.
 
-- `//goroutinectx:ignore` - Suppress warnings for the next line or same line
+- `//goroutinectx:ignore` - Suppress warnings on its own line, or, written on a line of its own, on the next line. A report on an argument of a call is also silenced by an ignore for the line the call starts
   - Checker-specific: `//goroutinectx:ignore goroutine` or `//goroutinectx:ignore goroutine,errgroup`
   - Valid checker names: `goroutine`, `goroutinederive`, `waitgroup`, `errgroup`, `conc`, `spawner`, `spawnerlabel`, `gotask`
   - A reason follows `//`, or ` - ` for compatibility.

@@ -14,6 +14,7 @@ import (
 // Entry tracks an ignore directive and its usage.
 type Entry struct {
 	pos      token.Pos             // Position of the ignore comment
+	trailing bool                  // The comment follows code on its line
 	checkers []checker.Name        // List of checker names (empty = all)
 	used     map[checker.Name]bool // Track usage per checker
 }
@@ -36,6 +37,7 @@ type Problem struct {
 func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 	m := make(Map)
 	var problems []Problem
+	codeStarts := codeStartsByLine(fset, file)
 
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
@@ -48,8 +50,10 @@ func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 				continue
 			}
 			line := fset.PositionFor(c.Pos(), false).Line
+			start, hasCode := codeStarts[line]
 			m[line] = &Entry{
 				pos:      c.Pos(),
+				trailing: hasCode && start < c.Pos(),
 				checkers: checkers,
 				used:     make(map[checker.Name]bool),
 			}
@@ -57,6 +61,31 @@ func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 	}
 
 	return m, problems
+}
+
+// codeStartsByLine gives, for each line where a node of file starts or ends,
+// the first such position. A comment after that position follows code.
+func codeStartsByLine(fset *token.FileSet, file *ast.File) map[int]token.Pos {
+	starts := make(map[int]token.Pos)
+	mark := func(pos token.Pos) {
+		if !pos.IsValid() {
+			return
+		}
+		line := fset.PositionFor(pos, false).Line
+		if first, ok := starts[line]; !ok || pos < first {
+			starts[line] = pos
+		}
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch n.(type) {
+		case nil, *ast.Comment, *ast.CommentGroup:
+			return false
+		}
+		mark(n.Pos())
+		mark(n.End() - 1)
+		return true
+	})
+	return starts
 }
 
 // parseComment parses an ignore directive and returns the checker names.
@@ -103,12 +132,14 @@ func unknownChecker(name checker.Name) string {
 		string(name), strings.Join(names, ", "))
 }
 
-// ShouldIgnore returns true if the given line should be ignored for the specified checker.
+// ShouldIgnore returns true if the given line should be ignored for the
+// specified checker: an ignore sits on the line, or on its own on the line
+// above. An ignore that follows code covers its own line only.
 func (m Map) ShouldIgnore(line int, name checker.Name) bool {
 	if m.shouldIgnoreEntry(m[line], name) {
 		return true
 	}
-	if m.shouldIgnoreEntry(m[line-1], name) {
+	if above := m[line-1]; above != nil && !above.trailing && m.shouldIgnoreEntry(above, name) {
 		return true
 	}
 

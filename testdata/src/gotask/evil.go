@@ -49,9 +49,9 @@ func badNewTaskVariableNoDeriver(ctx context.Context) {
 //
 // Deriver in nested closure is not detected by the analyzer.
 func badDerivedInNestedClosure(ctx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		ctx,
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			// Deriver is in a nested closure - won't be detected at top level
 			go func() {
 				_ = apm.NewGoroutineContext(ctx)
@@ -164,9 +164,9 @@ func goodNewTaskVariableWithDeriver(ctx context.Context) {
 //
 // Deriver call in deferred closure is not detected by analyzer.
 func limitationDerivedInDeferClosure(ctx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		ctx,
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			// The defer's func() is a FuncLit, so we don't look inside
 			defer func() {
 				_ = apm.NewGoroutineContext(ctx)
@@ -182,13 +182,13 @@ func limitationDerivedInDeferClosure(ctx context.Context) {
 //
 // Multiple task arguments with inconsistent deriver usage.
 func badMixedDerivers(ctx context.Context) {
-	_ = gotask.DoAllSettled( // want `gotask\.DoAllSettled\(\) 3rd argument should call goroutine deriver`
+	_ = gotask.DoAllSettled(
 		ctx,
 		gotask.NewTask(func(ctx context.Context) error {
 			_ = apm.NewGoroutineContext(ctx)
 			return nil
 		}),
-		gotask.NewTask(func(ctx context.Context) error {
+		gotask.NewTask(func(ctx context.Context) error { // want `gotask\.DoAllSettled\(\) 3rd argument should call goroutine deriver`
 			return nil // No deriver!
 		}),
 	)
@@ -293,9 +293,9 @@ func badMultipleDoAsync(ctx context.Context) {
 //
 // Context parameter with non-standard naming is detected.
 func badDifferentCtxName(c context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		c,
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			return nil
 		},
 	)
@@ -305,9 +305,9 @@ func badDifferentCtxName(c context.Context) {
 //
 // Context parameter with non-standard naming is detected.
 func badContextParamUnusualName(myCtx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		myCtx,
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			return nil
 		},
 	)
@@ -332,9 +332,9 @@ func goodDifferentCtxNames(c context.Context) {
 //
 // Nested task creation pattern requires careful tracing.
 func badNestedTaskCreation(ctx context.Context) {
-	_ = gotask.DoAllFnsSettled( // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoAllFnsSettled(
 		ctx,
-		func(ctx context.Context) error {
+		func(ctx context.Context) error { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
 			// This outer task doesn't call deriver
 			_ = gotask.DoAllFnsSettled(
 				ctx,

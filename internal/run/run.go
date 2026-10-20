@@ -107,7 +107,7 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	// Run spawnerlabel checker if enabled
 	if cfg.Spawnerlabel {
 		r.enabled[checker.Spawnerlabel] = true
-		r.report(checker.Spawnerlabel, spawnerlabel.New(spawners, ssaProg).Check(pass, skipFiles))
+		r.report(checker.Spawnerlabel, spawnerlabel.New(spawners, ssaProg).Check(pass, skipFiles), token.NoPos)
 	}
 
 	// Report unused ignore directives
@@ -190,11 +190,11 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 		switch node := n.(type) {
 		case *ast.GoStmt:
 			for _, c := range r.goStmtCheckers {
-				r.report(c.Name(), c.CheckGoStmt(cctx, node))
+				r.report(c.Name(), c.CheckGoStmt(cctx, node), token.NoPos)
 			}
 		case *ast.CallExpr:
 			for _, c := range r.callCheckers {
-				r.report(c.Name(), c.CheckCall(cctx, node))
+				r.report(c.Name(), c.CheckCall(cctx, node), node.Pos())
 			}
 		}
 
@@ -202,15 +202,18 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 	})
 }
 
-// report reports each diagnostic that no ignore for name silences at its
-// position. The ignore is asked only for a report it would silence. Asking
-// it first marked it used on a line with nothing to report, so an ignore that
-// silenced nothing was never reported as unused.
-func (r *runner) report(name checker.Name, diags []analysis.Diagnostic) {
+// report reports each diagnostic that no ignore for name silences, at its
+// own line or, for a report inside a call, at the line the call starts:
+// call is the call's position, or token.NoPos. The ignore is asked only for
+// a report it would silence. Asking it first marked it used on a line with
+// nothing to report, so an ignore that silenced nothing was never reported
+// as unused.
+func (r *runner) report(name checker.Name, diags []analysis.Diagnostic, call token.Pos) {
 	for _, d := range diags {
-		if !r.shouldIgnore(d.Pos, name) {
-			r.pass.Report(d)
+		if r.shouldIgnore(d.Pos, name) || (call.IsValid() && r.shouldIgnore(call, name)) {
+			continue
 		}
+		r.pass.Report(d)
 	}
 }
 

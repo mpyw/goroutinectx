@@ -40,8 +40,8 @@ func goodLoMapWithDeriver(ctx context.Context) {
 // Higher-order function callback returning FuncLit without deriver is detected.
 func badLoMapWithoutDeriver(ctx context.Context) {
 	chunk := []UnprocessedProduct{{ID: "1"}, {ID: "2"}}
-	_ = gotask.DoAllFnsSettled(ctx, // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
-		lo.Map(chunk, func(p UnprocessedProduct, _ int) func(context.Context) ProcessedProduct {
+	_ = gotask.DoAllFnsSettled(ctx,
+		lo.Map(chunk, func(p UnprocessedProduct, _ int) func(context.Context) ProcessedProduct { // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
 			return func(ctx context.Context) ProcessedProduct {
 				// No deriver called
 				return ProcessedProduct{ID: p.ID}
@@ -70,8 +70,8 @@ func goodLoMapReturningNewTask(ctx context.Context) {
 // Callback returning NewTask wrapping a FuncLit without deriver is detected.
 func badLoMapReturningNewTask(ctx context.Context) {
 	chunk := []UnprocessedProduct{{ID: "1"}, {ID: "2"}}
-	_ = gotask.DoAllSettled(ctx, // want `gotask\.DoAllSettled\(\) variadic argument should call goroutine deriver`
-		lo.Map(chunk, func(p UnprocessedProduct, _ int) gotask.Task[ProcessedProduct] {
+	_ = gotask.DoAllSettled(ctx,
+		lo.Map(chunk, func(p UnprocessedProduct, _ int) gotask.Task[ProcessedProduct] { // want `gotask\.DoAllSettled\(\) variadic argument should call goroutine deriver`
 			return gotask.NewTask(func(ctx context.Context) ProcessedProduct {
 				return ProcessedProduct{ID: p.ID}
 			})

@@ -7,7 +7,8 @@
 //
 // # Directive Placement
 //
-// The directive can appear on the line before or the same line:
+// The directive can appear on the line before or the same line. One that
+// follows code covers its own line only:
 //
 //	//goroutinectx:ignore
 //	go func() { ... }()  // Warning suppressed

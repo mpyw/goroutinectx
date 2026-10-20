@@ -325,7 +325,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-The comment can be on the same line or the line above.
+The comment can be on the same line or the line above. A comment after code on its line covers that line only. For a call that spans several lines, an ignore above the call covers every argument, and an ignore above one argument covers that argument.
 
 #### Checker-Specific Ignore
 
