@@ -89,5 +89,4 @@ func badAndCallsNeither(ctx context.Context) {
 	}()
 }
 
-//vt:helper
 func doSomething() {}

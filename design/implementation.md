@@ -71,7 +71,6 @@ goroutinectx/
 │   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
-│   ├── metatest/              # Test metadata validation (structure.json)
 │   └── src/                   # Test fixtures
 │       ├── goroutine/         # goroutine checker tests
 │       ├── errgroup/          # errgroup checker tests
@@ -215,12 +214,7 @@ go fmt ./...
 ```
 
 > [!IMPORTANT]
-> Always use `./test_all.sh` before committing. This script runs:
-> 1. JSON schema validation for `structure.json`
-> 2. Test metadata validation (ensures all test functions are in `structure.json`)
-> 3. All analyzer tests
->
-> Running only `go test ./...` will miss structure validation failures.
+> Always use `./test_all.sh` before committing. It runs all tests and golangci-lint.
 
 ## Releasing
 
@@ -258,13 +252,11 @@ func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 
 4. Add test case in `analyzer_test.go`
 
-5. Add test metadata in `testdata/metatest/structure.json`
-
 ## Testing Strategy
 
 - Use `analysistest` for all analyzer tests
 - Test fixtures use `// want` comments for expected diagnostics
-- Test metadata is managed in `testdata/metatest/structure.json` (JSON-based)
+- Each fixture function's doc comment starts with its kind and a title (see [Test Case Comments](#test-case-comments))
 - Test structure per checker:
   - `basic.go` - Simple good/bad cases
   - `advanced.go` - Complex patterns (defer, loops, channels)
@@ -395,18 +387,18 @@ Is it 1-level goroutine with straightforward code?
 - **Symbol addition**: Check if file is growing beyond single responsibility
 - **Test addition**: Verify test file naming matches pattern
 
-## Test Metadata Management
+## Test Case Comments
 
-Test cases are documented in `testdata/metatest/structure.json`:
+The `// want` comments are the assertions. The doc comment of each fixture function says what kind of case it is, on its first line:
 
-- JSON Schema validation ensures structure consistency (`structure.schema.json`)
-- `validation_test.go` verifies function comments match metadata
-- Supports good/bad/limitation/notChecked variants per target
+| First line | Meaning |
+|------------|---------|
+| `// [BAD]: <title>` | Should report. Has a `// want` |
+| `// [GOOD]: <title>` | Should not report |
+| `// [LIMITATION]: <title>` | The analyzer gets this case wrong. The comment says how, and the `// want` comments record what it does today |
+| `// [NOTCHECKED]: <title>` | The analysis cannot follow the value. The `// want` comments record what it does instead |
 
-**Adding a new test case:**
-1. Add the test function to the appropriate testdata file
-2. Add metadata entry in `structure.json` with title, targets, variants
-3. Run `go test ./testdata/metatest/...` to validate
+A helper function needs no such line.
 
 ## Quality Improvement Cycle
 

@@ -15,9 +15,6 @@ import (
 // [BAD]: Go call inside inner named func without ctx
 //
 // Go call in nested function does not use the outer context.
-//
-// See also:
-//   waitgroup: badNestedInnerFunc
 func badNestedInnerFunc(ctx context.Context) {
 	g := new(errgroup.Group)
 	innerFunc := func() {
@@ -32,9 +29,6 @@ func badNestedInnerFunc(ctx context.Context) {
 // [BAD]: Go call inside IIFE without ctx
 //
 // Go call inside immediately invoked function expression without context.
-//
-// See also:
-//   waitgroup: badNestedClosure
 func badNestedClosure(ctx context.Context) {
 	g := new(errgroup.Group)
 	func() {
@@ -48,9 +42,6 @@ func badNestedClosure(ctx context.Context) {
 // [BAD]: Go call inside deeply nested IIFE without ctx
 //
 // Go call inside immediately invoked function expression without context.
-//
-// See also:
-//   waitgroup: badNestedDeep
 func badNestedDeep(ctx context.Context) {
 	g := new(errgroup.Group)
 	func() {
@@ -66,9 +57,6 @@ func badNestedDeep(ctx context.Context) {
 // [GOOD]: Go call inside inner func with ctx
 //
 // Nested function properly captures and uses the outer context.
-//
-// See also:
-//   waitgroup: goodNestedWithCtx
 func goodNestedWithCtx(ctx context.Context) {
 	g := new(errgroup.Group)
 	innerFunc := func() {
@@ -84,10 +72,6 @@ func goodNestedWithCtx(ctx context.Context) {
 // [GOOD]: Inner func has own ctx param
 //
 // Inner function declares its own context parameter and uses it.
-//
-// See also:
-//   goroutine: goodShadowingInnerCtxParam
-//   waitgroup: goodNestedInnerHasOwnCtx
 func goodNestedInnerHasOwnCtx(outerCtx context.Context) {
 	innerFunc := func(ctx context.Context) {
 		g := new(errgroup.Group)
@@ -105,10 +89,6 @@ func goodNestedInnerHasOwnCtx(outerCtx context.Context) {
 // [BAD]: Conditional Go without ctx
 //
 // Conditional branches spawn goroutines without using context.
-//
-// See also:
-//   goroutine: badConditionalGoroutine
-//   waitgroup: badConditionalGo
 func badConditionalGo(ctx context.Context, flag bool) {
 	g := new(errgroup.Group)
 	if flag {
@@ -147,10 +127,6 @@ func goodConditionalGo(ctx context.Context, flag bool) {
 // [BAD]: Go in for loop without ctx
 //
 // Goroutines spawned in loop iterations do not use context.
-//
-// See also:
-//   goroutine: badGoroutinesInLoop
-//   waitgroup: badLoopGo
 func badLoopGo(ctx context.Context) {
 	g := new(errgroup.Group)
 	for i := 0; i < 3; i++ {
@@ -178,10 +154,6 @@ func goodLoopGo(ctx context.Context) {
 // [BAD]: Go in range loop without ctx
 //
 // Goroutines spawned in loop iterations do not use context.
-//
-// See also:
-//   goroutine: badGoroutinesInRangeLoop
-//   waitgroup: badRangeLoopGo
 func badRangeLoopGo(ctx context.Context) {
 	g := new(errgroup.Group)
 	items := []int{1, 2, 3}
@@ -199,9 +171,6 @@ func badRangeLoopGo(ctx context.Context) {
 // [BAD]: Closure with defer but no ctx
 //
 // Closure with defer statement does not use context.
-//
-// See also:
-//   waitgroup: badDeferInClosure
 func badDeferInClosure(ctx context.Context) {
 	g := new(errgroup.Group)
 	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
@@ -227,10 +196,6 @@ func goodDeferWithCtxDirect(ctx context.Context) {
 // [GOOD]: Ctx in deferred nested closure - SSA correctly detects
 //
 // SSA FreeVars propagation correctly detects context captured in nested closures.
-//
-// See also:
-//   goroutine: goodDeferNestedClosure
-//   waitgroup: goodDeferNestedClosure
 func goodDeferNestedClosure(ctx context.Context) {
 	g := new(errgroup.Group)
 	g.Go(func() error { // SSA correctly detects ctx capture

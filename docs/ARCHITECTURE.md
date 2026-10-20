@@ -83,10 +83,6 @@ goroutinectx/
 │   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
-│   ├── metatest/              # Test metadata validation
-│   │   ├── structure.json     # Test definitions
-│   │   ├── structure.schema.json  # JSON Schema
-│   │   └── validation_test.go # Metadata validator
 │   └── src/                   # Test fixtures for analysistest
 │       ├── goroutine/         # goroutine checker tests
 │       ├── errgroup/          # errgroup checker tests
@@ -294,13 +290,6 @@ func bad(ctx context.Context) {
     }()
 }
 ```
-
-### Test Metadata (structure.json)
-
-Tests are documented in `testdata/metatest/structure.json`:
-- JSON Schema validation ensures structure consistency
-- `validation_test.go` verifies function comments match metadata
-- Supports good/bad/limitation/notChecked variants
 
 ## Comparison with Related Tools
 

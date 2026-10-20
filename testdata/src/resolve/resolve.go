@@ -8,7 +8,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-//vt:helper
 func use(ctx context.Context) { _ = ctx }
 
 // ===== SHOULD REPORT =====

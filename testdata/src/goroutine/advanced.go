@@ -25,10 +25,6 @@ func badGoroutineWithDefer(ctx context.Context) {
 // [GOOD]: Ctx in deferred nested closure - SSA correctly detects
 //
 // SSA FreeVars propagation correctly detects context captured in nested closures.
-//
-// See also:
-//   errgroup: goodDeferNestedClosure
-//   waitgroup: goodDeferNestedClosure
 func goodDeferNestedClosure(ctx context.Context) {
 	go func() { // SSA correctly detects ctx capture
 		defer func() {
@@ -70,10 +66,6 @@ func goodGoroutineUsesCtxInRecoveryClosure(ctx context.Context) {
 // [BAD]: Go in for loop without ctx
 //
 // Goroutines spawned in loop iterations do not use context.
-//
-// See also:
-//   errgroup: badLoopGo
-//   waitgroup: badLoopGo
 func badGoroutinesInLoop(ctx context.Context) {
 	for i := 0; i < 3; i++ {
 		go func() { // want `goroutine does not propagate context "ctx"`
@@ -96,10 +88,6 @@ func goodGoroutinesInLoopWithCtx(ctx context.Context) {
 // [BAD]: Go in range loop without ctx
 //
 // Goroutines spawned in loop iterations do not use context.
-//
-// See also:
-//   errgroup: badRangeLoopGo
-//   waitgroup: badRangeLoopGo
 func badGoroutinesInRangeLoop(ctx context.Context) {
 	items := []int{1, 2, 3}
 	for _, item := range items {
@@ -114,10 +102,6 @@ func badGoroutinesInRangeLoop(ctx context.Context) {
 // [BAD]: Conditional Go without ctx
 //
 // Conditional branches spawn goroutines without using context.
-//
-// See also:
-//   errgroup: badConditionalGo
-//   waitgroup: badConditionalGo
 func badConditionalGoroutine(ctx context.Context, flag bool) {
 	if flag {
 		go func() { // want `goroutine does not propagate context "ctx"`
@@ -198,7 +182,6 @@ func goodGoroutineReturnsWithCtx(ctx context.Context) {
 	<-result
 }
 
-//vt:helper
 func compute() int { return 42 }
 
 // ===== SELECT PATTERNS =====
@@ -273,12 +256,10 @@ type worker struct {
 	name string
 }
 
-//vt:helper
 func (w *worker) run() {
 	fmt.Println("running:", w.name)
 }
 
-//vt:helper
 func (w *worker) runWithCtx(ctx context.Context) {
 	_ = ctx
 	fmt.Println("running:", w.name)
@@ -391,10 +372,6 @@ func goodGoroutineUsesCtxInSwitch(ctx context.Context) {
 // [GOOD]: Inner func has own ctx param
 //
 // Inner function declares its own context parameter and uses it.
-//
-// See also:
-//   errgroup: goodNestedInnerHasOwnCtx
-//   waitgroup: goodNestedInnerHasOwnCtx
 func goodShadowingInnerCtxParam(outerCtx context.Context) {
 	go func(ctx context.Context) {
 		_ = ctx.Done() // uses inner ctx - OK

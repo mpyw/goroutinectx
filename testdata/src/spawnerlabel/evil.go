@@ -160,7 +160,6 @@ func limitationHigherOrderReturn() {
 	fn()
 }
 
-//vt:helper
 func getSpawnerFunc() func() {
 	return func() {
 		g := new(errgroup.Group)

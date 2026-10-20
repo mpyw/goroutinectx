@@ -125,9 +125,6 @@ func badHigherOrderReturnedFuncPartialDeriver(ctx context.Context, txn *newrelic
 // [BAD]: Variable reassignment - last assignment with incomplete derivers should warn.
 //
 // Last reassigned value has incomplete deriver calls.
-//
-// See also:
-//   goroutinederiveand: badReassignedFuncIncompleteDeriver
 func badReassignedFuncIncompleteDeriver(ctx context.Context, txn *newrelic.Transaction) {
 	fn := func() {
 		txn = txn.NewGoroutine()

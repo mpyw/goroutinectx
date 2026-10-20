@@ -62,7 +62,6 @@ func missingLabelIndirectSpawner() { // want `function "missingLabelIndirectSpaw
 	_ = g.Wait()
 }
 
-//vt:helper
 //goroutinectx:spawner
 func runWithGroup(g *errgroup.Group, fn func() error) {
 	g.Go(fn)

@@ -153,7 +153,6 @@ func limitationLoMapPartialDeriver(ctx context.Context) {
 
 // ===== Deep nesting and chaining patterns =====
 
-//vt:helper
 func makeTaskFactory(p UnprocessedProduct) func(context.Context) ProcessedProduct {
 	return func(ctx context.Context) ProcessedProduct {
 		_ = apm.NewGoroutineContext(ctx)
@@ -161,7 +160,6 @@ func makeTaskFactory(p UnprocessedProduct) func(context.Context) ProcessedProduc
 	}
 }
 
-//vt:helper
 func makeTaskFactoryNoDeriver(p UnprocessedProduct) func(context.Context) ProcessedProduct {
 	return func(ctx context.Context) ProcessedProduct {
 		return ProcessedProduct{ID: p.ID}
