@@ -53,20 +53,25 @@ goroutinectx/
 ├── waitgroup_test.go          # Waitgroup-specific tests (Go 1.25+ build tag)
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config
-│   ├── checkers/              # Individual checker implementations
-│   │   ├── checker.go         # CallChecker, GoStmtChecker interfaces
-│   │   ├── errgroup/          # errgroup.Group.Go() checker
-│   │   ├── waitgroup/         # sync.WaitGroup.Go() checker (Go 1.25+)
-│   │   ├── goroutine/         # go statement checker
-│   │   ├── spawner/           # spawner directive checker
-│   │   ├── goroutinederive/   # goroutine_derive checker
-│   │   └── gotask/            # gotask library checker
-│   ├── context/               # Context scope detection
-│   ├── directives/            # Directive parsing
+│   ├── runner.go              # Runner: walks the AST and runs the checkers
+│   ├── check.go               # CallChecker, GoStmtChecker interfaces
+│   ├── apis.go                # Spawning APIs registered for spawnerlabel
+│   ├── checker/               # Checker names
+│   ├── checkers/              # Checker implementations
+│   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
+│   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
+│   │   ├── gotask.go          # gotask library checker
+│   │   └── spawnerlabel/      # spawnerlabel checker
+│   ├── carrier/               # Context carrier types (-context-carriers)
+│   ├── deriver/               # Matcher for OR/AND deriver matching
+│   ├── directive/             # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
-│   │   ├── spawner/           # //goroutinectx:spawner
-│   │   ├── carrier/           # Context carrier types
-│   │   └── deriver/           # DeriveMatcher for OR/AND deriver matching
+│   │   └── spawner/           # //goroutinectx:spawner
+│   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
+│   ├── probe/                 # AST checks over one function
+│   ├── registry/              # Registry of spawning APIs
+│   ├── scope/                 # Context scope detection
+│   ├── ssa/                   # SSA program, closure checks, call walker
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
 │   ├── metatest/              # Test metadata validation (structure.json)
@@ -155,7 +160,7 @@ func caller(ctx context.Context) {
 
 ### Derive Function Matching (DeriveMatcher)
 
-`internal/directives/deriver/` provides shared OR/AND logic for matching derive functions. Used by:
+`internal/deriver/` provides shared OR/AND logic for matching derive functions. Used by:
 - `goroutinederive`: checks `go func()` calls
 - `gotask`: checks gotask task functions and DoAsync calls
 

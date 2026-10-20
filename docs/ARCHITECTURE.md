@@ -66,21 +66,25 @@ goroutinectx/
 ├── genericmethod_test.go      # Generic method tests (Go 1.27+ build tag)
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config
+│   ├── runner.go              # Runner: walks the AST and runs the checkers
+│   ├── check.go               # CallChecker, GoStmtChecker interfaces
+│   ├── apis.go                # Spawning APIs registered for spawnerlabel
+│   ├── checker/               # Checker names
 │   ├── checkers/              # Checker implementations
-│   │   ├── checker.go         # CallChecker, GoStmtChecker interfaces
-│   │   ├── errgroup/          # errgroup.Group.Go() checker
-│   │   ├── waitgroup/         # sync.WaitGroup.Go() checker
-│   │   ├── goroutine/         # go statement checker
-│   │   ├── spawner/           # spawner directive checker
-│   │   ├── goroutinederive/   # goroutine_derive checker
-│   │   └── gotask/            # gotask library checker
-│   ├── context/               # Context scope detection
-│   │   └── scope.go           # ContextScope, FindScope
-│   ├── directives/            # Directive parsing
+│   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
+│   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
+│   │   ├── gotask.go          # gotask library checker
+│   │   └── spawnerlabel/      # spawnerlabel checker
+│   ├── carrier/               # Context carrier types (-context-carriers)
+│   ├── deriver/               # Matcher for OR/AND deriver matching
+│   ├── directive/             # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
-│   │   ├── spawner/           # //goroutinectx:spawner
-│   │   ├── carrier/           # Context carrier types
-│   │   └── deriver/           # DeriveMatcher for OR/AND deriver matching
+│   │   └── spawner/           # //goroutinectx:spawner
+│   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
+│   ├── probe/                 # AST checks over one function
+│   ├── registry/              # Registry of spawning APIs
+│   ├── scope/                 # Context scope detection
+│   ├── ssa/                   # SSA program, closure checks, call walker
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
 │   ├── metatest/              # Test metadata validation
@@ -155,7 +159,7 @@ type CheckContext struct {
 func FindScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Carrier) *Scope
 ```
 
-### internal/directives/ignore/
+### internal/directive/ignore/
 
 Comment directive support with checker-specific ignores and unused detection:
 
@@ -188,7 +192,7 @@ Only `//goroutinectx:name` (a line comment, a lowercase name, no spaces) is a
 directive, as parsed by `go/ast.ParseDirective`. Any other comment starting
 with `goroutinectx:` is reported as a malformed directive.
 
-### internal/directives/deriver/
+### internal/deriver/
 
 Deriver function matching with OR/AND logic:
 

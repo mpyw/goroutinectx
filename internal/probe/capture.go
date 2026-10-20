@@ -4,25 +4,6 @@ import (
 	"go/ast"
 )
 
-// FuncLitCapturesContextSSA uses SSA analysis to check if a func literal captures context.
-// Returns (result, true) if SSA analysis succeeded, or (false, false) if it failed.
-func (c *Context) FuncLitCapturesContextSSA(lit *ast.FuncLit) (bool, bool) {
-	if c.SSAProg == nil || c.Tracer == nil {
-		return false, false
-	}
-
-	if c.FuncLitHasContextParam(lit) {
-		return true, true
-	}
-
-	ssaFn := c.SSAProg.FindFuncLit(lit)
-	if ssaFn == nil {
-		return false, false
-	}
-
-	return c.Tracer.ClosureCapturesContext(ssaFn, c.Carriers), true
-}
-
 // FuncLitCapturesContext checks if a func literal captures context (AST-based).
 func (c *Context) FuncLitCapturesContext(lit *ast.FuncLit) bool {
 	return c.FuncLitHasContextParam(lit) || c.FuncLitUsesContext(lit)

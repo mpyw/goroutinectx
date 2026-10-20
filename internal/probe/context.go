@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/directive/carrier"
+	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
@@ -16,7 +16,6 @@ import (
 type Context struct {
 	Pass      *analysis.Pass
 	Inspector *inspector.Inspector // inspector over Pass.Files
-	Tracer    *ssa.Tracer
 	SSAProg   *ssa.Program
 	CtxNames  []string
 	Carriers  []carrier.Carrier

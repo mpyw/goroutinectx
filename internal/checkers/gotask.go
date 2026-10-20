@@ -10,10 +10,11 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/mpyw/goroutinectx/internal"
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
-	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
+	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // gotaskConstructor defines how gotask tasks are created.
@@ -65,8 +66,8 @@ func NewGotaskChecker(derivers *deriver.Matcher) *GotaskChecker {
 }
 
 // Name returns the checker name.
-func (*GotaskChecker) Name() ignore.CheckerName {
-	return ignore.Gotask
+func (*GotaskChecker) Name() checker.Name {
+	return checker.Gotask
 }
 
 // MatchCall returns true if this checker should handle the call.
@@ -295,12 +296,8 @@ func (c *GotaskChecker) callbackCallsDeriver(cctx *probe.Context, arg ast.Expr) 
 	// For function literals, check if body calls deriver
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		// Try SSA-based check first
-		if cctx.SSAProg != nil && cctx.Tracer != nil {
-			ssaFn := cctx.SSAProg.FindFuncLit(lit)
-			if ssaFn != nil {
-				result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
-				return result.FoundAtStart
-			}
+		if ssaFn := cctx.SSAProg.FindFuncLit(lit); ssaFn != nil {
+			return ssa.ClosureCallsDeriver(ssaFn, c.derivers).FoundAtStart
 		}
 		// Fall back to AST-based check
 		return c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body)
@@ -323,12 +320,8 @@ func (c *GotaskChecker) argCallsDeriver(cctx *probe.Context, arg ast.Expr, entry
 	// For function literals, check if body calls deriver
 	if lit, ok := arg.(*ast.FuncLit); ok {
 		// Try SSA-based check first
-		if cctx.SSAProg != nil && cctx.Tracer != nil {
-			ssaFn := cctx.SSAProg.FindFuncLit(lit)
-			if ssaFn != nil {
-				result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
-				return result.FoundAtStart
-			}
+		if ssaFn := cctx.SSAProg.FindFuncLit(lit); ssaFn != nil {
+			return ssa.ClosureCallsDeriver(ssaFn, c.derivers).FoundAtStart
 		}
 		// Fall back to AST-based check
 		return c.derivers.SatisfiesAnyGroup(cctx.Pass, lit.Body)

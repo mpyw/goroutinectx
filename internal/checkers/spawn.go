@@ -9,16 +9,17 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/mpyw/goroutinectx/internal"
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
-	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
+	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // SpawnCallbackChecker checks function calls that take callbacks spawned as goroutines.
 type SpawnCallbackChecker struct {
 	spawnClosureCheck
-	checkerName ignore.CheckerName
+	checkerName checker.Name
 	entries     []SpawnCallbackEntry
 }
 
@@ -35,7 +36,7 @@ type spawnClosureCheck struct {
 }
 
 // newSpawnCallbackChecker creates a new SpawnCallbackChecker.
-func newSpawnCallbackChecker(name ignore.CheckerName, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
+func newSpawnCallbackChecker(name checker.Name, entries []SpawnCallbackEntry, derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return &SpawnCallbackChecker{
 		spawnClosureCheck: spawnClosureCheck{derivers: derivers},
 		checkerName:       name,
@@ -44,7 +45,7 @@ func newSpawnCallbackChecker(name ignore.CheckerName, entries []SpawnCallbackEnt
 }
 
 // Name returns the checker name for ignore directive matching.
-func (c *SpawnCallbackChecker) Name() ignore.CheckerName {
+func (c *SpawnCallbackChecker) Name() checker.Name {
 	return c.checkerName
 }
 
@@ -109,10 +110,6 @@ func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool 
 // checkFuncLitSSA checks a func literal using SSA analysis.
 // Returns (result, true) if SSA succeeded, or (false, false) if SSA failed.
 func (c *spawnClosureCheck) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLit) (bool, bool) {
-	if cctx.SSAProg == nil || cctx.Tracer == nil {
-		return false, false
-	}
-
 	// If func lit has context param, it's OK
 	if cctx.FuncLitHasContextParam(lit) {
 		return true, true
@@ -124,13 +121,13 @@ func (c *spawnClosureCheck) checkFuncLitSSA(cctx *probe.Context, lit *ast.FuncLi
 	}
 
 	// Check if closure captures context
-	if cctx.Tracer.ClosureCapturesContext(ssaFn, cctx.Carriers) {
+	if ssa.ClosureCapturesContext(ssaFn, cctx.Carriers) {
 		return true, true
 	}
 
 	// If derivers configured, also check if deriver is called
 	if !c.derivers.IsEmpty() {
-		result := cctx.Tracer.ClosureCallsDeriver(ssaFn, c.derivers)
+		result := ssa.ClosureCallsDeriver(ssaFn, c.derivers)
 		if result.FoundAtStart {
 			return true, true
 		}
@@ -202,7 +199,7 @@ func (c *spawnClosureCheck) checkFuncLitAST(cctx *probe.Context, lit *ast.FuncLi
 
 // NewErrgroupSpawnChecker creates the errgroup checker.
 func NewErrgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(ignore.Errgroup, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(checker.Errgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"}, CallbackArgIdx: 0},
 		{Spec: funcspec.Spec{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "TryGo"}, CallbackArgIdx: 0},
 	}, derivers)
@@ -210,14 +207,14 @@ func NewErrgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
 
 // NewWaitgroupSpawnChecker creates the waitgroup checker (Go 1.25+).
 func NewWaitgroupSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(ignore.Waitgroup, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(checker.Waitgroup, []SpawnCallbackEntry{
 		{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, CallbackArgIdx: 0},
 	}, derivers)
 }
 
 // NewConcSpawnChecker creates the conc checker.
 func NewConcSpawnChecker(derivers *deriver.Matcher) *SpawnCallbackChecker {
-	return newSpawnCallbackChecker(ignore.Conc, []SpawnCallbackEntry{
+	return newSpawnCallbackChecker(checker.Conc, []SpawnCallbackEntry{
 		// conc.Pool.Go
 		{Spec: funcspec.Spec{PkgPath: "github.com/sourcegraph/conc", TypeName: "Pool", FuncName: "Go"}, CallbackArgIdx: 0},
 		// conc.WaitGroup.Go
@@ -279,8 +276,8 @@ func NewSpawnerChecker(spawners SpawnerMap, derivers *deriver.Matcher) *SpawnerC
 }
 
 // Name returns the checker name.
-func (*SpawnerChecker) Name() ignore.CheckerName {
-	return ignore.Spawner
+func (*SpawnerChecker) Name() checker.Name {
+	return checker.Spawner
 }
 
 // MatchCall returns true if this checker should handle the call.

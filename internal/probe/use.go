@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"slices"
 
-	"github.com/mpyw/goroutinectx/internal/directive/carrier"
+	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
