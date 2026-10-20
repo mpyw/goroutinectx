@@ -19,7 +19,7 @@ func TestErrgroup(t *testing.T) {
 }
 
 // TestResolve checks closures given through variables, resolved through SSA
-// (#82, #83).
+// (#82, #83), and context parameters given a fresh context (#84).
 func TestResolve(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "resolve")
