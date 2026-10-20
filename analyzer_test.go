@@ -1,7 +1,12 @@
 package goroutinectx_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/tools/go/analysis/analysistest"
 
@@ -328,4 +333,39 @@ func TestLineDirectiveSpawnerlabel(t *testing.T) {
 	}()
 
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirectivelabel")
+}
+
+// TestResolveFanOutIsBounded checks that resolving a struct field copied
+// from another variable on each of many branches, a few levels deep, takes
+// time linear in the code, not exponential. Six levels took about 100s
+// before the resolution remembered the stores it had resolved and kept each
+// value once.
+func TestResolveFanOutIsBounded(t *testing.T) {
+	const levels, branches = 6, 31
+	var src strings.Builder
+	src.WriteString("package fanout\n\nimport \"context\"\n\ntype holder struct{ fn func() }\n\n")
+	src.WriteString("func f(ctx context.Context, n int) {\n\tvar v0 holder\n\tv0.fn = func() {}\n\t_ = v0.fn\n")
+	for i := 1; i <= levels; i++ {
+		fmt.Fprintf(&src, "\tvar v%d holder\n\tswitch n {\n", i)
+		for c := range branches {
+			fmt.Fprintf(&src, "\tcase %d:\n\t\tv%d = v%d\n", c, i, i-1)
+		}
+		fmt.Fprintf(&src, "\t}\n\t_ = v%d.fn\n", i)
+	}
+	fmt.Fprintf(&src, "\tgo v%d.fn() // want `goroutine does not propagate context \"ctx\"`\n}\n", levels)
+
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "src", "fanout")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "fanout.go"), []byte(src.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	analysistest.Run(t, dir, goroutinectx.Analyzer, "fanout")
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Errorf("analysis took %v, want well under 30s", elapsed)
+	}
 }
