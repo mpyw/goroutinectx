@@ -171,6 +171,29 @@ func TestSpawner(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawner")
 }
 
+// TestSpawnerFact checks spawner directives across packages (#89) and on
+// any doc comment line (#85).
+func TestSpawnerFact(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerfact")
+}
+
+// TestSpawnerlabelDoc checks -spawnerlabel with the directive on any doc
+// comment line (#85).
+func TestSpawnerlabelDoc(t *testing.T) {
+	testdata := analysistest.TestData()
+
+	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
+	}()
+
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerlabeldoc")
+}
+
 func TestDirective(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "directive")
