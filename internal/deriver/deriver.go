@@ -1,12 +1,8 @@
 package deriver
 
 import (
-	"go/ast"
 	"go/types"
-	"slices"
 	"strings"
-
-	"golang.org/x/tools/go/analysis"
 
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 )
@@ -54,18 +50,6 @@ func NewMatcher(deriveFuncsStr string) *Matcher {
 	return m
 }
 
-// SatisfiesAnyGroup checks if the AST node satisfies ANY of the OR groups.
-func (m *Matcher) SatisfiesAnyGroup(pass *analysis.Pass, node ast.Node) bool {
-	if m.IsEmpty() {
-		return false
-	}
-	calledFuncs := collectCalledFuncs(pass, node)
-
-	return slices.ContainsFunc(m.OrGroups, func(andGroup []funcspec.Spec) bool {
-		return groupSatisfied(calledFuncs, andGroup)
-	})
-}
-
 // IsEmpty returns true if no derive functions are configured. A nil Matcher
 // is empty, so a run without -goroutine-deriver can pass nil.
 func (m *Matcher) IsEmpty() bool {
@@ -85,44 +69,4 @@ func (m *Matcher) MatchesFunc(fn *types.Func) bool {
 		}
 	}
 	return false
-}
-
-// collectCalledFuncs collects all types.Func that are called within the node.
-// Does NOT traverse into nested function literals.
-func collectCalledFuncs(pass *analysis.Pass, node ast.Node) []*types.Func {
-	var funcs []*types.Func
-
-	ast.Inspect(node, func(n ast.Node) bool {
-		if _, ok := n.(*ast.FuncLit); ok {
-			return false
-		}
-
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		if fn := funcspec.ExtractFunc(pass, call); fn != nil {
-			funcs = append(funcs, fn)
-		}
-
-		return true
-	})
-
-	return funcs
-}
-
-// groupSatisfied checks if ALL specs in the AND group are satisfied.
-func groupSatisfied(calledFuncs []*types.Func, andGroup []funcspec.Spec) bool {
-	for _, spec := range andGroup {
-		if !specSatisfied(calledFuncs, spec) {
-			return false
-		}
-	}
-	return true
-}
-
-// specSatisfied checks if the spec is satisfied by any of the called functions.
-func specSatisfied(calledFuncs []*types.Func, spec funcspec.Spec) bool {
-	return slices.ContainsFunc(calledFuncs, spec.Matches)
 }

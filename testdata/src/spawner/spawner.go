@@ -258,18 +258,17 @@ func limitationFuncFromVariadicParameter(ctx context.Context, fns ...func()) {
 
 // ===== IIFE FACTORY PATTERNS =====
 
-// [LIMITATION]: IIFE factory with parentheses - not traced
+// [BAD]: IIFE factory with parentheses
 //
-// Parenthesized IIFE pattern cannot be traced (ParenExpr not handled).
-func limitationIIFEFactoryWithParentheses(ctx context.Context) {
+// The parenthesized factory is resolved through SSA like any other.
+func badIIFEFactoryWithParentheses(ctx context.Context) {
 	g := new(errgroup.Group)
-	// (func() ...)() wrapped in parens - ParenExpr not traced
-	runWithGroup(g, (func() func() error {
+	runWithGroup(g, (func() func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
 		return func() error {
 			fmt.Println("no ctx")
 			return nil
 		}
-	})()) // No error - ParenExpr not handled
+	})())
 	_ = g.Wait()
 }
 

@@ -15,6 +15,8 @@
     "linedirective",
     "linedirectivegen",
     "linedirectivelabel",
-    "ignoreforms"
+    "ignoreforms",
+    "resolve",
+    "resolvederive"
   ]
 }

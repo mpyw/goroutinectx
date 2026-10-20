@@ -4,10 +4,10 @@
     "gotask"
   ],
   "variants": {
-    "limitation": {
-      "description": "Can't trace through &task to find constructor",
+    "good": {
+      "description": "The task behind the pointer is resolved through SSA to its constructor.",
       "functions": {
-        "gotask": "limitationPointerDereferenceCallbackDeriver"
+        "gotask": "goodPointerDereferenceCallbackDeriver"
       }
     }
   },

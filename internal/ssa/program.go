@@ -7,9 +7,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
 	"golang.org/x/tools/go/ssa"
-
-	"github.com/mpyw/goroutinectx/internal/carrier"
-	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Program wraps an SSA program with the analyzed package.
@@ -58,20 +55,56 @@ func (p *Program) findFuncLitInFunc(fn *ssa.Function, lit *ast.FuncLit) *ssa.Fun
 	return nil
 }
 
-// FuncLitCapturesContext reports whether the closure built from lit takes a
-// context parameter, or captures a context or a carrier. ok is false when lit
-// has no SSA function.
-func (p *Program) FuncLitCapturesContext(lit *ast.FuncLit, carriers []carrier.Carrier) (captures, ok bool) {
-	fn := p.FindFuncLit(lit)
+// GoAt finds the go instruction of stmt, or nil when SSA has none, as for
+// unreachable code.
+func (p *Program) GoAt(stmt *ast.GoStmt) *ssa.Go {
+	fn := p.innermostFuncAt(stmt)
 	if fn == nil {
-		return false, false
+		return nil
 	}
-
-	if slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool { return typeutil.IsContextType(param.Type()) }) {
-		return true, true
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if g, ok := instr.(*ssa.Go); ok && g.Pos() == stmt.Go {
+				return g
+			}
+		}
 	}
+	return nil
+}
 
-	return ClosureCapturesContext(fn, carriers), true
+// CallAt finds the Call, Go or Defer instruction of call, or nil.
+func (p *Program) CallAt(call *ast.CallExpr) ssa.CallInstruction {
+	fn := p.innermostFuncAt(call)
+	if fn == nil {
+		return nil
+	}
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if c, ok := instr.(ssa.CallInstruction); ok && c.Common().Pos() == call.Lparen {
+				return c
+			}
+		}
+	}
+	return nil
+}
+
+// innermostFuncAt finds the innermost SSA function whose syntax holds n.
+func (p *Program) innermostFuncAt(n ast.Node) *ssa.Function {
+	if p == nil {
+		return nil
+	}
+	fn := p.FuncAt(n)
+	for fn != nil {
+		i := slices.IndexFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
+			syntax := anon.Syntax()
+			return syntax != nil && syntax.Pos() <= n.Pos() && n.End() <= syntax.End()
+		})
+		if i < 0 {
+			return fn
+		}
+		fn = fn.AnonFuncs[i]
+	}
+	return nil
 }
 
 // FindFuncDecl finds the SSA function for a given FuncDecl AST node.

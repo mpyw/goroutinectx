@@ -79,10 +79,10 @@ goroutinectx/
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
-│   ├── probe/                 # AST checks over one function
+│   ├── probe/                 # AST lookups of struct fields and indexed elements
 │   ├── registry/              # The one table of supported spawning APIs
 │   ├── scope/                 # Context scope detection
-│   ├── ssa/                   # SSA program, closure checks, call walker
+│   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
 │   ├── metatest/              # Test metadata validation

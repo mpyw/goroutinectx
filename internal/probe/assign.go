@@ -6,148 +6,14 @@ import (
 	"go/token"
 	"go/types"
 	"iter"
-	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// FuncLitAssignment represents a func literal assignment with its conditionality.
-type FuncLitAssignment struct {
-	Lit         *ast.FuncLit
-	Conditional bool // true if inside if/for/switch/select
-}
-
-// EffectiveFuncLitAssignments returns the suffix of assigns that a check must
-// consider: everything from the last unconditional assignment onwards.
-//
-// Assignments before that point are always overwritten, so they cannot affect
-// the value observed at the spawn site. Conditional assignments after it may or
-// may not run, so every one of them has to satisfy the check independently.
-func EffectiveFuncLitAssignments(assigns []FuncLitAssignment) []FuncLitAssignment {
-	for i, assign := range slices.Backward(assigns) {
-		if !assign.Conditional {
-			return assigns[i:]
-		}
-	}
-	return assigns
-}
-
-// FuncLitAssignedToIdent is a convenience method that combines VarOf and FuncLitAssignedTo.
-// Returns the last func literal assignment found.
-func (c *Context) FuncLitAssignedToIdent(ident *ast.Ident) *ast.FuncLit {
-	v := c.VarOf(ident)
-	if v == nil {
-		return nil
-	}
-	return c.FuncLitAssignedTo(v, token.NoPos)
-}
-
-// FuncLitAssignmentsOfIdent returns ALL func literal assignments with conditionality info.
-func (c *Context) FuncLitAssignmentsOfIdent(ident *ast.Ident) []FuncLitAssignment {
-	v := c.VarOf(ident)
-	if v == nil {
-		return nil
-	}
-	return c.FuncLitAssignmentsTo(v, token.NoPos)
-}
-
-// FuncLitAssignedTo searches for the func literal assigned to the variable.
-// If beforePos is token.NoPos, returns the LAST assignment found.
-// If beforePos is set, returns the last assignment BEFORE that position.
-func (c *Context) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit {
-	var result *ast.FuncLit
-	for _, assign := range c.assignStmtsBefore(v, beforePos) {
-		if fl := c.funcLitInAssignment(assign, v); fl != nil {
-			result = fl
-		}
-	}
-
-	return result
-}
-
-// FuncLitAssignmentsTo searches for ALL func literal assignments with conditionality info.
-func (c *Context) FuncLitAssignmentsTo(v *types.Var, beforePos token.Pos) []FuncLitAssignment {
-	var results []FuncLitAssignment
-	for cur, assign := range c.assignStmtsBefore(v, beforePos) {
-		fl := c.funcLitInAssignment(assign, v)
-		if fl == nil {
-			continue
-		}
-
-		// Check if assignment is inside a control structure
-		conditional := assignedInControlStructure(cur)
-
-		results = append(results, FuncLitAssignment{
-			Lit:         fl,
-			Conditional: conditional,
-		})
-	}
-
-	return results
-}
-
-// assignedInControlStructure reports whether the assignment at cur sits inside
-// a control structure.
-func assignedInControlStructure(cur inspector.Cursor) bool {
-	for range cur.Enclosing(
-		(*ast.IfStmt)(nil),
-		(*ast.ForStmt)(nil),
-		(*ast.RangeStmt)(nil),
-		(*ast.SwitchStmt)(nil),
-		(*ast.TypeSwitchStmt)(nil),
-		(*ast.SelectStmt)(nil),
-	) {
-		return true
-	}
-	return false
-}
-
-// funcLitInAssignment checks if the assignment assigns a func literal to v.
-func (c *Context) funcLitInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.FuncLit {
-	for rhs := range c.assignValuesTo(assign, v) {
-		if fl, ok := rhs.(*ast.FuncLit); ok {
-			return fl
-		}
-	}
-	return nil
-}
-
-// CallExprAssignedToIdent is a convenience method that combines VarOf and CallExprAssignedTo.
-// Returns the last call expression assignment found.
-func (c *Context) CallExprAssignedToIdent(ident *ast.Ident) *ast.CallExpr {
-	v := c.VarOf(ident)
-	if v == nil {
-		return nil
-	}
-	return c.CallExprAssignedTo(v, token.NoPos)
-}
-
-// CallExprAssignedTo searches for the call expression assigned to the variable.
-func (c *Context) CallExprAssignedTo(v *types.Var, beforePos token.Pos) *ast.CallExpr {
-	var result *ast.CallExpr
-	for _, assign := range c.assignStmtsBefore(v, beforePos) {
-		if call := c.callExprInAssignment(assign, v); call != nil {
-			result = call
-		}
-	}
-
-	return result
-}
-
-// callExprInAssignment checks if the assignment assigns a call expression to v.
-func (c *Context) callExprInAssignment(assign *ast.AssignStmt, v *types.Var) *ast.CallExpr {
-	for rhs := range c.assignValuesTo(assign, v) {
-		if call, ok := rhs.(*ast.CallExpr); ok {
-			return call
-		}
-	}
-	return nil
-}
-
 // FuncLitAssignedToStructField finds a func literal assigned to a struct field.
 func (c *Context) FuncLitAssignedToStructField(v *types.Var, fieldName string) *ast.FuncLit {
-	for _, assign := range c.assignStmtsBefore(v, token.NoPos) {
+	for assign := range c.assignStmts(v) {
 		if result := c.funcLitOfFieldAssignment(assign, v, fieldName); result != nil {
 			return result
 		}
@@ -158,7 +24,7 @@ func (c *Context) FuncLitAssignedToStructField(v *types.Var, fieldName string) *
 
 // FuncLitAssignedToIndex finds a func literal at a specific index in a composite literal.
 func (c *Context) FuncLitAssignedToIndex(v *types.Var, indexExpr ast.Expr) *ast.FuncLit {
-	for _, assign := range c.assignStmtsBefore(v, token.NoPos) {
+	for assign := range c.assignStmts(v) {
 		if result := c.funcLitOfIndexAssignment(assign, v, indexExpr); result != nil {
 			return result
 		}
@@ -255,20 +121,15 @@ func (c *Context) assignFileCursor(pos token.Pos) (inspector.Cursor, bool) {
 	return inspector.Cursor{}, false
 }
 
-// assignStmtsBefore yields each assignment in the file that declares v, with
-// its cursor. If beforePos is set, it yields only those before that position.
-func (c *Context) assignStmtsBefore(v *types.Var, beforePos token.Pos) iter.Seq2[inspector.Cursor, *ast.AssignStmt] {
-	return func(yield func(inspector.Cursor, *ast.AssignStmt) bool) {
+// assignStmts yields each assignment in the file that declares v.
+func (c *Context) assignStmts(v *types.Var) iter.Seq[*ast.AssignStmt] {
+	return func(yield func(*ast.AssignStmt) bool) {
 		file, ok := c.assignFileCursor(v.Pos())
 		if !ok {
 			return
 		}
 		for cur := range file.Preorder((*ast.AssignStmt)(nil)) {
-			assign := cur.Node().(*ast.AssignStmt)
-			if beforePos != token.NoPos && assign.Pos() >= beforePos {
-				continue
-			}
-			if !yield(cur, assign) {
+			if !yield(cur.Node().(*ast.AssignStmt)) {
 				return
 			}
 		}
