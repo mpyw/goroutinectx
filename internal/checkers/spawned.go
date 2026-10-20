@@ -13,15 +13,13 @@ import (
 // spawnedFuncPasses judges the function a goroutine or a callback runs. expr
 // is its AST expression, and v its SSA value, nil when SSA has none. The value
 // is resolved through SSA to each function literal it can hold, and r judges
-// them. A struct field or an indexed element is looked up on the AST instead,
-// when fieldLookup is set; otherwise it passes.
+// them. Parentheses around expr are looked through. A struct field or an
+// indexed element is looked up on the AST instead, when fieldLookup is set;
+// otherwise it passes.
 //
 //declscope:shared // goroutine.go, spawn.go and gotask.go judge spawned functions alike
 func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa.FuncResolver, fieldLookup bool) bool {
-	switch e := expr.(type) {
-	case *ast.ParenExpr:
-		// LIMITATION: a parenthesized function is not traced.
-		return true
+	switch e := ast.Unparen(expr).(type) {
 	case *ast.SelectorExpr:
 		return !fieldLookup || cctx.SelectorExprCapturesContext(e)
 	case *ast.IndexExpr:

@@ -223,11 +223,13 @@ func notCheckedVariableFactoryOwnCtxParam(ctx context.Context) {
 	go factory(ctx)()
 }
 
-// [GOOD]: Factory returns nested func with own ctx param
+// [BAD]: Goroutine runs a factory whose result has its own ctx param
 //
-// Factory returns a nested func that has its own context parameter.
-func goodFactoryNestedFuncWithCtxParam(ctx context.Context) {
-	go (func() func(context.Context) {
+// The goroutine runs the factory itself, not the func it returns, and the
+// factory neither uses ctx nor calls the deriver. The parentheses around the
+// factory used to hide it (#118).
+func badFactoryNestedFuncWithCtxParam(ctx context.Context) {
+	go (func() func(context.Context) { // want `goroutine does not propagate context "ctx"` "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
 		return func(ctx context.Context) {
 			_ = ctx
 		}
