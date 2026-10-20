@@ -229,6 +229,98 @@ func badRangeLoopGoWaitGroup(ctx context.Context) {
 	wg.Wait()
 }
 
+// ===== Variable declared in a loop =====
+
+// [GOOD]: Variable declared in a loop
+//
+// Each iteration has its own variable, so a store in an earlier iteration
+// does not reach the spawn (#147).
+func goodLoopDeclaredGoroutine(ctx context.Context, xs []int) {
+	for _, x := range xs {
+		var h struct{ fn func() }
+		if x < 0 {
+			h.fn = func() { fmt.Println("legacy") }
+			_ = h.fn
+			continue
+		}
+		if x > 0 {
+			h.fn = func() { _ = ctx }
+		}
+		if h.fn != nil {
+			go h.fn()
+		}
+	}
+}
+
+// [GOOD]: Variable declared in a loop
+//
+// Each iteration has its own variable, so a store in an earlier iteration
+// does not reach the spawn (#147).
+func goodLoopDeclaredErrgroup(ctx context.Context, xs []int) {
+	g := new(errgroup.Group)
+	for _, x := range xs {
+		var h struct{ fn func() error }
+		if x < 0 {
+			h.fn = func() error { return nil }
+			_ = h.fn
+			continue
+		}
+		if x > 0 {
+			h.fn = func() error { _ = ctx; return nil }
+		}
+		if h.fn != nil {
+			g.Go(h.fn)
+		}
+	}
+	_ = g.Wait()
+}
+
+// [GOOD]: Variable declared in a loop
+//
+// Each iteration has its own variable, so a store in an earlier iteration
+// does not reach the spawn (#147).
+func goodLoopDeclaredWaitGroup(ctx context.Context, xs []int) {
+	var wg sync.WaitGroup
+	for _, x := range xs {
+		var h struct{ fn func() }
+		if x < 0 {
+			h.fn = func() {}
+			_ = h.fn
+			continue
+		}
+		if x > 0 {
+			h.fn = func() { _ = ctx }
+		}
+		if h.fn != nil {
+			wg.Go(h.fn)
+		}
+	}
+	wg.Wait()
+}
+
+// [GOOD]: Variable declared in a loop
+//
+// Each iteration has its own variable, so a store in an earlier iteration
+// does not reach the spawn (#147).
+func goodLoopDeclaredSpawner(ctx context.Context, xs []int) {
+	g := new(errgroup.Group)
+	for _, x := range xs {
+		var h struct{ fn func() error }
+		if x < 0 {
+			h.fn = func() error { return nil }
+			_ = h.fn
+			continue
+		}
+		if x > 0 {
+			h.fn = func() error { _ = ctx; return nil }
+		}
+		if h.fn != nil {
+			runWithGroup(g, h.fn)
+		}
+	}
+	_ = g.Wait()
+}
+
 // ===== Defer =====
 
 // [BAD]: Closure with defer but no ctx
