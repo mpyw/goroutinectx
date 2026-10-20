@@ -7,18 +7,9 @@ import (
 )
 
 // Test cases for goroutine-derive checker with -goroutine-deriver=github.com/my-example-app/telemetry/apm.NewGoroutineContext
+// The cases it shares with the callback checkers are in testdata/src/patternsderive.
 
 // ===== SHOULD NOT REPORT =====
-
-// [GOOD]: Basic - calls deriver.
-//
-// Goroutine properly calls the required context deriver function.
-func goodCallsDeriver(ctx context.Context) {
-	go func() {
-		ctx := apm.NewGoroutineContext(ctx)
-		_ = ctx
-	}()
-}
 
 // [GOOD]: Basic - nested goroutines both call deriver.
 //
@@ -55,15 +46,6 @@ func namedFunc(ctx context.Context) {
 }
 
 // ===== SHOULD REPORT =====
-
-// [BAD]: Basic - no deriver call.
-//
-// Goroutine does not call the required context deriver function.
-func badNoDeriverCall(ctx context.Context) {
-	go func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
-		_ = ctx
-	}()
-}
 
 // [BAD]: Basic - uses different function (not deriver).
 //
@@ -140,27 +122,6 @@ func badHigherOrderReturnsVariableMissingDeriver(ctx context.Context) {
 		return worker // Returns variable, not literal
 	}
 	go makeWorker()() // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
-}
-
-// [GOOD]: Variable func go fn() - calls deriver.
-//
-// Function stored in variable calls the deriver.
-func goodVariableFuncCallsDeriver(ctx context.Context) {
-	fn := func() {
-		ctx := apm.NewGoroutineContext(ctx)
-		_ = ctx
-	}
-	go fn()
-}
-
-// [BAD]: Variable func go fn() - missing deriver.
-//
-// Function stored in variable does not call the deriver.
-func badVariableFuncMissingDeriver(ctx context.Context) {
-	fn := func() {
-		_ = ctx
-	}
-	go fn() // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
 }
 
 // ===== DEFER PATTERNS =====

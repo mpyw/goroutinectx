@@ -85,6 +85,7 @@ goroutinectx/
 ├── testdata/
 │   └── src/                   # Test fixtures for analysistest
 │       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
+│       ├── patternsderive/    # The same, with -goroutine-deriver
 │       ├── goroutine/         # goroutine-only cases
 │       ├── errgroup/          # errgroup-only cases
 │       ├── waitgroup/         # waitgroup-only cases

@@ -73,6 +73,7 @@ goroutinectx/
 ├── testdata/
 │   └── src/                   # Test fixtures
 │       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
+│       ├── patternsderive/    # The same, with -goroutine-deriver
 │       ├── goroutine/         # goroutine-only cases
 │       ├── errgroup/          # errgroup-only cases
 │       ├── waitgroup/         # waitgroup-only cases
@@ -270,7 +271,8 @@ func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 |----------|-----------|
 | More than one of goroutine, errgroup, waitgroup and spawner can express it | `testdata/src/patterns/`, in the file for its pattern, with every checker's variant under one `// ===== <case> =====` heading |
 | Only one checker has it, such as `TryGo` or `go fn()()()` | `testdata/src/<checker>/` |
-| It needs a flag, such as `-goroutine-deriver` | The directory of the test that sets that flag |
+| The same, but it needs `-goroutine-deriver` | `testdata/src/patternsderive/` |
+| It needs a flag, and only one checker has it | The directory of the test that sets that flag, such as `goroutinederive/` |
 
 In `patterns`, each checker's variant is a function of its own. When two variants would have the same name, every one of them takes the checker as a suffix: `goodNoContextParamGoroutine`, `goodNoContextParamErrgroup`, `goodNoContextParamWaitGroup`. Put the variants in the order goroutine, errgroup, waitgroup, spawner. A case that a checker lacks then shows as a gap in the group.
 
