@@ -11,7 +11,6 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
-	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/registry"
 )
@@ -46,7 +45,7 @@ func (c *SpawnCallbackChecker) Name() checker.Name {
 
 // CheckCall checks the call expression.
 func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
-	fn := funcspec.ExtractFunc(cctx.Pass, call)
+	fn, recvArgs := spawnedCallee(cctx, call)
 	if fn == nil {
 		return nil
 	}
@@ -55,19 +54,20 @@ func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr
 	if !ok {
 		return nil
 	}
-	return c.checkSingleArg(cctx, call, entry)
+	return c.checkSingleArg(cctx, call, entry, entry.CallbackArgIdx+recvArgs)
 }
 
-func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
-	if entry.CallbackArgIdx >= len(call.Args) {
+// checkSingleArg checks the callback, call's argument at idx.
+func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry, idx int) []analysis.Diagnostic {
+	if idx >= len(call.Args) {
 		return nil
 	}
 
 	var v gossa.Value
 	if args := spawnedCallArgs(cctx, call); args != nil {
-		v = args[entry.CallbackArgIdx]
+		v = args[idx]
 	}
-	if spawnedFuncPasses(cctx, call.Args[entry.CallbackArgIdx], v, spawnedContextResolver(cctx, c.derivers), true) {
+	if spawnedFuncPasses(cctx, call.Args[idx], v, spawnedContextResolver(cctx, c.derivers), true) {
 		return nil
 	}
 
@@ -122,7 +122,7 @@ func (*SpawnerChecker) Name() checker.Name {
 // its own position.
 func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
 	// Get the function being called
-	fn := funcspec.ExtractFunc(cctx.Pass, call)
+	fn, _ := spawnedCallee(cctx, call)
 	if fn == nil || !c.spawners.IsSpawner(fn) {
 		return nil
 	}
