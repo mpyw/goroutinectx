@@ -448,3 +448,71 @@ func goodPointerDereferenceCallbackDeriver(ctx context.Context) {
 	taskPtr := &task
 	(*taskPtr).DoAsync(ctx, nil)
 }
+
+// ===== METHOD EXPRESSIONS AND VALUES (#120) =====
+
+// [BAD]: DoAsync as a method expression
+//
+// The task comes first, and the ctx after it is checked.
+func badDoAsyncMethodExpr(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	gotask.Task[error].DoAsync(task, ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [GOOD]: DoAsync as a method expression, given a derived ctx
+//
+// The ctx after the task is derived.
+func goodDoAsyncMethodExprDerived(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	gotask.Task[error].DoAsync(task, apm.NewGoroutineContext(ctx), nil)
+}
+
+// [GOOD]: DoAsync as a method expression, on a task that derives
+//
+// The task the method expression is given calls the deriver.
+func goodDoAsyncMethodExprTaskDerives(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		ctx = apm.NewGoroutineContext(ctx)
+		_ = ctx
+		return nil
+	})
+	gotask.Task[error].DoAsync(task, ctx, nil)
+}
+
+// [BAD]: DoAsync through a method value
+//
+// The call is found through SSA.
+func badDoAsyncMethodValue(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	doAsync := task.DoAsync
+	doAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [GOOD]: DoAsync through a method value, on a task that derives
+//
+// The task the method value is bound to calls the deriver.
+func goodDoAsyncMethodValueTaskDerives(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		ctx = apm.NewGoroutineContext(ctx)
+		_ = ctx
+		return nil
+	})
+	doAsync := task.DoAsync
+	doAsync(ctx, nil)
+}
+
+// [BAD]: DoAllFnsSettled through a function value
+//
+// The call is found through SSA.
+func badDoAllFnsSettledFuncValue(ctx context.Context) {
+	doAll := gotask.DoAllFnsSettled[bool]
+	_ = doAll(ctx, func(ctx context.Context) bool { // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+		return true
+	})
+}

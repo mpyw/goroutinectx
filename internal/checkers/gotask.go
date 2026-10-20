@@ -55,7 +55,7 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []ana
 		return nil
 	}
 
-	fn := funcspec.ExtractFunc(cctx.Pass, call)
+	fn, recvArgs := spawnedCallee(cctx, call)
 	if fn == nil {
 		return nil
 	}
@@ -67,7 +67,7 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []ana
 
 	switch {
 	case entry.AlwaysSpawns:
-		return c.checkDoAsync(cctx, call, entry)
+		return c.checkDoAsync(cctx, call, entry, recvArgs)
 	case entry.Variadic:
 		// For variadic APIs, we report each failing argument separately
 		return c.checkVariadic(cctx, call, entry)
@@ -75,20 +75,27 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []ana
 	return nil
 }
 
-func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
+// checkDoAsync checks a DoAsync call. recvArgs is 1 for a method
+// expression, whose first argument is the task.
+func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry, recvArgs int) []analysis.Diagnostic {
 	instr := cctx.SSAProg.CallAt(call)
-	if len(call.Args) == 0 || instr == nil {
+	if len(call.Args) <= recvArgs || instr == nil {
 		return nil
 	}
 	common := instr.Common()
+	args := ssa.ResolvedArgs(common, call)
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
-	if args := ssa.ResolvedArgs(common, call); args != nil && c.ctxIsDerived(args[0]) {
+	if args != nil && c.ctxIsDerived(args[recvArgs]) {
 		return nil
 	}
 
 	// Check 2: Does the task's callback call the deriver?
-	if recv := ssa.ResolvedReceiver(common); recv != nil && c.taskDerives(cctx, recv) {
+	recv := ssa.ResolvedReceiver(common)
+	if recvArgs == 1 && args != nil {
+		recv = args[0]
+	}
+	if recv != nil && c.taskDerives(cctx, recv) {
 		return nil
 	}
 

@@ -2,10 +2,12 @@ package checkers
 
 import (
 	"go/ast"
+	"go/types"
 
 	gossa "golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
@@ -61,4 +63,27 @@ func spawnedCallArgs(cctx *probe.Context, call *ast.CallExpr) []gossa.Value {
 		return nil
 	}
 	return ssa.ResolvedArgs(instr.Common(), call)
+}
+
+// spawnedCallee gives the function call calls, and the number of arguments
+// the call gives before the function's parameters: 1 for a method
+// expression, as (*errgroup.Group).Go(g, fn), which takes the receiver
+// first, and 0 otherwise. A call through a function or method value, as
+// gofn := wg.Go, is found through SSA.
+//
+//declscope:shared // spawn.go and gotask.go find the API a call makes alike
+func spawnedCallee(cctx *probe.Context, call *ast.CallExpr) (*types.Func, int) {
+	if fn := funcspec.ExtractFunc(cctx.Pass, call); fn != nil {
+		if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok {
+			if s := cctx.Pass.TypesInfo.Selections[sel]; s != nil && s.Kind() == types.MethodExpr {
+				return fn, 1
+			}
+		}
+		return fn, 0
+	}
+	instr := cctx.SSAProg.CallAt(call)
+	if instr == nil || instr.Common().IsInvoke() || instr.Common().StaticCallee() == nil {
+		return nil, 0
+	}
+	return ssa.ExtractCalledFunc(instr.Common()), 0
 }
