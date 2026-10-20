@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
+
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // FuncResolver judges the functions a func-typed SSA value can hold. It
@@ -274,6 +276,48 @@ func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
 		return []ssa.Value{binding}, true
 	}
 	return resolvedStores(fv, nil)
+}
+
+// ResolvedSliceElems gives the elements of a slice made from a whole local
+// array, as a slice literal or the slice of a variadic call is, or of each
+// slice a function called to make it returns. ok is false for any other
+// slice.
+func ResolvedSliceElems(v ssa.Value) (elems []ssa.Value, ok bool) {
+	return resolvedSliceElemsAt(v, 0)
+}
+
+func resolvedSliceElemsAt(v ssa.Value, depth int) ([]ssa.Value, bool) {
+	if depth > resolvedMaxDepth {
+		return nil, false
+	}
+	switch x := v.(type) {
+	case *ssa.Slice:
+		a, ok := x.X.(*ssa.Alloc)
+		if !ok || x.Low != nil || x.High != nil {
+			return nil, false
+		}
+		array, ok := typeutil.UnwrapPointer(a.Type()).Underlying().(*types.Array)
+		if !ok {
+			return nil, false
+		}
+		elems := resolvedSliceElems(x, int(array.Len()))
+		return elems, elems != nil
+	case *ssa.Call:
+		fn := x.Common().StaticCallee()
+		if fn == nil || fn.Blocks == nil {
+			return nil, false
+		}
+		var elems []ssa.Value
+		for _, ret := range resolvedReturns(fn) {
+			e, ok := resolvedSliceElemsAt(ret, depth+1)
+			if !ok {
+				return nil, false
+			}
+			elems = append(elems, e...)
+		}
+		return elems, len(elems) > 0
+	}
+	return nil, false
 }
 
 // resolvedSliceElems gives the n values a variadic call packed into slice.
