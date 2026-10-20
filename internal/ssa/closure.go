@@ -13,15 +13,30 @@ import (
 )
 
 // ClosureCapturesContext checks if a closure captures any context.Context variable
-// or a configured carrier type.
+// or a configured carrier type. A variable that only ever holds a fresh
+// context.Background() or TODO() does not count.
 func ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier) bool {
 	if closure == nil {
 		return false
 	}
 
 	return slices.ContainsFunc(closure.FreeVars, func(fv *ssa.FreeVar) bool {
-		return typeutil.IsContextType(fv.Type()) || carrier.IsCarrierType(fv.Type(), carriers)
+		if carrier.IsCarrierType(fv.Type(), carriers) {
+			return true
+		}
+		return typeutil.IsContextType(fv.Type()) && !closureFreeVarIsFresh(fv)
 	})
+}
+
+// closureFreeVarIsFresh reports whether every value fv can hold is a fresh
+// context, as IsFreshContext judges it.
+func closureFreeVarIsFresh(fv *ssa.FreeVar) bool {
+	if _, isPtr := fv.Type().Underlying().(*types.Pointer); !isPtr {
+		binding, ok := resolvedBinding(fv)
+		return ok && IsFreshContext(binding)
+	}
+	stored, ok := resolvedStores(fv, nil)
+	return ok && len(stored) > 0 && !slices.ContainsFunc(stored, func(v ssa.Value) bool { return !IsFreshContext(v) })
 }
 
 // ClosureDerivation is where a closure calls the deriver.

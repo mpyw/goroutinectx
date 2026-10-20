@@ -147,3 +147,50 @@ func goodDerivedCtxArg(ctx context.Context) {
 func goodUnknownCtxArg(ctx context.Context, other func() context.Context) {
 	go func(c context.Context) { use(c) }(other())
 }
+
+// ===== CAPTURED CONTEXTS (#119) =====
+
+// [BAD]: A closure that captures only a fresh context.Background() does not propagate ctx.
+func badCapturedFreshCtx(ctx context.Context) {
+	bg := context.Background()
+	go func() { use(bg) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: The same in an errgroup callback, with context.TODO().
+func badCapturedFreshCtxErrgroup(ctx context.Context) {
+	todo := context.TODO()
+	g := new(errgroup.Group)
+	g.Go(func() error { use(todo); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: A fresh context captured through two closures.
+func badCapturedFreshCtxNested(ctx context.Context) {
+	bg := context.Background()
+	go func() { // want `goroutine does not propagate context "ctx"`
+		go func() { use(bg) }() // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [GOOD]: A captured variable that holds ctx on one path.
+func goodCapturedCtxOnOnePath(ctx context.Context, b bool) {
+	c := context.Background()
+	if b {
+		c = ctx
+	}
+	go func() { use(c) }()
+}
+
+// [GOOD]: A captured context derived from ctx.
+func goodCapturedDerivedCtx(ctx context.Context) {
+	c, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() { use(c) }()
+}
+
+// [GOOD]: A captured context whose address is taken, so its stores are not followed.
+func goodCapturedCtxAddressTaken(ctx context.Context, set func(*context.Context)) {
+	c := context.Background()
+	set(&c)
+	go func() { use(c) }()
+}
