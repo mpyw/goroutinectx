@@ -36,7 +36,7 @@ Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) 
 
 **An unknown checker name is reported, and the directive silences nothing** (#65). Names used to be accepted unchecked. A reason written without a separator, a misspelled name, or `// reason` with no checker became a checker that never reports. The ignore then did nothing, and its only report said "unused ... for checker(s): <the reason>". The whole directive is dropped on one unknown name, as `//declscope:ignore` is. Guessing which part was meant would silence a report nobody asked to silence.
 
-**An ignore is asked only when a report would be made.** The runner used to ask it before running the check. That marked the ignore used on a line with nothing to report, so an ignore that silenced nothing was never reported as unused. `badUnusedIgnore` in `testdata/src/goroutine` passed only because the parse bug above turned its `// want` into a checker name. Some checkers report through the pass themselves (`spawner`, `gotask`), so a call check runs on a copy of the pass whose `Report` asks the ignore first.
+**An ignore is asked only when a report would be made.** The runner used to ask it before running the check. That marked the ignore used on a line with nothing to report, so an ignore that silenced nothing was never reported as unused. `badUnusedIgnore` in `testdata/src/goroutine` passed only because the parse bug above turned its `// want` into a checker name. Checkers return their diagnostics, and the runner asks the ignore at each diagnostic's own line, so a report on an argument is silenced by an ignore at that argument.
 
 **`conc` is a checker name of its own.** The conc checker used to report under `errgroup`, so `//goroutinectx:ignore conc`, listed in the README, never worked. An `errgroup` ignore no longer silences a conc report. Keeping it would leave two names for one checker, and compatibility was not a goal here. The one form kept for compatibility is the ` - ` reason, which the README documented.
 - `//goroutinectx:spawner` - Mark a function as spawning goroutines with its func arguments
@@ -52,9 +52,8 @@ goroutinectx/
 ├── analyzer_test.go           # Integration tests using analysistest
 ├── waitgroup_test.go          # Waitgroup-specific tests (Go 1.25+ build tag)
 ├── internal/
-│   ├── run/                   # Run: every checker over one package, with a Config
-│   ├── runner.go              # Runner: walks the AST and runs the checkers
-│   ├── check.go               # CallChecker, GoStmtChecker interfaces
+│   ├── run/                   # Run: every checker over one package, with a Config;
+│   │                          # the checker interfaces and the runner that applies ignores
 │   ├── apis.go                # Spawning APIs registered for spawnerlabel
 │   ├── checker/               # Checker names
 │   ├── checkers/              # Checker implementations
@@ -96,7 +95,7 @@ goroutinectx/
 1. **Type-safe analysis**: Uses [`go/types`](https://pkg.go.dev/go/types) for accurate detection (not just name-based)
 2. **Nested function support**: Uses [`inspector.WithStack`](https://pkg.go.dev/golang.org/x/tools/go/ast/inspector#Inspector.WithStack) to track context through closures
 3. **Shadowing support**: `UsesContext` uses type identity, not name matching
-4. **Interface segregation**: `CallChecker` and `GoStmtChecker` interfaces (no BaseChecker)
+4. **Interface segregation**: call and go statement checker interfaces (no BaseChecker)
 5. **Minimal exports**: Only necessary types/functions are exported from `checkers` package
 6. **Zero false positives**: Prefer missing issues over false alarms
 7. **Multiple context tracking**: Tracks ALL context parameters, not just the first one. If ANY context variable is used, the check passes. Error messages report the first context name for consistency.
@@ -104,19 +103,25 @@ goroutinectx/
 ### Checker Interface Design
 
 ```go
-// Separated interfaces - checkers implement only what they need
-type CallChecker interface { CheckCall(cctx *CheckContext, call *ast.CallExpr) }
-type GoStmtChecker interface { CheckGoStmt(cctx *CheckContext, stmt *ast.GoStmt) }
+// Separated interfaces, in internal/run. Each returns its reports, and the
+// runner applies //goroutinectx:ignore at each report's position.
+type goStmtChecker interface {
+    Name() checker.Name
+    CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic
+}
 
-type Checkers struct {
-    Call   []CallChecker   // errgroup, waitgroup, spawner, gotask
-    GoStmt []GoStmtChecker // goroutine, goroutine_derive
+type callChecker interface {
+    Name() checker.Name
+    MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
+    CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
 }
 ```
 
+The set of checkers named by an unused-ignore report is the set of checkers built: their `Name()`s.
+
 **Why two interfaces?**
-- `GoStmtChecker`: For `go` keyword statements (`go func() {}()`)
-- `CallChecker`: For function calls (`g.Go()`, `wg.Go()`)
+- `goStmtChecker`: For `go` keyword statements (`go func() {}()`)
+- `callChecker`: For function calls (`g.Go()`, `wg.Go()`)
 
 These are AST-level distinctions: `go` is a statement, function calls are expressions.
 
@@ -231,31 +236,23 @@ Validate config changes with `goreleaser check`, and dry-run with `goreleaser re
 
 ## Adding a New Checker
 
-1. Create `internal/checkers/<name>/checker.go`:
+1. Add the checker to `internal/checkers`, and its name to `internal/checker`:
 ```go
-package myname
+type MyChecker struct{}
 
-import (
-    "go/ast"
-    "github.com/mpyw/goroutinectx/internal/context"
-)
+func (*MyChecker) Name() checker.Name { return checker.My }
 
-type Checker struct{}
-
-func New() *Checker { return &Checker{} }
-
-// Implement CallChecker for call expression checks
-func (c *Checker) CheckCall(cctx *context.CheckContext, call *ast.CallExpr) {
-    // Implementation using cctx.Pass, cctx.Scope, cctx.IgnoreMap
+// For call expression checks
+func (c *MyChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool { ... }
+func (c *MyChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
+    // Return one diagnostic per report, at its own position
 }
 
-// OR implement GoStmtChecker for go statement checks
-func (c *Checker) CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt) {
-    // Implementation
-}
+// OR for go statement checks
+func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic { ... }
 ```
 
-2. Register in `analyzer.go` under `runASTChecks()`
+2. Build it in `buildCheckers` in `internal/run/run.go`
 
 3. Add test fixtures in `testdata/src/<name>/`
 

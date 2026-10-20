@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
-	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
@@ -84,12 +83,12 @@ func (c *GotaskChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool 
 	return slices.ContainsFunc(c.entries, func(entry gotaskEntry) bool { return entry.Spec.Matches(fn) })
 }
 
-// CheckCall checks the call expression.
-// Note: This checker may report multiple diagnostics directly to pass.
-func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
+// CheckCall checks the call expression. A variadic API may give a report
+// for each argument.
+func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	for _, entry := range c.entries {
@@ -102,33 +101,36 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *inte
 		}
 
 		// For variadic APIs, we report each failing argument separately
-		c.checkVariadic(cctx, call, entry)
-		return internal.CheckPassed() // We handle reporting ourselves
+		return c.checkVariadic(cctx, call, entry)
 	}
 
-	return internal.CheckPassed()
+	return nil
 }
 
-func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) *internal.CheckResult {
+func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) []analysis.Diagnostic {
 	if len(call.Args) == 0 {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	ctxArg := call.Args[0]
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
 	if c.argIsDeriverCall(cctx, ctxArg) {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	// Check 2: Does the task's callback call the deriver?
 	if c.taskCallbackCallsDeriver(cctx, call) {
-		return internal.CheckPassed()
+		return nil
 	}
 
-	// Neither condition satisfied - report error with pointer receiver format
-	msg := formatGotaskMethodMessage(entry.Spec.FullName())
-	return internal.CheckFailed(msg)
+	// Neither condition satisfied - report error with pointer receiver format,
+	// at the method name.
+	pos := call.Pos()
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		pos = sel.Sel.Pos()
+	}
+	return []analysis.Diagnostic{{Pos: pos, Message: formatGotaskMethodMessage(entry.Spec.FullName())}}
 }
 
 // formatGotaskMethodMessage formats a method name with pointer receiver.
@@ -142,15 +144,16 @@ func formatGotaskMethodMessage(apiName string) string {
 	return apiName + "() 1st argument should call goroutine deriver"
 }
 
-func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) {
+func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry gotaskEntry) []analysis.Diagnostic {
 	startIdx := entry.CallbackArgIdx
 	if startIdx >= len(call.Args) {
-		return
+		return nil
 	}
 
 	// Check if this is a variadic expansion (e.g., DoAllFns(ctx, slice...))
 	isVariadicExpansion := call.Ellipsis.IsValid()
 
+	var diags []analysis.Diagnostic
 	for i := startIdx; i < len(call.Args); i++ {
 		if !c.argCallsDeriver(cctx, call.Args[i], entry) {
 			var msg string
@@ -162,9 +165,10 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 				msg = fmt.Sprintf("%s() %s argument should call goroutine deriver",
 					entry.Spec.FullName(), gotaskArgOrdinal(argNum))
 			}
-			cctx.Pass.Reportf(call.Pos(), "%s", msg)
+			diags = append(diags, analysis.Diagnostic{Pos: call.Pos(), Message: msg})
 		}
 	}
+	return diags
 }
 
 // argIsDeriverCall checks if the argument expression IS a call to the deriver.

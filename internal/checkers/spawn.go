@@ -3,12 +3,12 @@ package checkers
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"slices"
 
 	"golang.org/x/tools/go/analysis"
 
-	"github.com/mpyw/goroutinectx/internal"
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
@@ -60,10 +60,10 @@ func (c *SpawnCallbackChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr
 }
 
 // CheckCall checks the call expression.
-func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
+func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	for _, entry := range c.entries {
@@ -73,26 +73,36 @@ func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr
 		return c.checkSingleArg(cctx, call, entry)
 	}
 
-	return internal.CheckPassed()
+	return nil
 }
 
-func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry SpawnCallbackEntry) *internal.CheckResult {
+func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry SpawnCallbackEntry) []analysis.Diagnostic {
 	if entry.CallbackArgIdx >= len(call.Args) {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	arg := call.Args[entry.CallbackArgIdx]
 	if c.checkArg(cctx, arg) {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	ctxName := cctx.CtxNames[0]
 
 	// Format error message based on whether deriver is configured
+	msg := fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName)
 	if !c.derivers.IsEmpty() {
-		return internal.CheckFailed(fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName))
+		msg = fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName)
 	}
-	return internal.CheckFailed(fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName))
+	return []analysis.Diagnostic{{Pos: spawnReportPos(call), Message: msg}}
+}
+
+// spawnReportPos gives the position to report a call at: its method name
+// when it has one.
+func spawnReportPos(call *ast.CallExpr) token.Pos {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return sel.Sel.Pos()
+	}
+	return call.Pos()
 }
 
 func (c *SpawnCallbackChecker) checkArg(cctx *probe.Context, arg ast.Expr) bool {
@@ -286,19 +296,19 @@ func (c *SpawnerChecker) MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
 	return fn != nil && c.spawners.IsSpawner(fn)
 }
 
-// CheckCall checks the call expression.
-// Note: This checker reports directly to pass because it may have multiple failing arguments.
-func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *internal.CheckResult {
+// CheckCall checks the call expression. It reports each failing argument at
+// its own position.
+func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
 	// Get the function being called
 	fn := funcspec.ExtractFunc(cctx.Pass, call)
 	if fn == nil {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	// Find func-typed arguments
 	funcArgs := findSpawnableFuncArgs(cctx.Pass, call)
 	if len(funcArgs) == 0 {
-		return internal.CheckPassed()
+		return nil
 	}
 
 	ctxName := cctx.CtxNames[0]
@@ -310,14 +320,13 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) *int
 	}
 
 	// Report each failing argument at its position
+	var diags []analysis.Diagnostic
 	for _, arg := range funcArgs {
 		if !c.checkFuncArg(cctx, arg) {
-			cctx.Pass.Reportf(arg.Pos(), msgFormat, fn.Name(), ctxName)
+			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
 		}
 	}
-
-	// Return OK because we handled reporting ourselves
-	return internal.CheckPassed()
+	return diags
 }
 
 func (c *SpawnerChecker) checkFuncArg(cctx *probe.Context, arg ast.Expr) bool {

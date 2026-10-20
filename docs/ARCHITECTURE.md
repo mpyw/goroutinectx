@@ -65,9 +65,8 @@ goroutinectx/
 ├── waitgroup_test.go          # Waitgroup tests (Go 1.25+ build tag)
 ├── genericmethod_test.go      # Generic method tests (Go 1.27+ build tag)
 ├── internal/
-│   ├── run/                   # Run: every checker over one package, with a Config
-│   ├── runner.go              # Runner: walks the AST and runs the checkers
-│   ├── check.go               # CallChecker, GoStmtChecker interfaces
+│   ├── run/                   # Run: every checker over one package, with a Config;
+│   │                          # the checker interfaces and the runner that applies ignores
 │   ├── apis.go                # Spawning APIs registered for spawnerlabel
 │   ├── checker/               # Checker names
 │   ├── checkers/              # Checker implementations
@@ -120,20 +119,25 @@ Main entry point. It defines the flags (`-goroutine-deriver`, `-context-carriers
 2. Use `inspector.WithStack` to traverse AST with stack context
 3. Build `funcScopes` map (function node -> ContextScope)
 4. For each node, find nearest enclosing function with context
-5. Dispatch to appropriate checkers (CallChecker or GoStmtChecker)
+5. Dispatch to appropriate checkers (call or go statement)
+6. Report each returned diagnostic unless an ignore for that checker sits at its line
 
-### internal/checkers/checker.go
+### Checker interfaces (internal/run)
 
 Core interfaces:
 
 ```go
-// Separated interfaces (Interface Segregation Principle)
-type CallChecker interface {
-    CheckCall(cctx *context.CheckContext, call *ast.CallExpr)
+// Separated interfaces, in internal/run. Each returns its reports, and the
+// runner applies //goroutinectx:ignore at each report's position.
+type goStmtChecker interface {
+    Name() checker.Name
+    CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic
 }
 
-type GoStmtChecker interface {
-    CheckGoStmt(cctx *context.CheckContext, stmt *ast.GoStmt)
+type callChecker interface {
+    Name() checker.Name
+    MatchCall(pass *analysis.Pass, call *ast.CallExpr) bool
+    CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
 }
 ```
 
@@ -228,12 +232,14 @@ insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 
     switch node := n.(type) {
     case *ast.GoStmt:
-        for _, checker := range goStmtCheckers {
-            checker.CheckGoStmt(cctx, node)
+        for _, c := range goStmtCheckers {
+            r.report(c.Name(), c.CheckGoStmt(cctx, node))
         }
     case *ast.CallExpr:
-        for _, checker := range callCheckers {
-            checker.CheckCall(cctx, node)
+        for _, c := range callCheckers {
+            if c.MatchCall(pass, node) {
+                r.report(c.Name(), c.CheckCall(cctx, node))
+            }
         }
     }
     return true
