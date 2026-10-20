@@ -3,6 +3,7 @@ package ssa
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -228,6 +229,23 @@ func ResolvedValues(v ssa.Value) (values []ssa.Value, ok bool) {
 	}
 	visit(v)
 	return values, ok
+}
+
+// resolvedFreeVarValues gives each value the variable a closure captures as
+// fv can hold: the value it was made with, or for a variable captured by
+// reference, every value stored to it. ok is false when they cannot all be
+// followed.
+//
+//declscope:shared // closure.go tells a captured fresh context from one that carries ctx
+func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
+	if _, isPtr := fv.Type().Underlying().(*types.Pointer); !isPtr {
+		binding, ok := resolvedBinding(fv)
+		if !ok {
+			return nil, false
+		}
+		return []ssa.Value{binding}, true
+	}
+	return resolvedStores(fv, nil)
 }
 
 // resolvedSliceElems gives the n values a variadic call packed into slice.
