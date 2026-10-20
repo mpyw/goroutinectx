@@ -77,7 +77,7 @@ goroutinectx/
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
-│   ├── probe/                 # AST lookups of struct fields and indexed elements
+│   ├── probe/                 # The per-node state the checkers get
 │   ├── registry/              # The one table of supported spawning APIs
 │   ├── scope/                 # Context scope detection
 │   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
@@ -255,13 +255,14 @@ func UsesContext(pass *analysis.Pass, body *ast.BlockStmt, contextVar *types.Var
 
 ### Higher-Order Function Support
 
-For patterns like `g.Go(fn)` where `fn` is a variable:
+For patterns like `g.Go(fn)`, `g.Go(s.fn)` or `g.Go(fns["a"])`, the SSA value of the argument is followed back to each function literal it can hold, by `ssa.FuncResolver`:
 
 ```go
-func (c *CheckContext) FuncLitAssignedTo(v *types.Var, beforePos token.Pos) *ast.FuncLit
+r := &ssa.FuncResolver{Closure: func(fn *ssa.Function) bool { ... }}
+ok := r.Passes(value)
 ```
 
-Traces variable assignments to find the original function literal.
+It goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, map lookups at constant keys, and calls of factories. Only the stores that reach the spawn count. A value it cannot follow passes.
 
 ### Deriver Matching
 

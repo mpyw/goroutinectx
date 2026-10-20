@@ -140,7 +140,7 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 		if isVariadicExpansion {
 			passes = c.expandedArgDerives(cctx, call.Args[i], v, r)
 		} else {
-			passes = spawnedFuncPasses(cctx, call.Args[i], v, r, false)
+			passes = spawnedFuncPasses(cctx, call.Args[i], v, r)
 		}
 		if passes {
 			continue

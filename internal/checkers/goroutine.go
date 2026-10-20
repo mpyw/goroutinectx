@@ -53,7 +53,7 @@ func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 			})
 		}
 	}
-	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), r, true)
+	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), r)
 }
 
 // goroutineSpawnedValue gives the SSA value of the function stmt runs, or nil.
@@ -96,10 +96,10 @@ func (c *GoroutineDerive) failure(cctx *probe.Context, stmt *ast.GoStmt) string 
 	}
 
 	v := goroutineSpawnedValue(cctx, stmt)
-	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, true), false) {
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, true)) {
 		return ""
 	}
-	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, false), false) {
+	if spawnedFuncPasses(cctx, stmt.Call.Fun, v, c.resolver(cctx.Carriers, false)) {
 		return c.deferMessage()
 	}
 	return c.message()

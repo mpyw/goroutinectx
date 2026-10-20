@@ -217,11 +217,10 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 		}
 
 		cctx := &probe.Context{
-			Pass:      r.pass,
-			Inspector: insp,
-			SSAProg:   r.ssaProg,
-			CtxNames:  s.CtxNames,
-			Carriers:  r.carriers,
+			Pass:     r.pass,
+			SSAProg:  r.ssaProg,
+			CtxNames: s.CtxNames,
+			Carriers: r.carriers,
 		}
 
 		switch node := n.(type) {

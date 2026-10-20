@@ -65,7 +65,7 @@ goroutinectx/
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
-│   ├── probe/                 # AST lookups of struct fields and indexed elements
+│   ├── probe/                 # The per-node state the checkers get
 │   ├── registry/              # The one table of supported spawning APIs
 │   ├── scope/                 # Context scope detection
 │   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
@@ -141,7 +141,7 @@ Four checkers handle goroutine context propagation:
 - Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory
 - Directive: Functions marked with `//goroutinectx:spawner` check their func arguments
 
-**How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `ssa.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A value it cannot follow passes: a parameter, an interface method, a variable a closure writes. A struct field or an indexed element is still looked up on the AST.
+**How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `ssa.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A struct field, an element at a constant index and a map value at a constant key are followed the same way, as parts of the variable they are in, so a store to the field after the struct literal counts and one replaced before the spawn does not (#116). A value it cannot follow passes: a parameter, an interface method, a variable a closure writes, a variable whose address is passed on.
 
 **spawner Directive:**
 ```go

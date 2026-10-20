@@ -516,3 +516,28 @@ func badDoAllFnsSettledFuncValue(ctx context.Context) {
 		return true
 	})
 }
+
+// ===== STRUCT FIELDS (#116) =====
+
+// [BAD]: Task function in a struct field without deriver
+//
+// A func in a struct field is followed through SSA.
+func badDoAllFnsSettledStructField(ctx context.Context) {
+	s := struct {
+		fn func(context.Context) bool
+	}{fn: func(ctx context.Context) bool { return true }}
+	_ = gotask.DoAllFnsSettled(ctx, s.fn) // want `gotask\.DoAllFnsSettled\(\) 2nd argument should call goroutine deriver`
+}
+
+// [GOOD]: Task function in a struct field with deriver
+//
+// A func in a struct field that calls the deriver passes.
+func goodDoAllFnsSettledStructField(ctx context.Context) {
+	s := struct {
+		fn func(context.Context) bool
+	}{fn: func(ctx context.Context) bool {
+		_ = apm.NewGoroutineContext(ctx)
+		return true
+	}}
+	_ = gotask.DoAllFnsSettled(ctx, s.fn)
+}
