@@ -180,6 +180,59 @@ func goodNoCtxParam() {
 	_ = g.Wait()
 }
 
+// ===== Blank ctx param =====
+
+// [GOOD]: Blank ctx param
+//
+// A blank ctx param cannot be used, so nothing is checked (#114).
+func goodBlankContextParamGoroutine(_ context.Context) {
+	go func() {
+		fmt.Println("hello")
+	}()
+}
+
+// [GOOD]: Blank ctx param
+//
+// A blank ctx param cannot be used, so nothing is checked (#114).
+func goodBlankContextParamErrgroup(_ context.Context) {
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Blank ctx param
+//
+// A blank ctx param cannot be used, so nothing is checked (#114).
+func goodBlankContextParamWaitGroup(_ context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		fmt.Println("hello")
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Blank ctx param
+//
+// A blank ctx param cannot be used, so nothing is checked (#114).
+func goodBlankContextParamSpawner(_ context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error {
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [BAD]: Blank ctx param beside a named one
+//
+// The named ctx param is still checked.
+func badBlankAndNamedContextParamGoroutine(_ context.Context, ctx context.Context) {
+	go func() { // want `goroutine does not propagate context "ctx"`
+		fmt.Println("hello")
+	}()
+}
+
 // ===== Multiple Go calls without ctx =====
 
 // [BAD]: Multiple Go calls without ctx

@@ -57,7 +57,10 @@ func findScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Car
 
 		if typeutil.IsContextType(typ) || carrier.IsCarrierType(typ, carriers) {
 			for _, name := range field.Names {
-				ctxNames = append(ctxNames, name.Name)
+				// A blank parameter cannot be used, so it gives no context.
+				if name.Name != "_" {
+					ctxNames = append(ctxNames, name.Name)
+				}
 			}
 		}
 	}
