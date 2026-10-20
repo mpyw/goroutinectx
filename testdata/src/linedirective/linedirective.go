@@ -49,12 +49,12 @@ func goodIgnoreBlockLine(ctx context.Context) {
 // ===== ADJUSTED LINES THAT COLLIDE =====
 
 //line a.tmpl:10
-//goroutinectx:spawner
+//goroutinectx:spawner // want `goroutinectx:spawner has no effect here: write it in the doc comment of a function`
 var spawnerTarget = 1
 
 // The spawner directive is at adjusted line 10 and runUnmarked at adjusted
-// line 11, but the directive belongs to spawnerTarget. runUnmarked is not a
-// spawner.
+// line 11, but the directive belongs to spawnerTarget, where it has no
+// effect and is reported (#140). runUnmarked is not a spawner.
 //
 //line b.tmpl:11
 func runUnmarked(f func()) { go f() }

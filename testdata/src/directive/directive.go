@@ -101,3 +101,27 @@ func badUppercaseIgnore(ctx context.Context) {
 		fmt.Println("background task")
 	}()
 }
+
+// ===== MISPLACED SPAWNER DIRECTIVES (#140) =====
+
+//goroutinectx:spawner // want `goroutinectx:spawner has no effect here: write it in the doc comment of a function`
+
+func runDetached(fn func()) { go fn() }
+
+//goroutinectx:spawner // want `goroutinectx:spawner has no effect here: write it in the doc comment of a function`
+var runVar = func(fn func()) { go fn() }
+
+//goroutinectx:spawner // want `goroutinectx:spawner has no effect here: write it in the doc comment of a function`
+type spawnerType struct{}
+
+// A spawner in a function's doc comment, among other lines, is not reported.
+//
+//goroutinectx:spawner
+//
+// More doc follows it.
+func runDocumented(fn func()) { go fn() }
+
+func spawnerInBody(fn func()) {
+	//goroutinectx:spawner // want `goroutinectx:spawner has no effect here: write it in the doc comment of a function`
+	go fn()
+}
