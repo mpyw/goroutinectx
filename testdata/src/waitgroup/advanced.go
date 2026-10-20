@@ -1,5 +1,3 @@
-//go:build go1.25
-
 // Package waitgroup contains test fixtures for the waitgroup context propagation checker.
 // This file covers advanced patterns - real-world complex patterns: nested functions,
 // conditionals, loops. See basic.go for daily patterns and evil.go for adversarial tests.

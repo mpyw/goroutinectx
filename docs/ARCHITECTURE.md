@@ -62,8 +62,6 @@ goroutinectx/
 ├── analyzer.go                # Main analyzer: flags resolved into run.Config
 ├── plugin/                    # golangci-lint module plugin: settings resolved into run.Config
 ├── analyzer_test.go           # Integration tests using analysistest
-├── waitgroup_test.go          # Waitgroup tests (Go 1.25+ build tag)
-├── genericmethod_test.go      # Generic method tests (Go 1.27+ build tag)
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
@@ -303,24 +301,6 @@ Tests are documented in `testdata/metatest/structure.json`:
 - JSON Schema validation ensures structure consistency
 - `validation_test.go` verifies function comments match metadata
 - Supports good/bad/limitation/notChecked variants
-
-### Build Tags
-
-Some fixtures use build tags to mark the Go version that introduced the
-language or stdlib feature they exercise.
-
-`sync.WaitGroup.Go()` was added in Go 1.25:
-- `waitgroup_test.go` has a `//go:build go1.25` tag
-- `testdata/src/waitgroup/*.go` files have build tags
-
-Generic methods were added in Go 1.27:
-- `genericmethod_test.go` has a `//go:build go1.27` tag
-- `testdata/src/genericmethod/genericmethod.go` has a build tag
-- Generic methods are new *syntax*, and `validation_test.go` parses every
-  fixture with `go/parser` regardless of build tags. `genericmethod` is
-  therefore listed in `excludeDirs` in `testdata/metatest/options.json`.
-
-CI runs the test suite on Go 1.27.
 
 ## Comparison with Related Tools
 

@@ -3,7 +3,7 @@
   "targets": [
     "spawnerlabel"
   ],
-  "level": "waitgroup_go125",
+  "level": "waitgroup",
   "variants": {
     "good": {
       "description": "Traditional Add/Done pattern is not spawn",
