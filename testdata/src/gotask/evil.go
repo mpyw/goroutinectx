@@ -541,3 +541,33 @@ func goodDoAllFnsSettledStructField(ctx context.Context) {
 	}}
 	_ = gotask.DoAllFnsSettled(ctx, s.fn)
 }
+
+// ===== DERIVED CONTEXT WRAPPED BY CONTEXT.WITH* (#141) =====
+
+type gotaskCtxKey struct{}
+
+// [GOOD]: DoAsync given a derived ctx wrapped by WithCancel
+//
+// A context made from a derived one is derived too.
+func goodDoAsyncDerivedWithCancel(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	dctx, cancel := context.WithCancel(apm.NewGoroutineContext(ctx))
+	defer cancel()
+	task.DoAsync(dctx, nil)
+}
+
+// [GOOD]: DoAsync given a derived ctx wrapped by WithValue
+//
+// A context made from a derived one is derived too.
+func goodDoAsyncDerivedWithValue(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	task.DoAsync(context.WithValue(apm.NewGoroutineContext(ctx), gotaskCtxKey{}, 1), nil)
+}
+
+// [BAD]: DoAsync given ctx wrapped by WithValue, not derived
+//
+// Wrapping ctx does not derive it.
+func badDoAsyncWrappedNotDerived(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	task.DoAsync(context.WithValue(ctx, gotaskCtxKey{}, 1), nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
