@@ -230,10 +230,10 @@ func TestGenericsLabel(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "genericslabel")
 }
 
-// TestFlagRejectsShortName checks that a function with no import path is
-// rejected when the flag is set (#90).
+// TestFlagRejectsShortName checks that a function or a carrier with no
+// import path is rejected when the flag is set (#90, #122).
 func TestFlagRejectsShortName(t *testing.T) {
-	for _, flag := range []string{"goroutine-deriver", "external-spawner"} {
+	for _, flag := range []string{"goroutine-deriver", "external-spawner", "context-carriers"} {
 		if err := goroutinectx.Analyzer.Flags.Set(flag, "apm.NewGoroutineContext"); err == nil {
 			t.Errorf("-%s=apm.NewGoroutineContext was accepted", flag)
 		}

@@ -35,7 +35,7 @@
 //
 // Use [Parse] to parse the carrier list:
 //
-//	carriers := carrier.Parse([]string{"github.com/labstack/echo/v4.Context"})
+//	carriers, err := carrier.Parse([]string{"github.com/labstack/echo/v4.Context"})
 //	// carriers = []Carrier{{
 //	//     PkgPath:  "github.com/labstack/echo/v4",
 //	//     TypeName: "Context",

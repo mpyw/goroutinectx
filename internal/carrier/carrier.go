@@ -1,10 +1,12 @@
 package carrier
 
 import (
+	"fmt"
 	"go/types"
 	"slices"
 	"strings"
 
+	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -37,13 +39,12 @@ func IsCarrierType(t types.Type, carriers []Carrier) bool {
 	return slices.ContainsFunc(carriers, func(c Carrier) bool { return c.Matches(t) })
 }
 
-// Parse parses a list of context carriers. Blank entries are skipped.
-func Parse(parts []string) []Carrier {
-	if len(parts) == 0 {
-		return nil
-	}
-
-	carriers := make([]Carrier, 0, len(parts))
+// Parse parses a list of context carriers, each pkg/path.Type. Blank
+// entries are skipped. An entry with no type, or whose package is a bare
+// name that is not a standard library package, is an error: it would never
+// match.
+func Parse(parts []string) ([]Carrier, error) {
+	var carriers []Carrier
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -52,15 +53,15 @@ func Parse(parts []string) []Carrier {
 		}
 
 		lastDot := strings.LastIndex(part, ".")
-		if lastDot == -1 {
-			continue // Invalid format
+		if lastDot <= 0 || lastDot == len(part)-1 {
+			return nil, fmt.Errorf("-context-carriers: %q: want pkg/path.Type", part)
 		}
-
-		carriers = append(carriers, Carrier{
-			PkgPath:  part[:lastDot],
-			TypeName: part[lastDot+1:],
-		})
+		c := Carrier{PkgPath: part[:lastDot], TypeName: part[lastDot+1:]}
+		if err := funcspec.CheckPkgPath(part, c.PkgPath); err != nil {
+			return nil, fmt.Errorf("-context-carriers: %w", err)
+		}
+		carriers = append(carriers, c)
 	}
 
-	return carriers
+	return carriers, nil
 }

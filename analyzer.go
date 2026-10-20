@@ -22,7 +22,7 @@ func init() {
 		"require goroutines to call this function to derive context (e.g., pkg.Func or pkg.Type.Method)")
 	Analyzer.Flags.Var(analyzerList{&c.ExternalSpawner, func(l []string) error { return run.Config{ExternalSpawner: l}.Validate() }}, "external-spawner",
 		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
-	Analyzer.Flags.Var(analyzerList{list: &c.ContextCarriers}, "context-carriers",
+	Analyzer.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 
 	// Checker flags
