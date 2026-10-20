@@ -1,4 +1,5 @@
 // Package goroutine contains test fixtures for the goroutine context propagation checker.
+// The cases it shares with other checkers are in testdata/src/patterns.
 // This file covers basic/daily patterns - single goroutine, shadowing, ignore directives.
 // See advanced.go for real-world complex patterns and evil.go for adversarial tests.
 package goroutine
@@ -9,15 +10,6 @@ import (
 )
 
 // ===== SHOULD REPORT =====
-
-// [BAD]: Literal without ctx
-//
-// Literal without ctx - basic bad case
-func badGoroutineNoCapture(ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
-		fmt.Println("no context")
-	}()
-}
 
 // [BAD]: Literal without ctx - variant
 //
@@ -30,33 +22,6 @@ func badGoroutineIgnoresCtx(ctx context.Context) {
 }
 
 // ===== SHOULD NOT REPORT =====
-
-// [GOOD]: Literal with ctx - basic good case
-//
-// Closure directly references the context variable from enclosing scope.
-func goodGoroutineCapturesCtx(ctx context.Context) {
-	go func() {
-		_ = ctx.Done()
-	}()
-}
-
-// [GOOD]: Literal with ctx - via function call
-//
-// Context is passed to helper function inside closure.
-func goodGoroutineUsesCtxInCall(ctx context.Context) {
-	go func() {
-		doSomething(ctx)
-	}()
-}
-
-// [GOOD]: No ctx param
-//
-// No ctx param - not checked
-func goodNoContextParam() {
-	go func() {
-		fmt.Println("hello")
-	}()
-}
 
 // [GOOD]: Literal with derived ctx
 //
@@ -83,16 +48,6 @@ func goodGoroutineSelectOnCtx(ctx context.Context) {
 }
 
 // ===== SHADOWING TESTS =====
-
-// [BAD]: Shadow with non-ctx type - string
-//
-// Shadow with non-ctx type (string)
-func badShadowingNonContext(ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
-		ctx := "not a context" // shadows with string
-		_ = ctx
-	}()
-}
 
 // [BAD]: Shadow with non-ctx type - channel
 //
@@ -123,64 +78,6 @@ func badShadowingInNestedBlock(ctx context.Context) {
 			ctx := "shadowed in block"
 			_ = ctx
 		}
-	}()
-}
-
-// [GOOD]: Uses ctx before shadow
-//
-// Uses ctx before shadow - valid usage
-func goodUsesCtxBeforeShadowing(ctx context.Context) {
-	go func() {
-		_ = ctx.Done() // use ctx before shadowing
-		ctx := "shadow"
-		_ = ctx
-	}()
-}
-
-// ===== MULTIPLE CONTEXT PARAMETERS =====
-
-// [BAD]: Multiple ctx params - reports first
-//
-// Multiple context parameters available but none are used.
-func twoContextParams(ctx1, ctx2 context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx1"`
-		fmt.Println("ignoring both contexts")
-	}()
-}
-
-// [GOOD]: Multiple ctx params - uses first
-//
-// One of the available context parameters is properly used.
-func goodUsesOneOfTwoContexts(ctx1, ctx2 context.Context) {
-	go func() {
-		_ = ctx1 // uses first context
-	}()
-}
-
-// [GOOD]: Multiple ctx params - uses second
-//
-// One of the available context parameters is properly used.
-func goodUsesSecondOfTwoContexts(ctx1, ctx2 context.Context) {
-	go func() {
-		_ = ctx2 // uses second context - should NOT report
-	}()
-}
-
-// [GOOD]: Context as non-first param
-//
-// Context is detected and used even when not the first parameter.
-func goodCtxAsSecondParam(logger interface{}, ctx context.Context) {
-	go func() {
-		_ = ctx // ctx is second param but still detected
-	}()
-}
-
-// [BAD]: Context as non-first param without use
-//
-// Context parameter exists but is not used in the closure.
-func badCtxAsSecondParam(logger interface{}, ctx context.Context) {
-	go func() { // want `goroutine does not propagate context "ctx"`
-		_ = logger
 	}()
 }
 
@@ -223,25 +120,6 @@ func doSomething(ctx context.Context) {
 }
 
 // ===== IGNORE DIRECTIVES =====
-
-// [GOOD]: Ignore directive - same line
-//
-// The //goroutinectx:ignore directive suppresses the warning.
-func goodIgnoredSameLine(ctx context.Context) {
-	go func() { //goroutinectx:ignore
-		fmt.Println("ignored")
-	}()
-}
-
-// [GOOD]: Ignore directive - previous line
-//
-// The //goroutinectx:ignore directive suppresses the warning.
-func goodIgnoredPreviousLine(ctx context.Context) {
-	//goroutinectx:ignore
-	go func() {
-		fmt.Println("ignored")
-	}()
-}
 
 // [GOOD]: Ignore directive - with reason
 //

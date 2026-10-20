@@ -72,9 +72,10 @@ goroutinectx/
 │   └── typeutil/              # Type checking utilities
 ├── testdata/
 │   └── src/                   # Test fixtures
-│       ├── goroutine/         # goroutine checker tests
-│       ├── errgroup/          # errgroup checker tests
-│       ├── waitgroup/         # waitgroup checker tests
+│       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
+│       ├── goroutine/         # goroutine-only cases
+│       ├── errgroup/          # errgroup-only cases
+│       ├── waitgroup/         # waitgroup-only cases
 │       ├── spawner/           # spawner directive tests
 │       ├── goroutinederive/   # Single deriver tests
 │       ├── goroutinederiveand/    # AND (all must be called) tests
@@ -248,7 +249,7 @@ func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 
 2. Build it in `buildCheckers` in `internal/run/run.go`
 
-3. Add test fixtures in `testdata/src/<name>/`
+3. Add its variant of each case in `testdata/src/patterns/` that it can express, and its own cases in `testdata/src/<name>/` (see [Where a Test Case Goes](#where-a-test-case-goes))
 
 4. Add test case in `analyzer_test.go`
 
@@ -257,10 +258,21 @@ func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 - Use `analysistest` for all analyzer tests
 - Test fixtures use `// want` comments for expected diagnostics
 - Each fixture function's doc comment starts with its kind and a title (see [Test Case Comments](#test-case-comments))
+- Cases that several checkers share are in `testdata/src/patterns/`, one file per pattern (see [Where a Test Case Goes](#where-a-test-case-goes))
 - Test structure per checker:
   - `basic.go` - Simple good/bad cases
   - `advanced.go` - Complex patterns (defer, loops, channels)
   - `evil.go` - Adversarial patterns (nesting, IIFE, limitations)
+
+### Where a Test Case Goes
+
+| The case | Put it in |
+|----------|-----------|
+| More than one of goroutine, errgroup, waitgroup and spawner can express it | `testdata/src/patterns/`, in the file for its pattern, with every checker's variant under one `// ===== <case> =====` heading |
+| Only one checker has it, such as `TryGo` or `go fn()()()` | `testdata/src/<checker>/` |
+| It needs a flag, such as `-goroutine-deriver` | The directory of the test that sets that flag |
+
+In `patterns`, each checker's variant is a function of its own. When two variants would have the same name, every one of them takes the checker as a suffix: `goodNoContextParamGoroutine`, `goodNoContextParamErrgroup`, `goodNoContextParamWaitGroup`. Put the variants in the order goroutine, errgroup, waitgroup, spawner. A case that a checker lacks then shows as a gap in the group.
 
 ## Code Style
 
@@ -327,7 +339,7 @@ func limitationReassignedFn(ctx context.Context) {
 
 ### Testdata Naming Conventions
 
-Test files are organized by complexity and purpose:
+Test files of a checker's own directory are organized by complexity and purpose. Files in `testdata/src/patterns/` are named for their pattern instead.
 
 ```
 testdata/src/<checker>/

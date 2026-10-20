@@ -8,6 +8,13 @@ import (
 	"github.com/mpyw/goroutinectx"
 )
 
+// TestPatterns checks the cases that every checker shares, side by side: the
+// goroutine, errgroup, waitgroup and spawner variants of each.
+func TestPatterns(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, goroutinectx.Analyzer, "patterns")
+}
+
 func TestGoroutine(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutine")
