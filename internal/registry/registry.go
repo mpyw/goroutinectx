@@ -43,7 +43,6 @@ var entries = []Entry{
 	{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, Checker: checker.Waitgroup},
 
 	// github.com/sourcegraph/conc
-	{Spec: funcspec.Spec{PkgPath: concPkg, TypeName: "Pool", FuncName: "Go"}, Checker: checker.Conc},
 	{Spec: funcspec.Spec{PkgPath: concPkg, TypeName: "WaitGroup", FuncName: "Go"}, Checker: checker.Conc},
 	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "Pool", FuncName: "Go"}, Checker: checker.Conc},
 	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultPool", FuncName: "Go"}, Checker: checker.Conc},
@@ -68,9 +67,9 @@ var entries = []Entry{
 	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllFns"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
 	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllFnsSettled"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
 	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoRaceFns"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
-	// DoAsync spawns its receiver task
+	// DoAsync spawns its receiver task. CancelableTask gets it by embedding
+	// Task.
 	{Spec: funcspec.Spec{PkgPath: gotaskPkg, TypeName: "Task", FuncName: "DoAsync"}, Checker: checker.Gotask, AlwaysSpawns: true},
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, TypeName: "CancelableTask", FuncName: "DoAsync"}, Checker: checker.Gotask, AlwaysSpawns: true},
 }
 
 // Match gives the entry fn matches, of any checker.

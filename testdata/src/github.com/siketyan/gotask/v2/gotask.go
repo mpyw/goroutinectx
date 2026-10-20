@@ -51,15 +51,6 @@ type CancelableTask[T any] struct {
 	cancel *context.CancelFunc
 }
 
-// DoAsync executes the cancellable task asynchronously.
-func (t CancelableTask[T]) DoAsync(ctx context.Context, valueChan chan<- T) {
-	ctx, cancel := context.WithCancel(ctx)
-	t.cancel = &cancel
-	go func() {
-		valueChan <- t.fn(ctx)
-	}()
-}
-
 // Cancel cancels the task if still running.
 func (t CancelableTask[T]) Cancel() {
 	if t.cancel != nil {

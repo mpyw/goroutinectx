@@ -22,7 +22,7 @@ This file records design decisions and implementation details. The short, always
   - Mixed: `-goroutine-deriver=pkg1.Func1+pkg2.Func2,pkg3.Func3` - (Func1 AND Func2) OR Func3
 - **gotask**: Detect [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) task functions without context derivation (requires `-goroutine-deriver`)
   - `Do*` functions: checks that task arguments call the deriver
-  - [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync) / [`CancelableTask.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask.DoAsync): checks that ctx argument is derived
+  - [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), also on a `CancelableTask`, which embeds `Task`: checks that ctx argument is derived
 
 ### Directives
 
@@ -195,7 +195,7 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 |--------|-------|
 | `gotask.Do*` functions | Task arguments (2nd+) must call deriver in their body |
 | `Task.DoAsync` | Context argument (1st) must be derived |
-| `CancelableTask.DoAsync` | Context argument (1st) must be derived |
+| `CancelableTask.DoAsync` | The `Task.DoAsync` it embeds, judged the same way |
 
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 

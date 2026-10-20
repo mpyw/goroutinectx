@@ -81,7 +81,7 @@ func badUnusedOnCall(ctx context.Context) {
 
 // [GOOD]: conc names the conc checker.
 func goodConcIgnore(ctx context.Context) {
-	p := &conc.Pool{}
+	p := &conc.WaitGroup{}
 	//goroutinectx:ignore conc
 	p.Go(func() {})
 	p.Wait()
@@ -89,15 +89,15 @@ func goodConcIgnore(ctx context.Context) {
 
 // [BAD]: errgroup does not name the conc checker.
 func badConcIgnoredAsErrgroup(ctx context.Context) {
-	p := &conc.Pool{}
+	p := &conc.WaitGroup{}
 	//goroutinectx:ignore errgroup // want `unused goroutinectx:ignore directive for checker\(s\): errgroup`
-	p.Go(func() {}) // want `conc.Pool.Go\(\) closure should use context "ctx"`
+	p.Go(func() {}) // want `conc.WaitGroup.Go\(\) closure should use context "ctx"`
 	p.Wait()
 }
 
 // [BAD]: conc on a conc call that reports nothing is unused.
 func badUnusedConc(ctx context.Context) {
-	p := &conc.Pool{}
+	p := &conc.WaitGroup{}
 	//goroutinectx:ignore conc // want `unused goroutinectx:ignore directive for checker\(s\): conc`
 	p.Go(func() {
 		_ = ctx

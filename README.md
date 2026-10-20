@@ -195,7 +195,7 @@ A context made with [`context.Background`](https://pkg.go.dev/context#Background
 
 ### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 
-Detects [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) closures that don't use context:
+Detects [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) and [`errgroup.Group.TryGo`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.TryGo) closures that don't use context:
 
 ```go
 func handler(ctx context.Context) {
@@ -254,7 +254,7 @@ func handler(ctx context.Context) {
 ```
 
 Supported APIs:
-- [`conc.Pool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#Pool.Go), [`conc.WaitGroup.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#WaitGroup.Go)
+- [`conc.WaitGroup.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#WaitGroup.Go)
 - [`pool.Pool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#Pool.Go), [`pool.ResultPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultPool.Go), [`pool.ContextPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ContextPool.Go), [`pool.ResultContextPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultContextPool.Go)
 - [`pool.ErrorPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ErrorPool.Go), [`pool.ResultErrorPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultErrorPool.Go)
 - [`stream.Stream.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/stream#Stream.Go)
@@ -274,7 +274,7 @@ Supported functions:
 - [`gotask.DoRace`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRace)
 - [`gotask.DoRaceFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRaceFns)
 - [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync)
-- [`gotask.CancelableTask.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask.DoAsync)
+- `gotask.CancelableTask.DoAsync`, the [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync) a [`CancelableTask`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask) embeds
 
 ```go
 func handler(ctx context.Context) {
@@ -297,7 +297,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-For [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync) and [`gotask.CancelableTask.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask.DoAsync), the context argument must contain a deriver call:
+For [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), on a `Task` or a `CancelableTask`, the context argument must be derived: a deriver call, or a context `context.With*` makes from one. A task whose own function calls the deriver passes too:
 
 ```go
 func handler(ctx context.Context) {
@@ -491,7 +491,7 @@ Available flags:
 - `-waitgroup` (default: true)
 - `-errgroup` (default: true)
 - `-conc` (default: true) - Check [conc](https://pkg.go.dev/github.com/sourcegraph/conc) APIs:
-  - [`conc.Pool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#Pool.Go), [`conc.WaitGroup.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#WaitGroup.Go)
+  - [`conc.WaitGroup.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#WaitGroup.Go)
   - [`pool.Pool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#Pool.Go), [`pool.ResultPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultPool.Go), [`pool.ContextPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ContextPool.Go), [`pool.ResultContextPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultContextPool.Go)
   - [`pool.ErrorPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ErrorPool.Go), [`pool.ResultErrorPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultErrorPool.Go)
   - [`stream.Stream.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/stream#Stream.Go)

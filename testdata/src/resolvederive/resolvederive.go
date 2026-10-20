@@ -14,7 +14,7 @@ import (
 // [BAD]: The context derived after DoAsync is not the one given (#82).
 func badLaterDerive(ctx context.Context) {
 	t := gotask.NewTask(func(ctx context.Context) int { return 0 })
-	t.DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	t.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 	ctx = apm.NewGoroutineContext(ctx)
 	_ = ctx
 }
@@ -33,7 +33,7 @@ func badDeferIdentTask(ctx context.Context) {
 		defer apm.NewGoroutineContext(ctx)
 		return 0
 	}
-	gotask.NewTask(fn).DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	gotask.NewTask(fn).DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== SHOULD NOT REPORT =====

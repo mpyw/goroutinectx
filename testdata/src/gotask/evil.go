@@ -86,7 +86,7 @@ func goodDerivedInIfBranch(ctx context.Context) {
 func badChainedTaskDoAsync(ctx context.Context) {
 	gotask.NewTask(func(ctx context.Context) error {
 		return nil
-	}).DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	}).DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: Cancelable chain DoAsync without deriver
@@ -95,7 +95,7 @@ func badChainedTaskDoAsync(ctx context.Context) {
 func badCancelableChainDoAsync(ctx context.Context) {
 	gotask.NewTask(func(ctx context.Context) error {
 		return nil
-	}).Cancelable().DoAsync(ctx, nil) // want `gotask\.\(\*CancelableTask\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	}).Cancelable().DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== METHOD CHAINING - SHOULD NOT REPORT =====
@@ -203,7 +203,7 @@ func badTaskPointerDoAsync(ctx context.Context) {
 		return nil
 	})
 	taskPtr := &task
-	taskPtr.DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	taskPtr.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== DOASYNC ON POINTER - SHOULD NOT REPORT =====
@@ -283,9 +283,9 @@ func badMultipleDoAsync(ctx context.Context) {
 	task1 := gotask.NewTask(func(ctx context.Context) error { return nil })
 	task2 := gotask.NewTask(func(ctx context.Context) error { return nil })
 
-	task1.DoAsync(ctx, nil)                          // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task1.DoAsync(ctx, nil)                          // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 	task2.DoAsync(apm.NewGoroutineContext(ctx), nil) // OK - has deriver
-	task1.DoAsync(ctx, nil)                          // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task1.DoAsync(ctx, nil)                          // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: Edge case: Context with different param name
@@ -422,7 +422,7 @@ func badPointerDereferenceDoAsync(ctx context.Context) {
 		return nil
 	})
 	taskPtr := &task
-	(*taskPtr).DoAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	(*taskPtr).DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [GOOD]: Pointer dereference DoAsync without deriver
@@ -457,7 +457,7 @@ func badDoAsyncMethodExpr(ctx context.Context) {
 	task := gotask.NewTask(func(ctx context.Context) error {
 		return nil
 	})
-	gotask.Task[error].DoAsync(task, ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	gotask.Task[error].DoAsync(task, ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [GOOD]: DoAsync as a method expression, given a derived ctx
@@ -490,7 +490,7 @@ func badDoAsyncMethodValue(ctx context.Context) {
 		return nil
 	})
 	doAsync := task.DoAsync
-	doAsync(ctx, nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	doAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [GOOD]: DoAsync through a method value, on a task that derives
@@ -568,7 +568,7 @@ func goodDoAsyncDerivedWithValue(ctx context.Context) {
 // Wrapping ctx does not derive it.
 func badDoAsyncWrappedNotDerived(ctx context.Context) {
 	task := gotask.NewTask(func(ctx context.Context) error { return nil })
-	task.DoAsync(context.WithValue(ctx, gotaskCtxKey{}, 1), nil) // want `gotask\.\(\*Task\)\.DoAsync\(\) 1st argument should call goroutine deriver`
+	task.DoAsync(context.WithValue(ctx, gotaskCtxKey{}, 1), nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // ===== EXPANDED SLICES (#142) =====
@@ -619,4 +619,48 @@ func badExpandedSliceLiteral(ctx context.Context) {
 // Its elements can't be traced, so it is reported.
 func limitationExpandedParam(ctx context.Context, tasks []func(context.Context) error) {
 	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+}
+
+// [GOOD]: A whole local array, sliced and expanded
+//
+// Its elements are judged.
+func goodExpandedArraySlice(ctx context.Context) {
+	arr := [1]func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	_ = gotask.DoAllFnsSettled(ctx, arr[:]...)
+}
+
+// [NOTCHECKED]: Part of a local array, sliced and expanded
+//
+// A slice of part of an array is not traced, so it passes.
+func notCheckedExpandedArrayPart(ctx context.Context) {
+	arr := [2]func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	_ = gotask.DoAllFnsSettled(ctx, arr[0:1]...)
+}
+
+// [GOOD]: TasksFrom given an expanded slice of deriving functions
+//
+// The slice TasksFrom is given is judged by its elements.
+func goodExpandedTasksFromSlice(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	_ = gotask.DoAllSettled(ctx, gotask.TasksFrom(fns...)...)
+}
+
+// [BAD]: A helper's slice that does not derive, expanded
+//
+// The slices the helper returns are judged by their elements.
+func badExpandedHelper(ctx context.Context) {
+	_ = gotask.DoAllFnsSettled(ctx, nonDerivingTasks()...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+}
+
+func nonDerivingTasks() []func(context.Context) error {
+	return []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
 }
