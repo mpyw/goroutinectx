@@ -301,3 +301,40 @@ func badInlineFactoryVariableWithoutCtx(ctx context.Context) {
 	runWithGroup(g, makeWorker()) // want `runWithGroup\(\) func argument should use context "ctx"`
 	_ = g.Wait()
 }
+
+// ===== STRUCT FIELD AND INDEX ARGUMENTS =====
+
+// spawnerJob holds a func in a field.
+type spawnerJob struct {
+	Run func() error
+}
+
+// [BAD]: Struct field func argument without context
+//
+// A func in a struct field is looked up, as errgroup does.
+func badStructFieldArg(ctx context.Context) {
+	g := new(errgroup.Group)
+	job := spawnerJob{Run: func() error { return nil }}
+	runWithGroup(g, job.Run) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Struct field func argument with context
+//
+// A func in a struct field that uses ctx.
+func goodStructFieldArg(ctx context.Context) {
+	g := new(errgroup.Group)
+	job := spawnerJob{Run: func() error { _ = ctx; return nil }}
+	runWithGroup(g, job.Run)
+	_ = g.Wait()
+}
+
+// [BAD]: Indexed func argument without context
+//
+// A func in a slice literal is looked up, as errgroup does.
+func badIndexArg(ctx context.Context) {
+	g := new(errgroup.Group)
+	fns := []func() error{func() error { return nil }}
+	runWithGroup(g, fns[0]) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}

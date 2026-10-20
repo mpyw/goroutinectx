@@ -14,7 +14,6 @@ import (
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/registry"
-	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // SpawnCallbackChecker checks calls to the supported APIs of one checker
@@ -68,7 +67,7 @@ func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.Cal
 	if args := spawnedCallArgs(cctx, call); args != nil {
 		v = args[entry.CallbackArgIdx]
 	}
-	if spawnedFuncPasses(cctx, call.Args[entry.CallbackArgIdx], v, c.resolver(cctx), true) {
+	if spawnedFuncPasses(cctx, call.Args[entry.CallbackArgIdx], v, spawnedContextResolver(cctx, c.derivers), true) {
 		return nil
 	}
 
@@ -89,19 +88,6 @@ func spawnReportPos(call *ast.CallExpr) token.Pos {
 		return sel.Sel.Pos()
 	}
 	return call.Pos()
-}
-
-// resolver judges a closure by whether it takes or captures a context, or
-// calls the deriver at its start.
-func (c *spawnClosureCheck) resolver(cctx *probe.Context) *ssa.FuncResolver {
-	return &ssa.FuncResolver{
-		Closure: func(fn *gossa.Function) bool {
-			return ssa.HasContextParam(fn) || ssa.ClosureCapturesContext(fn, cctx.Carriers) ||
-				(!c.derivers.IsEmpty() && ssa.ClosureCallsDeriver(fn, c.derivers).FoundAtStart)
-		},
-		FactoryCall: func(call *gossa.CallCommon) bool { return ssa.ArgsInvolveContext(call, cctx.Carriers) },
-		Factory:     ssa.HasContextParam,
-	}
 }
 
 // =============================================================================
@@ -149,10 +135,9 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []an
 		msgFormat = "%s() func argument should use context %q or call goroutine deriver"
 	}
 
-	// Report each failing func argument at its position. A struct field or
-	// an indexed element is not looked up.
+	// Report each failing func argument at its position.
 	args := spawnedCallArgs(cctx, call)
-	r := c.resolver(cctx)
+	r := spawnedContextResolver(cctx, c.derivers)
 	var diags []analysis.Diagnostic
 	for i, arg := range call.Args {
 		if !spawnIsFuncArg(cctx.Pass, arg) {
@@ -162,7 +147,7 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []an
 		if args != nil {
 			v = args[i]
 		}
-		if !spawnedFuncPasses(cctx, arg, v, r, false) {
+		if !spawnedFuncPasses(cctx, arg, v, r, true) {
 			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
 		}
 	}

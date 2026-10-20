@@ -234,21 +234,14 @@ func (c *GotaskChecker) taskDerives(cctx *probe.Context, v gossa.Value) bool {
 	if !ok || len(values) == 0 {
 		return false
 	}
+	r := c.resolver(cctx)
 	return !slices.ContainsFunc(values, func(v gossa.Value) bool {
 		call, ok := v.(*gossa.Call)
 		if !ok {
 			return true
 		}
-		fn := ssa.ExtractCalledFunc(call.Common())
-		switch {
-		case fn == nil:
-			return true
-		case gotaskIsConstructor(fn):
-			return len(call.Call.Args) == 0 || !c.resolver(cctx).Passes(call.Call.Args[0])
-		case gotaskIsTaskMethod(fn):
-			return !c.taskDerives(cctx, ssa.ResolvedReceiver(call.Common()))
-		}
-		return true
+		passes, handled := r.Call(call.Common())
+		return !handled || !passes
 	})
 }
 

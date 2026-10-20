@@ -33,14 +33,7 @@ func (c *Goroutine) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 }
 
 func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
-	r := &ssa.FuncResolver{
-		Closure: func(fn *gossa.Function) bool {
-			return ssa.HasContextParam(fn) || ssa.ClosureCapturesContext(fn, cctx.Carriers)
-		},
-		FactoryCall: func(call *gossa.CallCommon) bool { return ssa.ArgsInvolveContext(call, cctx.Carriers) },
-		Factory:     ssa.HasContextParam,
-	}
-	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), r, true)
+	return spawnedFuncPasses(cctx, stmt.Call.Fun, goroutineSpawnedValue(cctx, stmt), spawnedContextResolver(cctx, nil), true)
 }
 
 // goroutineSpawnedValue gives the SSA value of the function stmt runs, or nil.
