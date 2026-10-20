@@ -5,6 +5,7 @@ import (
 
 	gossa "golang.org/x/tools/go/ssa"
 
+	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/ssa"
 )
@@ -35,6 +36,22 @@ func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa
 		return true
 	}
 	return r.Passes(v)
+}
+
+// spawnedContextResolver judges a closure by whether it takes or captures a
+// context, or, when derivers is not empty, calls the deriver at its start. A
+// factory passes when it takes a context, or is given one.
+//
+//declscope:shared // goroutine.go and spawn.go check for a context alike
+func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa.FuncResolver {
+	return &ssa.FuncResolver{
+		Closure: func(fn *gossa.Function) bool {
+			return ssa.HasContextParam(fn) || ssa.ClosureCapturesContext(fn, cctx.Carriers) ||
+				(!derivers.IsEmpty() && ssa.ClosureCallsDeriver(fn, derivers).FoundAtStart)
+		},
+		FactoryCall: func(call *gossa.CallCommon) bool { return ssa.ArgsInvolveContext(call, cctx.Carriers) },
+		Factory:     ssa.HasContextParam,
+	}
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.
