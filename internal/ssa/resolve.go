@@ -321,7 +321,9 @@ func resolvedReturns(fn *ssa.Function) []ssa.Value {
 // resolvedStores gives the values stored at addr that a load at the
 // instruction at can read. For a local variable of at's function, only the
 // stores that reach at count. For a variable captured from an outer function,
-// every store there counts. ok is false when the variable may be written in a
+// the stores there that reach the closure's creation count, and every store
+// after it, since the closure may run any time after; with no at, every
+// store counts. ok is false when the variable may be written in a
 // way not followed: through a closure, or through its address.
 func resolvedStores(addr ssa.Value, at ssa.Instruction) (stored []ssa.Value, ok bool) {
 	return resolvedStoresAt(addr, at, 0)
@@ -339,9 +341,16 @@ func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, depth int) (stored []s
 		if at != nil && at.Parent() == a.Parent() {
 			return resolvedReachingStores(a, at), true
 		}
-		for _, ref := range *a.Referrers() {
-			if st, ok := ref.(*ssa.Store); ok && st.Addr == a {
+		take := func(instr ssa.Instruction) bool {
+			st, ok := instr.(*ssa.Store)
+			if ok && st.Addr == a {
 				stored = append(stored, st.Val)
+			}
+			return ok && st.Addr == a
+		}
+		if !resolvedScanFromClosure(at, a, take) {
+			for _, ref := range *a.Referrers() {
+				take(ref)
 			}
 		}
 		return stored, true
@@ -351,7 +360,7 @@ func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, depth int) (stored []s
 		if !ok {
 			return nil, false
 		}
-		return resolvedStoresAt(binding, nil, depth)
+		return resolvedStoresAt(binding, at, depth)
 
 	case *ssa.FieldAddr, *ssa.IndexAddr:
 		return resolvedPartStores(a, nil, at, depth)
@@ -477,6 +486,65 @@ func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bo
 	scan(block, slices.Index(block.Instrs, at))
 }
 
+// resolvedScanFromClosure visits the instructions of origin's function that
+// a load at at, in a closure of that function, can see: those resolvedScanBack
+// visits from the closure's creation, and every one after it, which visit
+// cannot stop. It reports false when it cannot tell: for no at, or when the
+// closure is not made exactly once.
+func resolvedScanFromClosure(at, origin ssa.Instruction, visit func(ssa.Instruction) bool) bool {
+	if at == nil {
+		return false
+	}
+	outer := origin.Parent()
+	fn := at.Parent()
+	for fn != nil && fn.Parent() != outer {
+		fn = fn.Parent()
+	}
+	if fn == nil {
+		return false
+	}
+	var made *ssa.MakeClosure
+	for _, block := range outer.Blocks {
+		for _, instr := range block.Instrs {
+			if mc, ok := instr.(*ssa.MakeClosure); ok && mc.Fn == fn {
+				if made != nil {
+					return false
+				}
+				made = mc
+			}
+		}
+	}
+	if made == nil {
+		return false
+	}
+	resolvedScanBack(made, origin, visit)
+	resolvedScanForward(made, origin, func(instr ssa.Instruction) { visit(instr) })
+	return true
+}
+
+// resolvedScanForward visits the instructions after from, on every path from
+// it. A path stops at origin, as in resolvedScanBack.
+func resolvedScanForward(from, origin ssa.Instruction, visit func(ssa.Instruction)) {
+	visited := make(map[*ssa.BasicBlock]bool)
+	var scan func(b *ssa.BasicBlock, start int)
+	scan = func(b *ssa.BasicBlock, start int) {
+		for _, instr := range b.Instrs[start:] {
+			if instr == origin {
+				return
+			}
+			visit(instr)
+		}
+		for _, succ := range b.Succs {
+			if !visited[succ] {
+				visited[succ] = true
+				scan(succ, 0)
+			}
+		}
+	}
+	block := from.Block()
+	scan(block, slices.Index(block.Instrs, from)+1)
+}
+
 // resolvedMaxDepth bounds how many parts and loads a part is followed
 // through, so that a value that refers to itself, as p = p.next does, ends.
 const resolvedMaxDepth = 16
@@ -528,7 +596,10 @@ func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, depth i
 				st, ok := instr.(*ssa.Store)
 				return ok && take(st)
 			})
-		} else {
+		} else if !resolvedScanFromClosure(at, root, func(instr ssa.Instruction) bool {
+			st, ok := instr.(*ssa.Store)
+			return ok && take(st)
+		}) {
 			for st := range writes {
 				take(st)
 			}
