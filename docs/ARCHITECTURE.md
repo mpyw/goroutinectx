@@ -59,8 +59,8 @@ This enables both standalone usage and programmatic integration.
 
 ```
 goroutinectx/
-├── analyzer.go                # Main analyzer: flags resolved into run.Config
-├── plugin/                    # golangci-lint module plugin: settings resolved into run.Config
+├── analyzer.go                # Analyzer (flags) and New (a Config), both resolved into run.Config
+├── plugin/                    # golangci-lint module plugin: settings passed to New
 ├── analyzer_test.go           # Integration tests using analysistest
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config;
@@ -109,7 +109,7 @@ goroutinectx/
 
 ### analyzer.go
 
-Main entry point. It defines the flags (`-goroutine-deriver`, `-context-carriers`, checker toggles) and resolves them into a `run.Config`. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code with a `run.Config` built from its settings, without touching the flags. `run.Run`:
+Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, checker toggles) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`
 2. Use `inspector.WithStack` to traverse AST with stack context
 3. Build `funcScopes` map (function node -> ContextScope)

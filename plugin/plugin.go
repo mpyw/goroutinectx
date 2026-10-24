@@ -22,9 +22,9 @@ func init() {
 	register.Plugin(goroutinectx.Analyzer.Name, newPlugin)
 }
 
-// pluginConfig is the plugin built from one settings block.
-type pluginConfig struct {
-	cfg run.Config
+// pluginAnalyzer is the plugin built from one settings block.
+type pluginAnalyzer struct {
+	analyzer *analysis.Analyzer
 }
 
 func newPlugin(settings any) (register.LinterPlugin, error) {
@@ -43,27 +43,33 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 			return nil, fmt.Errorf("decoding settings: %w", err)
 		}
 	}
-	if err := cfg.Validate(); err != nil {
+	a, err := goroutinectx.New(goroutinectx.Config{
+		GoroutineDeriver: cfg.GoroutineDeriver,
+		ExternalSpawner:  cfg.ExternalSpawner,
+		ContextCarriers:  cfg.ContextCarriers,
+		Checkers: map[string]bool{
+			"goroutine":    cfg.Goroutine,
+			"waitgroup":    cfg.Waitgroup,
+			"errgroup":     cfg.Errgroup,
+			"conc":         cfg.Conc,
+			"spawner":      cfg.Spawner,
+			"spawnerlabel": cfg.Spawnerlabel,
+			"gotask":       cfg.Gotask,
+		},
+	})
+	if err != nil {
 		return nil, err
 	}
-	return &pluginConfig{cfg: cfg}, nil
+	return &pluginAnalyzer{analyzer: a}, nil
 }
 
-// BuildAnalyzers gives goroutinectx's analyzer, configured by the settings.
-// It is a copy, so the flags of goroutinectx.Analyzer are left alone.
-func (p *pluginConfig) BuildAnalyzers() ([]*analysis.Analyzer, error) {
-	cfg := p.cfg
-	return []*analysis.Analyzer{{
-		Name:     goroutinectx.Analyzer.Name,
-		Doc:      goroutinectx.Analyzer.Doc,
-		Requires: goroutinectx.Analyzer.Requires,
-		Run: func(pass *analysis.Pass) (any, error) {
-			return nil, run.Run(pass, cfg)
-		},
-	}}, nil
+// BuildAnalyzers gives the analyzer that goroutinectx.New built from the
+// settings. It has no flags, so goroutinectx.Analyzer is left alone.
+func (p *pluginAnalyzer) BuildAnalyzers() ([]*analysis.Analyzer, error) {
+	return []*analysis.Analyzer{p.analyzer}, nil
 }
 
 // GetLoadMode asks for type information, which the SSA checks need.
-func (*pluginConfig) GetLoadMode() string {
+func (*pluginAnalyzer) GetLoadMode() string {
 	return register.LoadModeTypesInfo
 }
