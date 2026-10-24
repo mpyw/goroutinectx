@@ -141,6 +141,15 @@ golangci-lint custom  # writes ./custom-gcl
 ./custom-gcl run ./...
 ```
 
+From a Go program of your own, build an analyzer with `goroutinectx.New`. It takes the same settings as a `goroutinectx.Config`, and has no flags. `goroutinectx.Analyzer` is the one with flags:
+
+```go
+a, err := goroutinectx.New(goroutinectx.Config{
+	ContextCarriers: []string{"github.com/labstack/echo/v4.Context"},
+	Checkers:        map[string]bool{"spawnerlabel": true},
+})
+```
+
 </details>
 
 ## What It Checks
@@ -565,6 +574,10 @@ func simpleHelper() {  // Warning: unnecessary //goroutinectx:spawner
 `goroutinectx` is complementary to `contextcheck`:
 - `contextcheck` warns about creating new contexts when one should be propagated
 - `goroutinectx` warns about not using an available context in specific APIs
+
+## AI usage
+
+goroutinectx is developed with AI coding agents (Claude Code). The fixtures under `testdata/src/` define what it reports.
 
 ## License
 
