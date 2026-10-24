@@ -3,7 +3,6 @@
 package goroutinectx
 
 import (
-	"flag"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -11,42 +10,42 @@ import (
 	"github.com/mpyw/goroutinectx/internal/run"
 )
 
-// analyzerConfig holds the flags' values. It starts from the defaults.
-var analyzerConfig = run.DefaultConfig()
-
-func init() {
-	c := &analyzerConfig
-	Analyzer.Flags.Var(analyzerDeriver{&c.GoroutineDeriver}, "goroutine-deriver",
-		"require goroutines to call this function to derive context (e.g., pkg.Func or pkg.Type.Method)")
-	Analyzer.Flags.Var(analyzerList{&c.ExternalSpawner, func(l []string) error { return run.Config{ExternalSpawner: l}.Validate() }}, "external-spawner",
-		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
-	Analyzer.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
-		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
-
-	// Checker flags
-	Analyzer.Flags.BoolVar(&c.Goroutine, "goroutine", c.Goroutine, "enable goroutine checker")
-	Analyzer.Flags.BoolVar(&c.Waitgroup, "waitgroup", c.Waitgroup, "enable waitgroup checker")
-	Analyzer.Flags.BoolVar(&c.Errgroup, "errgroup", c.Errgroup, "enable errgroup checker")
-	Analyzer.Flags.BoolVar(&c.Conc, "conc", c.Conc, "enable conc (sourcegraph/conc) checker")
-	Analyzer.Flags.BoolVar(&c.Spawner, "spawner", c.Spawner, "enable spawner checker")
-	Analyzer.Flags.BoolVar(&c.Spawnerlabel, "spawnerlabel", c.Spawnerlabel, "enable spawnerlabel checker")
-	Analyzer.Flags.BoolVar(&c.Gotask, "gotask", c.Gotask, "enable gotask checker (requires -goroutine-deriver)")
-}
-
 // Analyzer is the main analyzer for goroutinectx.
-var Analyzer = &analysis.Analyzer{
-	Name:     "goroutinectx",
-	Doc:      "checks that context.Context is properly propagated to downstream calls",
-	Requires: run.Requires,
-	Run:      analyzerRun,
-	Flags:    flag.FlagSet{},
-}
+var Analyzer = analyzerNew()
 
 // ErrNoInspector is returned when the inspect analyzer's result is missing.
 var ErrNoInspector = run.ErrNoInspector
 
-func analyzerRun(pass *analysis.Pass) (any, error) {
-	return nil, run.Run(pass, analyzerConfig)
+// analyzerNew builds the analyzer with its flags. The flags' values start
+// from the defaults and live in the closure of Run, so nothing is shared
+// but the analyzer itself.
+func analyzerNew() *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name:     "goroutinectx",
+		Doc:      "checks that context.Context is properly propagated to downstream calls",
+		Requires: run.Requires,
+	}
+	c := new(run.DefaultConfig())
+	a.Flags.Var(analyzerDeriver{&c.GoroutineDeriver}, "goroutine-deriver",
+		"require goroutines to call this function to derive context (e.g., pkg.Func or pkg.Type.Method)")
+	a.Flags.Var(analyzerList{&c.ExternalSpawner, func(l []string) error { return run.Config{ExternalSpawner: l}.Validate() }}, "external-spawner",
+		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
+	a.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
+		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
+
+	// Checker flags
+	a.Flags.BoolVar(&c.Goroutine, "goroutine", c.Goroutine, "enable goroutine checker")
+	a.Flags.BoolVar(&c.Waitgroup, "waitgroup", c.Waitgroup, "enable waitgroup checker")
+	a.Flags.BoolVar(&c.Errgroup, "errgroup", c.Errgroup, "enable errgroup checker")
+	a.Flags.BoolVar(&c.Conc, "conc", c.Conc, "enable conc (sourcegraph/conc) checker")
+	a.Flags.BoolVar(&c.Spawner, "spawner", c.Spawner, "enable spawner checker")
+	a.Flags.BoolVar(&c.Spawnerlabel, "spawnerlabel", c.Spawnerlabel, "enable spawnerlabel checker")
+	a.Flags.BoolVar(&c.Gotask, "gotask", c.Gotask, "enable gotask checker (requires -goroutine-deriver)")
+
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		return nil, run.Run(pass, *c)
+	}
+	return a
 }
 
 // analyzerList is a comma-separated flag held as a list. Setting it replaces

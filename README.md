@@ -566,6 +566,10 @@ func simpleHelper() {  // Warning: unnecessary //goroutinectx:spawner
 - `contextcheck` warns about creating new contexts when one should be propagated
 - `goroutinectx` warns about not using an available context in specific APIs
 
+## AI usage
+
+goroutinectx is developed with AI coding agents (Claude Code). The fixtures under `testdata/src/` define what it reports.
+
 ## License
 
 MIT
