@@ -100,8 +100,11 @@ var Requires = []*analysis.Analyzer{inspect.Analyzer, ssa.ProgramAnalyzer, spawn
 // ErrNoInspector is returned when the inspect analyzer's result is missing.
 var ErrNoInspector = errors.New("inspector analyzer result not found")
 
-// errNoSpawners is returned when spawner.Analyzer's result is missing.
-var errNoSpawners = errors.New("spawner analyzer result not found")
+// ErrNoSpawners is returned when spawner.Analyzer's result is missing.
+var ErrNoSpawners = errors.New("spawner analyzer result not found")
+
+// ErrNoSSA is returned when the buildssa analyzer's result is missing.
+var ErrNoSSA = errors.New("buildssa analyzer result not found")
 
 // Run analyzes one package with cfg. The analyzer that calls it must require
 // [Requires].
@@ -125,12 +128,15 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
 	marked, ok := pass.ResultOf[spawner.Analyzer].(*spawner.Marked)
 	if !ok {
-		return errNoSpawners
+		return ErrNoSpawners
 	}
 	spawners := spawner.Build(marked, parsed.external)
 
 	// Build SSA program
 	ssaProg := ssa.BuildProgram(pass)
+	if ssaProg == nil {
+		return ErrNoSSA
+	}
 
 	r := &runner{
 		pass:       pass,

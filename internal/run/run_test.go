@@ -7,6 +7,8 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
+
+	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 )
 
 // TestRunNeedsItsRequires checks that Run stops with an error, and does not
@@ -16,6 +18,7 @@ func TestRunNeedsItsRequires(t *testing.T) {
 	t.Parallel()
 
 	withInspector := map[*analysis.Analyzer]any{inspect.Analyzer: inspector.New(nil)}
+	withSpawners := map[*analysis.Analyzer]any{inspect.Analyzer: inspector.New(nil), spawner.Analyzer: &spawner.Marked{}}
 
 	tests := []struct {
 		name     string
@@ -24,7 +27,8 @@ func TestRunNeedsItsRequires(t *testing.T) {
 		want     error
 	}{
 		{name: "no inspector", resultOf: map[*analysis.Analyzer]any{}, cfg: DefaultConfig(), want: ErrNoInspector},
-		{name: "no spawners", resultOf: withInspector, cfg: DefaultConfig(), want: errNoSpawners},
+		{name: "no spawners", resultOf: withInspector, cfg: DefaultConfig(), want: ErrNoSpawners},
+		{name: "no SSA", resultOf: withSpawners, cfg: DefaultConfig(), want: ErrNoSSA},
 		{name: "rejected flag", resultOf: withInspector, cfg: Config{GoroutineDeriver: "apm.NewGoroutineContext"}},
 	}
 

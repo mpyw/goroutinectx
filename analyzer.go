@@ -20,6 +20,13 @@ var Analyzer = analyzerWithFlags()
 // ErrNoInspector is returned when the inspect analyzer's result is missing.
 var ErrNoInspector = run.ErrNoInspector
 
+// ErrNoSSA is returned when the buildssa analyzer's result is missing.
+var ErrNoSSA = run.ErrNoSSA
+
+// ErrNoSpawners is returned when the goroutinectxspawner analyzer's result is
+// missing.
+var ErrNoSpawners = run.ErrNoSpawners
+
 // Config holds the settings of an analyzer that New builds. Each field is
 // the flag of the same name. The zero Config keeps every checker at its
 // default.
