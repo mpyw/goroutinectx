@@ -52,3 +52,16 @@ func mustNew(t *testing.T, cfg goroutinectx.Config) *analysis.Analyzer {
 	}
 	return a
 }
+
+// TestNewSharesNoRequires changes the Requires of one analyzer, and checks
+// that the next one New builds still has its own.
+func TestNewSharesNoRequires(t *testing.T) {
+	t.Parallel()
+	a := mustNew(t, goroutinectx.Config{})
+	b := mustNew(t, goroutinectx.Config{})
+	want := b.Requires[0]
+	a.Requires[0] = nil
+	if b.Requires[0] != want || goroutinectx.Analyzer.Requires[0] != want {
+		t.Error("a change to one analyzer's Requires reached another")
+	}
+}

@@ -4,6 +4,7 @@ package goroutinectx
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -99,9 +100,11 @@ func analyzerCheckers(c *run.Config) map[string]*bool {
 // a pass starts.
 func analyzerBuild(c *run.Config) *analysis.Analyzer {
 	return &analysis.Analyzer{
-		Name:     "goroutinectx",
-		Doc:      "checks that context.Context is properly propagated to downstream calls",
-		Requires: run.Requires,
+		Name: "goroutinectx",
+		Doc:  "checks that context.Context is properly propagated to downstream calls",
+		// A copy, so that a change to one analyzer's Requires reaches no
+		// other analyzer.
+		Requires: slices.Clone(run.Requires),
 		Run: func(pass *analysis.Pass) (any, error) {
 			return nil, run.Run(pass, *c)
 		},
