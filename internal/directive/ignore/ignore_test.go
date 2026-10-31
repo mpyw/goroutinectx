@@ -8,9 +8,12 @@ import (
 	"testing"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/directive"
 )
 
-func TestParseComment(t *testing.T) {
+// TestBuildIgnoreForms checks which comments are an ignore, the checkers
+// each names, and the ignores Build reports for an unknown checker.
+func TestBuildIgnoreForms(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -54,18 +57,31 @@ func TestParseComment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, problem, ok := parseComment(tt.text)
-			if ok != tt.wantOK {
-				t.Fatalf("parseComment(%q) ok = %v, want %v", tt.text, ok, tt.wantOK)
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "p.go", "package p\n\n"+tt.text+"\n", parser.ParseComments)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, problems := Build(fset, file, directive.Scan(file).Ignores)
+			var got []checker.Name
+			if e := m[3]; e != nil {
+				got = e.checkers
+			}
+			problem := ""
+			if len(problems) == 1 {
+				problem = problems[0].Message
+			}
+			if ok := len(m) == 1 || problem != ""; ok != tt.wantOK {
+				t.Fatalf("Build(%q) found an ignore = %v, want %v", tt.text, ok, tt.wantOK)
 			}
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("parseComment(%q) = %q, want %q", tt.text, got, tt.want)
+				t.Errorf("Build(%q) ignore checkers = %q, want %q", tt.text, got, tt.want)
 			}
 			if tt.unknown == "" && problem != "" {
-				t.Errorf("parseComment(%q) problem = %q, want none", tt.text, problem)
+				t.Errorf("Build(%q) problem = %q, want none", tt.text, problem)
 			}
 			if tt.unknown != "" && !strings.HasPrefix(problem, "unknown checker \""+tt.unknown+"\" in goroutinectx:ignore (want one of ") {
-				t.Errorf("parseComment(%q) problem = %q, want one naming %q", tt.text, problem, tt.unknown)
+				t.Errorf("Build(%q) problem = %q, want one naming %q", tt.text, problem, tt.unknown)
 			}
 		})
 	}
@@ -121,7 +137,7 @@ func TestBuild(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			m, problems := Build(fset, file)
+			m, problems := Build(fset, file, directive.Scan(file).Ignores)
 			if len(problems) != tt.problems {
 				t.Errorf("Build() problems = %v, want %d", problems, tt.problems)
 			}
@@ -139,5 +155,46 @@ func TestBuild(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCovering checks which ignore covers a line, and that asking marks
+// none of them used.
+func TestCovering(t *testing.T) {
+	t.Parallel()
+
+	src := "package p\n\nfunc f() {\n\t//goroutinectx:ignore goroutine\n\tgo f()\n\tgo f() //goroutinectx:ignore\n\tgo f()\n}\n"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "p.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := Build(fset, file, directive.Scan(file).Ignores)
+
+	tests := []struct {
+		line int
+		name checker.Name
+		want *Entry
+	}{
+		{line: 4, name: checker.Goroutine, want: m[4]},
+		{line: 5, name: checker.Goroutine, want: m[4]},
+		{line: 5, name: checker.Errgroup},
+		{line: 6, name: checker.Errgroup, want: m[6]},
+		{line: 7, name: checker.Goroutine}, // The ignore above follows code
+		{line: 8, name: checker.Goroutine},
+	}
+	for _, tt := range tests {
+		if got := m.Covering(tt.line, tt.name); got != tt.want {
+			t.Errorf("Covering(%d, %s) = %v, want %v", tt.line, tt.name, got, tt.want)
+		}
+	}
+
+	enabled := EnabledCheckers{checker.Goroutine: true}
+	if unused := m.GetUnusedIgnores(enabled); len(unused) != 2 {
+		t.Errorf("GetUnusedIgnores() after Covering = %v, want both ignores", unused)
+	}
+	m[4].MarkUsed(checker.Goroutine)
+	if unused := m.GetUnusedIgnores(enabled); len(unused) != 1 || unused[0].Pos != m[6].pos {
+		t.Errorf("GetUnusedIgnores() after MarkUsed = %v, want the one on line 6", unused)
 	}
 }

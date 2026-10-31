@@ -42,27 +42,21 @@
 //
 // # Parsing
 //
-// Use [BuildIgnoreMaps] to parse ignore directives from all files:
+// [directive.Scan] finds the ignore directives of a file, and [Build] makes
+// its map: line number → ignore. Build also gives each ignore that names a
+// checker goroutinectx does not have, which silences nothing.
 //
-//	ignoreMaps, skipFiles := ignore.BuildIgnoreMaps(pass, checkerNames)
-//
-// This returns:
-//   - ignoreMaps: Map of filename → line → ignored checkers
-//   - skipFiles: Files to skip entirely (//goroutinectx:ignore file)
-//
-// # Map Structure
-//
-//	type Map map[int]CheckerSet  // line number → ignored checkers
-//
-//	type CheckerSet map[CheckerName]bool
+//	ignoreMap, problems := ignore.Build(fset, file, directive.Scan(file).Ignores)
 //
 // # Checking Ignores
 //
-// Use [Map.ShouldIgnore] to check if a line should be ignored:
+// [Map.Covering] gives the ignore that silences a checker's reports on a
+// line, and marks nothing. The caller marks the ignore that silenced a
+// report with [Entry.MarkUsed]:
 //
-//	ignoreMap := ignoreMaps[filename]
-//	if ignoreMap.ShouldIgnore(lineNum, checkerName) {
-//	    return  // Skip this check
+//	if e := ignoreMap.Covering(line, checkerName); e != nil {
+//	    e.MarkUsed(checkerName)
+//	    return  // Skip this report
 //	}
 //
 // # Unused Ignore Detection

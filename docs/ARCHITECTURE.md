@@ -163,23 +163,37 @@ type CheckContext struct {
 func FindScope(pass *analysis.Pass, fnType *ast.FuncType, carriers []carrier.Carrier) *Scope
 ```
 
-### internal/directive/ignore/
+### internal/directive/
 
-Comment directive support with checker-specific ignores and unused detection:
+`directive.Scan` reads every directive of a file in one pass over its comments. The runner and `spawner.Analyzer` both use it. The runner skips a generated file whole, and reads the rest once each.
 
 ```go
-type CheckerName string  // goroutine, goroutinederive, waitgroup, errgroup, spawner, spawnerlabel, gotask
+type Found struct {
+    Ignores  []Ignore         // Each //goroutinectx:ignore, its checker names unchecked
+    Spawners []*ast.FuncDecl  // Each function whose doc comment holds //goroutinectx:spawner
+    Problems []Problem        // Each comment addressed to goroutinectx that does nothing
+}
 
+func Scan(file *ast.File) Found
+```
+
+### internal/directive/ignore/
+
+Checker-specific ignores and unused detection:
+
+```go
 type Entry struct {
     pos      token.Pos
-    checkers []CheckerName        // Empty = ignore all
-    used     map[CheckerName]bool // Track usage per checker
+    trailing bool                  // The comment follows code on its line
+    checkers []checker.Name        // Empty = ignore all
+    used     map[checker.Name]bool // Track usage per checker
 }
 
 type Map map[int]*Entry  // Line numbers with ignore comments
 
-func Build(fset *token.FileSet, file *ast.File) Map
-func (m Map) ShouldIgnore(line int, name checker.Name) bool  // Checks same line, and previous line unless that ignore trails code
+func Build(fset *token.FileSet, file *ast.File, ignores []directive.Ignore) (Map, []directive.Problem)  // Reports an unknown checker name
+func (m Map) Covering(line int, name checker.Name) *Entry  // Same line, and previous line unless that ignore trails code. Marks nothing
+func (e *Entry) MarkUsed(name checker.Name)                // The runner marks the ignore that silenced a report
 func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 ```
 
