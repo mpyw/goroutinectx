@@ -44,7 +44,7 @@
 // Plain functions check an SSA function for context propagation:
 //
 //	// Check if closure captures context
-//	captures := flow.ClosureCapturesContext(ssaFn, e.Kinds)
+//	captures := e.Flow.ClosureCapturesContext(ssaFn, e.Kinds)
 //
 //	// Check if closure calls deriver function
 //	result := flow.ClosureCallsDeriver(ssaFn, deriveMatcher)
@@ -54,17 +54,31 @@
 //	    // Deriver only in defer - warning
 //	}
 //
+// # Sources of a Value
+//
+// A [Flow] is the one engine that follows values, built once per pass.
+// [Flow.Sources] gives the values a value can come from, through Phi nodes,
+// type changes, loads of local variables, of their struct fields and
+// constant-index elements, and map lookups at constant keys, each with its
+// [SourceKind], and whether the list is complete. Every check below that
+// follows a value folds over it.
+//
+// A question to a Flow, as Sources or [FuncResolver.Passes], has one bound
+// on its work, which the questions it asks in turn share, so nested checks
+// do not multiply it. What a question finds is remembered for the pass,
+// unless a bound cut it short.
+//
 // # Resolving Spawned Values
 //
 // [Program.GoAt] and [Program.CallAt] find the instruction of an AST go
 // statement or call, and [ResolvedArgs] lines its SSA arguments up with the
-// AST ones. [FuncResolver] then follows a func-typed value back through Phi
-// nodes, loads of local variables, of their struct fields and constant-index
-// elements, map lookups at constant keys, and calls of factories, to each
+// AST ones. [FuncResolver] then folds over the sources of a func-typed
+// value, and follows calls of factories through what they return, to each
 // function literal it can hold, and judges each one:
 //
 //	r := &flow.FuncResolver{
-//	    Closure: func(fn *ssa.Function) bool { return flow.ClosureCapturesContext(fn, e.Kinds) },
+//	    Flow:    e.Flow,
+//	    Closure: func(fn *ssa.Function) bool { return e.Flow.ClosureCapturesContext(fn, e.Kinds) },
 //	}
 //	ok := r.Passes(goInstr.Call.Value)
 //
@@ -98,8 +112,8 @@
 //
 // # Fresh Contexts
 //
-// [IsFreshContext] reports whether a value is only ever a
-// context.Background() or TODO(). [GivesOnlyFreshContext] reports whether a
+// [Flow.IsFreshContext] reports whether a value is only ever a
+// context.Background() or TODO(). [Flow.GivesOnlyFreshContext] reports whether a
 // call gives such a context and nothing else that may hold one. What counts
 // as a context is up to the ctxkind package.
 //

@@ -18,11 +18,13 @@ import (
 type Checker struct {
 	spawners *spawner.Map
 	ssaProg  *flow.Program
+	flow     *flow.Flow
 }
 
-// New creates a new spawnerlabel checker.
-func New(spawners *spawner.Map, ssaProg *flow.Program) *Checker {
-	return &Checker{spawners: spawners, ssaProg: ssaProg}
+// New creates a new spawnerlabel checker. f follows the values called, to
+// the closures the calls of factories return.
+func New(spawners *spawner.Map, ssaProg *flow.Program, f *flow.Flow) *Checker {
+	return &Checker{spawners: spawners, ssaProg: ssaProg, flow: f}
 }
 
 // Name returns the checker name.
@@ -175,7 +177,7 @@ func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 		return nil
 	}
 
-	for site := range flow.Runs(ssaFn, flow.RunOptions{Goroutines: true, Returned: true}) {
+	for site := range flow.Runs(ssaFn, flow.RunOptions{Goroutines: true, Returned: true, Flow: c.flow}) {
 		if info := c.spawnCallInfoOf(site.Call); info != nil {
 			return info
 		}

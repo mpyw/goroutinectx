@@ -44,9 +44,9 @@ func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
 		// context other than a fresh context.Background() or TODO(), or
 		// gives another value that may hold a context.
 		args := g.Call.Args
-		onlyFresh := flow.GivesOnlyFreshContext(&g.Call, e.Kinds)
+		onlyFresh := e.Flow.GivesOnlyFreshContext(&g.Call, e.Kinds)
 		r.Closure = func(fn *ssa.Function) bool {
-			if flow.ClosureCapturesContext(fn, e.Kinds) {
+			if e.Flow.ClosureCapturesContext(fn, e.Kinds) {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
@@ -54,7 +54,7 @@ func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
 					return false
 				}
 				i := slices.Index(fn.Params, p)
-				return i >= len(args) || !onlyFresh || !flow.IsFreshContext(args[i])
+				return i >= len(args) || !onlyFresh || !e.Flow.IsFreshContext(args[i])
 			})
 		}
 	}
@@ -105,10 +105,10 @@ func (c *GoroutineDerive) failure(e *env.Env, stmt *ast.GoStmt) string {
 	if g := e.SSA.GoAt(stmt); g != nil {
 		given = goroutineArgCalls(&g.Call)
 	}
-	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e.Kinds, given, true)) {
+	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e, given, true)) {
 		return ""
 	}
-	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e.Kinds, given, false)) {
+	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e, given, false)) {
 		return c.deferMessage()
 	}
 	return c.message()
@@ -126,16 +126,17 @@ func (c *GoroutineDerive) deferMessage() string {
 // ([ctxkind.Param]), or calls the deriver: at its start when atStart is set, or else
 // in defer too. given are the functions the go statement calls in its
 // arguments, which count as called at the start.
-func (c *GoroutineDerive) resolver(kinds *ctxkind.Classifier, given []*types.Func, atStart bool) *flow.FuncResolver {
+func (c *GoroutineDerive) resolver(e *env.Env, given []*types.Func, atStart bool) *flow.FuncResolver {
 	return &flow.FuncResolver{
+		Flow: e.Flow,
 		Closure: func(fn *ssa.Function) bool {
-			if kinds.HasParam(fn, ctxkind.Param) {
+			if e.Kinds.HasParam(fn, ctxkind.Param) {
 				return true
 			}
 			result := flow.ClosureCallsDeriver(fn, c.derivers, given...)
 			return result.FoundAtStart || (!atStart && result.FoundOnlyInDefer)
 		},
-		Factory: func(fn *ssa.Function) bool { return c.factoryDerives(kinds, fn) },
+		Factory: func(fn *ssa.Function) bool { return c.factoryDerives(e.Kinds, fn) },
 	}
 }
 

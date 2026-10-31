@@ -64,7 +64,7 @@ var Defs = []Def{
 	},
 	{
 		Name: checker.Spawnerlabel, FlagDoc: "enable spawnerlabel checker",
-		Build: func(e *env.Env) Checker { return spawnerlabel.New(e.Spawners, e.SSA) },
+		Build: func(e *env.Env) Checker { return spawnerlabel.New(e.Spawners, e.SSA, e.Flow) },
 	},
 	{
 		Name: checker.Gotask, Default: true, FlagDoc: "enable gotask checker (requires -goroutine-deriver)", NeedsDeriver: true,

@@ -23,17 +23,19 @@ import (
 // analyzed code can have put there ([ctxkind.Holds]), as a method spawned
 // directly is left alone. A captured closure that captures a context counts
 // too.
-func ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool {
-	return closureCaptures(closure, kinds, make(map[*ssa.Function]bool))
+func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool {
+	defer f.ask()()
+	return closureCaptures(f, closure, kinds, make(map[*ssa.Function]bool))
 }
 
-func closureCaptures(closure *ssa.Function, kinds *ctxkind.Classifier, seen map[*ssa.Function]bool) bool {
+func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, seen map[*ssa.Function]bool) bool {
 	if closure == nil || seen[closure] {
 		return false
 	}
 	seen[closure] = true
 
 	r := &closureReader{
+		flow:  f,
 		kinds: kinds.From(closurePackage(closure)),
 		seen:  make(map[ssa.Value]bool),
 	}
@@ -42,17 +44,19 @@ func closureCaptures(closure *ssa.Function, kinds *ctxkind.Classifier, seen map[
 		case k&ctxkind.Carrier != 0:
 			return true
 		case k&ctxkind.Context != 0:
-			return !closureFreeVarIsFresh(fv)
+			return !closureFreeVarIsFresh(f, fv)
 		case k&ctxkind.Implements != 0:
 			return true
 		}
-		return r.reads(fv) || closureHoldsCapturing(fv, kinds, seen)
+		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, seen)
 	})
 }
 
 // closureReader tells whether a closure reads a context from the values it
 // captures.
 type closureReader struct {
+	// flow follows the parts read.
+	flow *Flow
 	// kinds judges Holds for the closure's package.
 	kinds *ctxkind.Classifier
 	seen  map[ssa.Value]bool
@@ -122,8 +126,8 @@ func (r *closureReader) carries(part ssa.Value) bool {
 			return !ok || load.Op != token.MUL
 		})
 	}
-	values, ok := resolvedPartValues(part)
-	return !ok || len(values) == 0 || slices.ContainsFunc(values, func(v ssa.Value) bool { return !IsFreshContext(v) })
+	values, ok := resolvedPartValues(r.flow, part)
+	return !ok || len(values) == 0 || slices.ContainsFunc(values, func(v ssa.Value) bool { return !r.flow.IsFreshContext(v) })
 }
 
 // callsContextMethod reports whether call is a method called on v, an
@@ -170,26 +174,26 @@ func closurePackage(closure *ssa.Function) *types.Package {
 
 // closureHoldsCapturing reports whether the func variable fv captures holds
 // a closure that captures a context.
-func closureHoldsCapturing(fv *ssa.FreeVar, kinds *ctxkind.Classifier, seen map[*ssa.Function]bool) bool {
+func closureHoldsCapturing(f *Flow, fv *ssa.FreeVar, kinds *ctxkind.Classifier, seen map[*ssa.Function]bool) bool {
 	if _, isFunc := typeutil.UnwrapPointer(fv.Type()).Underlying().(*types.Signature); !isFunc {
 		return false
 	}
-	values, ok := resolvedFreeVarValues(fv)
+	values, ok := resolvedFreeVarValues(f, fv)
 	return ok && slices.ContainsFunc(values, func(v ssa.Value) bool {
 		mc, ok := v.(*ssa.MakeClosure)
 		if !ok {
 			return false
 		}
 		fn, _ := mc.Fn.(*ssa.Function)
-		return closureCaptures(fn, kinds, seen)
+		return closureCaptures(f, fn, kinds, seen)
 	})
 }
 
 // closureFreeVarIsFresh reports whether every value fv can hold is a fresh
-// context, as IsFreshContext judges it.
-func closureFreeVarIsFresh(fv *ssa.FreeVar) bool {
-	values, ok := resolvedFreeVarValues(fv)
-	return ok && len(values) > 0 && !slices.ContainsFunc(values, func(v ssa.Value) bool { return !IsFreshContext(v) })
+// context, as [Flow.IsFreshContext] judges it.
+func closureFreeVarIsFresh(f *Flow, fv *ssa.FreeVar) bool {
+	values, ok := resolvedFreeVarValues(f, fv)
+	return ok && len(values) > 0 && !slices.ContainsFunc(values, func(v ssa.Value) bool { return !f.IsFreshContext(v) })
 }
 
 // ClosureDerivation is where a closure calls the deriver.

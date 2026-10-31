@@ -154,6 +154,7 @@ type Env struct {
     Kinds    *ctxkind.Classifier // what counts as a context: carriers, module
     Derivers *deriver.Matcher    // nil when -goroutine-deriver is not set
     Spawners *spawner.Map
+    Flow     *flow.Flow          // follows values, one bound per question, remembered for the pass
 }
 ```
 
@@ -173,7 +174,7 @@ Each caller names the set it counts. The sets do not agree yet (#210 step 2):
 | Threshold | Kinds | Used by |
 |-----------|-------|---------|
 | `Param` | `Context`, `Carrier` | `HasParam`, `ParamNames`, `Involves`, `MayHold`; the goroutine checker's test of a closure's parameters |
-| `Captured` | `Context`, `Carrier`, `Implements` | `flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields |
+| `Captured` | `Context`, `Carrier`, `Implements` | `Flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields |
 | `Context` | `Context` | `flow.GivesOnlyFreshContext`, for the fresh argument; `IsWithCall`, for the first parameter |
 
 It also holds both tests for a context parameter. They differ on purpose:
@@ -198,7 +199,18 @@ Follows values through the package's SSA form: the instruction of a go statement
 
 The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only. spawnerlabel takes a closure returned as any result.
 
-It also tells whether a value is only ever a fresh context (`IsFreshContext`), and whether a call gives only one (`GivesOnlyFreshContext`).
+`Flow` is the one engine that follows values, built once per pass and held by `env.Env`. `Flow.Sources(v)` gives the values `v` can come from, each with its kind (function literal, named function, method, call result, parameter, global, unknown), and whether the list is complete. It goes through Phi nodes, type changes, loads of local variables and of their parts, and map lookups at constant keys. Every check that follows a value is a fold over `Sources`:
+
+| Check | Fold |
+|-------|------|
+| `FuncResolver.Passes` | Every source passes: a literal by `Closure`, a call by the factory rules, which follow the factory's returns through `Sources` again |
+| `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
+| `Flow.ClosureCapturesContext` | A captured context counts unless `IsFreshContext` of each value it can hold |
+| gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives |
+
+**One bound per question.** A question to `Flow` (`Sources`, `IsFreshContext`, `ClosureCapturesContext`, `FuncResolver.Passes`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a resolver judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
+
+It also tells whether a call gives only a fresh context (`GivesOnlyFreshContext`).
 
 ### internal/directive/
 
@@ -307,7 +319,7 @@ insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 The goroutine checker detects whether a goroutine's function captures a context, from its SSA free variables:
 
 ```go
-func ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool // in internal/flow
+func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool // in internal/flow
 ```
 
 **Key behaviors:**
@@ -321,11 +333,11 @@ func ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bo
 For patterns like `g.Go(fn)`, `g.Go(s.fn)` or `g.Go(fns["a"])`, the SSA value of the argument is followed back to each function literal it can hold, by `flow.FuncResolver`:
 
 ```go
-r := &flow.FuncResolver{Closure: func(fn *ssa.Function) bool { ... }}
+r := &flow.FuncResolver{Flow: e.Flow, Closure: func(fn *ssa.Function) bool { ... }}
 ok := r.Passes(value)
 ```
 
-It goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, map lookups at constant keys, and calls of factories. Only the stores that reach the spawn count. A value it cannot follow passes.
+It takes the sources of the value from `Flow.Sources`, which goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, and map lookups at constant keys, and follows calls of factories itself. Only the stores that reach the spawn count. A value it cannot follow passes.
 
 ### Deriver Matching
 

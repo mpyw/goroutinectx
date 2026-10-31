@@ -677,3 +677,31 @@ func badDoAsyncWrappedInLoop(ctx context.Context, n int) {
 	}
 	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
+
+// ===== TASK MADE FROM ITSELF IN A LOOP =====
+
+// [BAD]: DoAsync of a task made from itself in a loop, never derived
+//
+// t = t.Cancelable() in a loop is judged by the task it starts from, once
+// each, so the judging ends.
+func badTaskMadeFromItselfInLoop(ctx context.Context, n int) {
+	t := gotask.NewTask(func(ctx context.Context) error { return nil }).Cancelable()
+	for range n {
+		t = t.Cancelable()
+	}
+	t.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [GOOD]: DoAsync of a task made from itself in a loop, deriving
+//
+// The task it starts from calls the deriver.
+func goodTaskMadeFromItselfInLoop(ctx context.Context, n int) {
+	t := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	}).Cancelable()
+	for range n {
+		t = t.Cancelable()
+	}
+	t.DoAsync(ctx, nil)
+}

@@ -34,5 +34,5 @@
 //
 // The checker runs over the whole pass, after the per-node checkers:
 //
-//	diags := spawnerlabel.New(spawners, ssaProg).Check(pass, skipFiles)
+//	diags := spawnerlabel.New(spawners, ssaProg, f).Check(pass, skipFiles)
 package spawnerlabel

@@ -40,15 +40,16 @@ func spawnedFuncPasses(e *env.Env, expr ast.Expr, v ssa.Value, r *flow.FuncResol
 //declscope:shared // goroutine.go and spawn.go check for a context alike
 func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncResolver {
 	return &flow.FuncResolver{
+		Flow: e.Flow,
 		Closure: func(fn *ssa.Function) bool {
-			return e.Kinds.HasParam(fn, ctxkind.Param) || flow.ClosureCapturesContext(fn, e.Kinds) ||
+			return e.Kinds.HasParam(fn, ctxkind.Param) || e.Flow.ClosureCapturesContext(fn, e.Kinds) ||
 				(!derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, derivers).FoundAtStart)
 		},
 		Call: func(call *ssa.CallCommon) (passes, handled bool) {
 			return false, spawnedGivesNamedFuncOnlyFreshContext(e, call)
 		},
 		FactoryCall: func(call *ssa.CallCommon) bool {
-			return e.Kinds.Involves(ctxkind.Param, call.Args...) && !flow.GivesOnlyFreshContext(call, e.Kinds)
+			return e.Kinds.Involves(ctxkind.Param, call.Args...) && !e.Flow.GivesOnlyFreshContext(call, e.Kinds)
 		},
 		Factory: func(fn *ssa.Function) bool { return e.Kinds.HasParam(fn, ctxkind.Param) },
 	}
@@ -82,7 +83,7 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 	default:
 		return false
 	}
-	return flow.GivesOnlyFreshContext(call, e.Kinds)
+	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.
