@@ -381,49 +381,53 @@ func goodRaceWithDeriver(ctx context.Context) {
 	_ = gotask.DoRace(ctx, gotask.Race(good))
 }
 
-// [BAD]: Then given a task without deriver
-func badThenTaskNoDeriver(ctx context.Context) {
+// [GOOD]: Then given a task without deriver and a func that calls it
+//
+// The task and the func run in one goroutine, so one deriver call is enough.
+func goodThenFuncCallsDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	_ = gotask.DoAll(ctx, gotask.Then(bad, func(ctx context.Context, v int) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(v)
+	}))
+}
+
+// [GOOD]: Then given a task that calls deriver and a func without it
+func goodThenTaskCallsDeriver(ctx context.Context) {
+	_ = gotask.DoAll(ctx, gotask.Then(derivingTask(), func(ctx context.Context, v int) gotask.Result[int] {
+		return gotask.ResultOk(v)
+	}))
+}
+
+// [BAD]: Then given a task and a func that both lack deriver
+func badThenNoDeriver(ctx context.Context) {
 	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
 		return gotask.ResultOk(1)
 	})
 	_ = gotask.DoAll(ctx, gotask.Then(bad, func(ctx context.Context, v int) gotask.Result[int] { // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
-		_ = apm.NewGoroutineContext(ctx)
 		return gotask.ResultOk(v)
 	}))
 }
 
-// [BAD]: Then given a func without deriver
-//
-// The func gets the context the task was given, not one the task derives.
-func badThenFuncNoDeriver(ctx context.Context) {
-	_ = gotask.DoAll(ctx, gotask.Then(derivingTask(), func(ctx context.Context, v int) gotask.Result[int] { // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
-		return gotask.ResultOk(v)
-	}))
-}
-
-// [GOOD]: Then given a task and a func that both call deriver
-func goodThenWithDeriver(ctx context.Context) {
-	_ = gotask.DoAll(ctx, gotask.Then(derivingTask(), func(ctx context.Context, v int) gotask.Result[int] {
-		_ = apm.NewGoroutineContext(ctx)
-		return gotask.ResultOk(v)
-	}))
-}
-
-// [BAD]: Catch given a task without deriver
-func badCatchNoDeriver(ctx context.Context) {
+// [GOOD]: Catch given a task without deriver and a func that calls it
+func goodCatchFuncCallsDeriver(ctx context.Context) {
 	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
 		return gotask.ResultOk(1)
 	})
-	_ = gotask.DoRace(ctx, gotask.Catch(bad, func(ctx context.Context, err error) int { // want `gotask\.DoRace\(\) 2nd argument should call goroutine deriver`
+	_ = gotask.DoRace(ctx, gotask.Catch(bad, func(ctx context.Context, err error) int {
 		_ = apm.NewGoroutineContext(ctx)
 		return 0
 	}))
 }
 
-// [GOOD]: Catch given a task and a func that both call deriver
-func goodCatchWithDeriver(ctx context.Context) {
-	_ = gotask.DoRace(ctx, gotask.Catch(derivingTask(), func(ctx context.Context, err error) int {
-		_ = apm.NewGoroutineContext(ctx)
+// [BAD]: Catch given a task and a func that both lack deriver
+func badCatchNoDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	_ = gotask.DoRace(ctx, gotask.Catch(bad, func(ctx context.Context, err error) int { // want `gotask\.DoRace\(\) 2nd argument should call goroutine deriver`
 		return 0
 	}))
 }
@@ -434,7 +438,6 @@ func badNestedCombinators(ctx context.Context) {
 		return gotask.ResultOk(1)
 	})
 	inner := gotask.Then(bad, func(ctx context.Context, v int) gotask.Result[int] {
-		_ = apm.NewGoroutineContext(ctx)
 		return gotask.ResultOk(v)
 	})
 	_ = gotask.DoAll(ctx, gotask.Parallel(derivingTask(), inner)) // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`

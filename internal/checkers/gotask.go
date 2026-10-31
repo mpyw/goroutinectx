@@ -180,8 +180,9 @@ func (c *GotaskChecker) expandedArgDerives(cctx *probe.Context, arg ast.Expr, v 
 
 // resolver judges a task function by whether it calls the deriver at its
 // start. A task built by NewTask, or by a method of a task, is judged by the
-// function it wraps. A task built by a combinator, as Parallel or Then, is
-// judged by the tasks and functions it is given.
+// function it wraps. A task built by Parallel, ParallelSettled or Race
+// passes when every task it is given does, and one built by Then or Catch
+// when its task or its function does.
 func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
 	r := &ssa.FuncResolver{
 		Closure: func(fn *gossa.Function) bool { return ssa.ClosureCallsDeriver(fn, c.derivers).FoundAtStart },
@@ -200,39 +201,49 @@ func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
 			return len(call.Args) > 0 && r.Passes(call.Args[0]), true
 		case gotaskIsTaskMethod(fn):
 			return c.taskDerives(cctx, ssa.ResolvedReceiver(call)), true
-		case gotaskIsCombinator(fn):
-			return gotaskCombinatorDerives(call, r), true
+		case gotaskIsCombinator(fn, gotaskSpawningCombinators):
+			return gotaskSpawningDerives(call, r), true
+		case gotaskIsCombinator(fn, gotaskSerialCombinators):
+			return gotaskSerialDerives(call, r), true
 		}
 		return false, false
 	}
 	return r
 }
 
-// gotaskCombinators are the gotask functions that build a task from the
-// tasks and functions they are given. Parallel, ParallelSettled and Race run
-// each task in a goroutine of its own. Then and Catch run the task, then pass
-// the context it was given, not one the task derives, to the function.
-var gotaskCombinators = []string{"Parallel", "ParallelSettled", "Race", "Then", "Catch"}
+// gotaskSpawningCombinators are the gotask functions that build a task
+// running each task they are given in a goroutine of its own.
+var gotaskSpawningCombinators = []string{"Parallel", "ParallelSettled", "Race"}
 
-// gotaskIsCombinator reports whether fn is one of gotaskCombinators.
-func gotaskIsCombinator(fn *types.Func) bool {
-	return slices.ContainsFunc(gotaskCombinators, func(name string) bool {
+// gotaskSerialCombinators are the gotask functions that build a task running
+// the task and the function they are given one after the other, in one
+// goroutine.
+var gotaskSerialCombinators = []string{"Then", "Catch"}
+
+// gotaskIsCombinator reports whether fn is one of names in the gotask
+// package.
+func gotaskIsCombinator(fn *types.Func, names []string) bool {
+	return slices.ContainsFunc(names, func(name string) bool {
 		return funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: name}.Matches(fn)
 	})
 }
 
-// gotaskCombinatorDerives reports whether every task and function a
-// combinator call is given derives. The tasks of a variadic combinator are
-// judged one by one. A slice of tasks whose elements are not traced, as a
-// parameter, passes, as a task the resolver can't follow does.
-func gotaskCombinatorDerives(call *gossa.CallCommon, r *ssa.FuncResolver) bool {
+// gotaskSpawningDerives reports whether every task a spawning combinator call
+// is given derives, as each runs in a goroutine of its own. The tasks come in
+// its variadic slice. A slice whose elements are not traced, as a parameter,
+// passes, as a task the resolver can't follow does.
+func gotaskSpawningDerives(call *gossa.CallCommon, r *ssa.FuncResolver) bool {
 	return !slices.ContainsFunc(call.Args, func(arg gossa.Value) bool {
-		if _, isSlice := arg.Type().Underlying().(*types.Slice); isSlice {
-			elems, ok := gotaskSliceElems(arg)
-			return ok && slices.ContainsFunc(elems, func(e gossa.Value) bool { return !r.Passes(e) })
-		}
-		return !r.Passes(arg)
+		elems, ok := gotaskSliceElems(arg)
+		return ok && slices.ContainsFunc(elems, func(e gossa.Value) bool { return !r.Passes(e) })
 	})
+}
+
+// gotaskSerialDerives reports whether the task or the function a serial
+// combinator call is given derives. Both run in one goroutine, so one call
+// of the deriver is enough, as it is in a go statement.
+func gotaskSerialDerives(call *gossa.CallCommon, r *ssa.FuncResolver) bool {
+	return slices.ContainsFunc(call.Args, r.Passes)
 }
 
 // ctxIsDerived reports whether every value v can be is a call of the
