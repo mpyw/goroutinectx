@@ -213,6 +213,38 @@ A context made with [`context.Background`](https://pkg.go.dev/context#Background
 
 A context the goroutine reads from a field or an element of a value it captures counts. So does a value whose type implements `context.Context`, such as a struct that embeds one. A method called on a captured value counts too when it returns a context, as `req.Context()` does. A call that takes a captured value that holds a context your code can have put there counts too, whether the value is the receiver, as in `s.run()`, or an argument, as in `handle(s)`. The callee is not looked into, the same as for `go s.run()` and `go handle(s)`. A context field counts when it is exported, or when it is declared in your package or another package of your module. When the driver does not tell which module, a field of any package outside the standard library counts. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported.
 
+A goroutine that takes a signal of the context, not the context itself, passes too. The signal can be captured or given as an argument. It is one of these:
+
+- The channel of `ctx.Done()`
+- The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`
+
+A signal of a context made from `context.Background()` or `TODO()` does not count. A channel that can't be followed, such as a parameter, does not count either:
+
+```go
+func handler(ctx context.Context) {
+    // Good: the goroutine ends when ctx is done
+    done := ctx.Done()
+    go func() {
+        <-done
+        cleanup()
+    }()
+
+    // Good: the goroutine cancels a context made from ctx
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel()
+    go func() {
+        waitSignal()
+        cancel()
+    }()
+
+    // Bad: the context it cancels is not made from ctx
+    _, stop := context.WithCancel(context.Background())
+    go func() {
+        stop()
+    }()
+}
+```
+
 A func value the goroutine calls is judged as if it were spawned directly, when the goroutine gets it from a variable it captures. A func that can't be traced passes, in both cases. Examples are a parameter, a field of a parameter, a slice element read in a loop, and a result of a call that returns several values. A func returned by a factory that is given the context passes too:
 
 ```go

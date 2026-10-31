@@ -213,6 +213,7 @@ Every check that follows a value is a fold over these:
 | `FuncResolver.Passes` | Every source passes: a literal by `Closure`, a call by the factory rules. Of a factory, one of the values `Returns` gives passing is enough |
 | `FuncResolver.CapturedPasses` | `Passes` of each value `CapturedSources` gives, or true when they cannot all be followed |
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
+| `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `context.With*` call, and that context is not fresh |
 | `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `FuncResolver.CapturedPasses` passes it, as if it were spawned directly |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
 | gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives |

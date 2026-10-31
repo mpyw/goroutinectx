@@ -58,7 +58,7 @@ func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, 
 		case k&ctxkind.Implements != 0:
 			return true
 		}
-		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv)
+		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv) || r.waitsDone(fv)
 	})
 }
 
@@ -120,7 +120,7 @@ func (r *closureReader) reads(v ssa.Value) bool {
 		default:
 			continue
 		}
-		if r.carries(part) || r.runsPassing(part) || r.reads(part) {
+		if r.carries(part) || r.runsPassing(part) || r.waitsDone(part) || r.reads(part) {
 			return true
 		}
 	}
@@ -216,6 +216,36 @@ func (r *closureReader) runsPassing(v ssa.Value) bool {
 		return false
 	}
 	return r.funcs.CapturedPasses(v)
+}
+
+// waitsDone reports whether v, a channel read from what the closure
+// captures, or a captured variable that holds one, can be the channel of
+// the Done method of a context that is not fresh, as ctx.Done() gives
+// (#229). A channel that cannot be followed does not count.
+func (r *closureReader) waitsDone(v ssa.Value) bool {
+	t := v.Type()
+	if _, isFV := v.(*ssa.FreeVar); isFV {
+		t = typeutil.UnwrapPointer(t)
+	}
+	if _, isChan := t.Underlying().(*types.Chan); !isChan {
+		return false
+	}
+	read := make(map[ssa.Value]bool)
+	var done func(v ssa.Value) bool
+	done = func(v ssa.Value) bool {
+		if read[v] {
+			return false
+		}
+		read[v] = true
+		sources, _ := r.flow.CapturedSources(v)
+		return slices.ContainsFunc(sources, func(s Source) bool {
+			if fv, ok := s.Value.(*ssa.FreeVar); ok && fv != v {
+				return done(fv)
+			}
+			return r.flow.SignalsContext(s.Value, r.kinds)
+		})
+	}
+	return done(v)
 }
 
 // closureRuns reports whether v is called, or given to a call that is not

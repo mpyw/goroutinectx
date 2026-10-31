@@ -39,3 +39,61 @@ func (f *Flow) GivesOnlyFreshContext(call *ssa.CallCommon, kinds *ctxkind.Classi
 	}
 	return given
 }
+
+// SignalsContext reports whether one of the sources of v is a signal of a
+// context that is not fresh, as [Flow.IsFreshContext] judges it: the
+// channel of its Done method, or the func that cancels a context made from
+// it, as context.WithCancel gives second ([ctxkind.IsCancelCall]). A
+// goroutine that waits on the one or calls the other is tied to the context.
+func (f *Flow) SignalsContext(v ssa.Value, kinds *ctxkind.Classifier) bool {
+	defer f.ask()()
+	sources, _ := f.Sources(v)
+	return slices.ContainsFunc(sources, func(s Source) bool {
+		parent, ok := contextSignalled(s.Value, kinds)
+		return ok && !f.IsFreshContext(parent)
+	})
+}
+
+// contextSignalled gives the context v is a signal of, as
+// [contextDoneOf] or [contextCancelOf] gives it.
+func contextSignalled(v ssa.Value, kinds *ctxkind.Classifier) (ssa.Value, bool) {
+	if parent, ok := contextCancelOf(v); ok {
+		return parent, true
+	}
+	return contextDoneOf(v, kinds)
+}
+
+// contextDoneOf gives the context whose Done method v is the result of.
+func contextDoneOf(v ssa.Value, kinds *ctxkind.Classifier) (ssa.Value, bool) {
+	x, ok := v.(*ssa.Call)
+	if !ok {
+		return nil, false
+	}
+	call := x.Common()
+	fn := ExtractCalledFunc(call)
+	// A method value, as done := ctx.Done, is called with no receiver.
+	if fn == nil || fn.Name() != "Done" || fn.Signature().Recv() == nil || (!call.IsInvoke() && len(call.Args) == 0) {
+		return nil, false
+	}
+	recv := call.Value
+	if !call.IsInvoke() {
+		recv = call.Args[0]
+	}
+	return recv, kinds.Is(recv.Type(), ctxkind.Context|ctxkind.Implements)
+}
+
+// contextCancelOf gives the context given to the call whose cancel func v
+// is, the second result of a call that [ctxkind.IsCancelCall] accepts.
+//
+//declscope:shared // resolve.go judges a cancel func by the context it cancels
+func contextCancelOf(v ssa.Value) (ssa.Value, bool) {
+	x, ok := v.(*ssa.Extract)
+	if !ok || x.Index != 1 {
+		return nil, false
+	}
+	call, ok := x.Tuple.(*ssa.Call)
+	if !ok || !ctxkind.IsCancelCall(ExtractCalledFunc(call.Common())) {
+		return nil, false
+	}
+	return call.Common().Args[0], true
+}

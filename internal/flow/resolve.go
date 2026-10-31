@@ -100,11 +100,13 @@ func (r *FuncResolver) sourcesPass(v ssa.Value, sources []Source, seen map[ssa.V
 
 // sourcePasses judges one source: a function literal by Closure, and the
 // result of a call by the rules of callPasses. The result of a call with
-// several results, as fn, err := makeFn() gives, is not followed. A
-// parameter passes, as what it is given is not known, unless it is of a
-// factory whose result is followed from a call: callPasses has found that
-// the call gives it no func that passes, as when the closure a decorator
-// returns runs the func the decorator is given.
+// several results, as fn, err := makeFn() gives, is not followed. A cancel
+// func of context.WithCancel and its kind is the exception: it passes when
+// the context it is made from is not fresh (#229). A parameter passes, as
+// what it is given is not known, unless it is of a factory whose result is
+// followed from a call: callPasses has found that the call gives it no func
+// that passes, as when the closure a decorator returns runs the func the
+// decorator is given.
 func (r *FuncResolver) sourcePasses(s Source, seen map[ssa.Value]bool) bool {
 	switch s.Kind {
 	case SourceLiteral:
@@ -114,6 +116,9 @@ func (r *FuncResolver) sourcePasses(s Source, seen map[ssa.Value]bool) bool {
 	case SourceCall:
 		if call, ok := s.Value.(*ssa.Call); ok {
 			return r.callPasses(call.Common(), seen)
+		}
+		if parent, ok := contextCancelOf(s.Value); ok {
+			return !r.Flow.IsFreshContext(parent)
 		}
 	}
 	return true
