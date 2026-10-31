@@ -7,7 +7,8 @@ import (
 )
 
 // Flow follows SSA values back to where they come from, for one pass. Every
-// question asked of it, as [Flow.Sources] or [FuncResolver.Passes], shares
+// question asked of it, as [Flow.Sources], [Flow.CapturedSources],
+// [Flow.Returns] or [FuncResolver.Passes], shares
 // one bound on the work it does, with the questions it asks in turn: a
 // resolver judging a closure that asks whether a context is fresh does not
 // start a new bound. What it finds is remembered for the rest of the pass,
@@ -113,11 +114,57 @@ func (s Source) Call() *ssa.Call {
 func (f *Flow) Sources(v ssa.Value) (sources []Source, complete bool) {
 	defer f.ask()()
 	values, complete := resolvedSources(f, v)
-	sources = make([]Source, len(values))
+	return sourcesOf(values), complete
+}
+
+// CapturedSources gives what v reads when it reads a variable a closure
+// captures, each as a [Source]. For a free variable that is the value the
+// closure was made with, or for a variable captured by reference, every
+// value stored to it, as the closure may run after any of those stores. For
+// a field, or an element at a constant index, of a value, it is that part
+// of each value the value can be. Any other v is given as it is. Each is
+// given as it was stored, not followed further: ask [Flow.Sources] of it.
+// complete is false when they cannot all be followed.
+//
+// The resolver does not read values this way: a load it follows sees only
+// the stores that reach it.
+func (f *Flow) CapturedSources(v ssa.Value) (sources []Source, complete bool) {
+	defer f.ask()()
+	values, complete := resolvedCaptured(f, v)
+	return sourcesOf(values), complete
+}
+
+// Return is a value a function returns, as [Flow.Returns] gives it.
+type Return struct {
+	// Value is the value returned.
+	Value ssa.Value
+	// Sources are the sources of Value, as [Flow.Sources] gives them.
+	Sources []Source
+}
+
+// Returns gives what fn returns as its first result, one for each return in
+// block order, with the sources of each: what a call of fn can give, as
+// func() (func(), error) gives the function first. [Flow.Sources] never
+// looks through a call, so a check that follows a call to what it gives,
+// as of a factory, asks this. A function with no body gives nothing.
+func (f *Flow) Returns(fn *ssa.Function) []Return {
+	defer f.ask()()
+	values := returns(fn, returnedFirst)
+	returned := make([]Return, len(values))
+	for i, v := range values {
+		sources, _ := f.Sources(v)
+		returned[i] = Return{Value: v, Sources: sources}
+	}
+	return returned
+}
+
+// sourcesOf gives each of values as a source.
+func sourcesOf(values []ssa.Value) []Source {
+	sources := make([]Source, len(values))
 	for i, v := range values {
 		sources[i] = Source{Value: v, Kind: sourceKindOf(v)}
 	}
-	return sources, complete
+	return sources
 }
 
 // sourceKindOf tells what v is.
