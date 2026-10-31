@@ -55,10 +55,10 @@ func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncRes
 }
 
 // spawnedGivesNamedFuncOnlyFreshContext reports whether call calls a named
-// function, not a method, generic or not, and gives it a fresh
-// context.Background() or TODO() and nothing else that may hold a context.
-// A named function is not looked into, but one given only a fresh context
-// does not get ctx. A method is left alone, as
+// function, not a method, generic or not, of the analyzed package or of
+// another, and gives it a fresh context.Background() or TODO() and nothing
+// else that may hold a context. A named function is not looked into, but one
+// given only a fresh context does not get ctx. A method is left alone, as
 // its receiver may hold a context, and so is a closure, which may capture
 // one.
 //
@@ -68,7 +68,21 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 		return false
 	}
 	fn, ok := call.Value.(*ssa.Function)
-	return ok && flow.Classify(fn) == flow.ClassifiedNamed && flow.GivesOnlyFreshContext(call, e.Kinds)
+	if !ok {
+		return false
+	}
+	switch flow.Classify(fn) {
+	case flow.ClassifiedNamed:
+	case flow.ClassifiedExternal:
+		// A function of another package is built from type information,
+		// and so is a method of one.
+		if fn.Signature.Recv() != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	return flow.GivesOnlyFreshContext(call, e.Kinds)
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.

@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/example/ctxworker"
 )
 
 // ===== Factory call =====
@@ -207,6 +209,175 @@ func goodFactoryClosureFreshCtxErrgroup(ctx context.Context) {
 		}
 	}
 	g.Go(makeWorker(context.Background()))
+	_ = g.Wait()
+}
+
+// ===== Function of another package given a fresh context =====
+
+// [BAD]: Function of another package given a fresh context
+//
+// A function of another package is judged by what it is given, as one of
+// this package is: context.Background() carries nothing of ctx (#223).
+func badOtherPkgFuncFreshCtxGoroutine(ctx context.Context) {
+	go ctxworker.Work(context.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Factory of another package given a fresh context
+//
+// The func the factory returns does not get ctx (#223).
+func badOtherPkgFactoryFreshCtxGoroutine(ctx context.Context) {
+	go ctxworker.Make(context.Background())() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Factory of another package given a fresh context
+//
+// The func the factory returns does not get ctx (#223).
+func badOtherPkgFactoryFreshCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(ctxworker.MakeErr(context.TODO())) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Factory of another package given a fresh context
+//
+// The func the factory returns does not get ctx (#223).
+func badOtherPkgFactoryFreshCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(ctxworker.Make(context.Background())) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Factory of another package given a fresh context
+//
+// A fresh context in a variable is followed to context.Background(), and a
+// generic factory is judged as a plain one (#223).
+func badOtherPkgFactoryFreshCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	bg := context.Background()
+	runWithGroup(g, ctxworker.MakeErrOf(bg, 1)) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Function of another package given ctx
+func goodOtherPkgFuncCtxGoroutine(ctx context.Context) {
+	go ctxworker.Work(ctx)
+}
+
+// [GOOD]: Factory of another package given ctx
+func goodOtherPkgFactoryCtxGoroutine(ctx context.Context) {
+	go ctxworker.Make(ctx)()
+}
+
+// [GOOD]: Factory of another package given ctx
+func goodOtherPkgFactoryCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(ctxworker.MakeErr(ctx))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory of another package given ctx
+func goodOtherPkgFactoryCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(ctxworker.Make(ctx))
+	wg.Wait()
+}
+
+// [GOOD]: Factory of another package given ctx
+func goodOtherPkgFactoryCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, ctxworker.MakeErrOf(ctx, 1))
+	_ = g.Wait()
+}
+
+// [GOOD]: Function of another package given a fresh context and a value that holds ctx
+//
+// The struct the function is given holds ctx (#192).
+func goodOtherPkgFuncFreshCtxAndDepsGoroutine(ctx context.Context) {
+	go ctxworker.WorkWithDeps(context.Background(), &ctxworker.Deps{Ctx: ctx})
+}
+
+// [GOOD]: Factory of another package given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodOtherPkgFactoryFreshCtxAndDepsGoroutine(ctx context.Context) {
+	go ctxworker.MakeWithDeps(context.Background(), &ctxworker.Deps{Ctx: ctx})()
+}
+
+// [GOOD]: Factory of another package given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodOtherPkgFactoryFreshCtxAndDepsErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(ctxworker.MakeErrWithDeps(context.Background(), &ctxworker.Deps{Ctx: ctx}))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory of another package given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodOtherPkgFactoryFreshCtxAndDepsWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(ctxworker.MakeWithDeps(context.TODO(), &ctxworker.Deps{Ctx: ctx}))
+	wg.Wait()
+}
+
+// [GOOD]: Factory of another package given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodOtherPkgFactoryFreshCtxAndDepsSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, ctxworker.MakeErrWithDeps(context.Background(), &ctxworker.Deps{Ctx: ctx}))
+	_ = g.Wait()
+}
+
+// [GOOD]: Method of another package given a fresh context
+//
+// A method may get ctx from its receiver, so it is not judged by what it is
+// given, as a method of this package is not.
+func goodOtherPkgMethodFreshCtxGoroutine(ctx context.Context) {
+	s := &ctxworker.Svc{Ctx: ctx}
+	go s.Run(context.Background())
+}
+
+// [GOOD]: Factory method of another package given a fresh context
+//
+// A method may get ctx from its receiver, so it is not judged by what it is
+// given.
+func goodOtherPkgFactoryMethodFreshCtxGoroutine(ctx context.Context) {
+	s := &ctxworker.Svc{Ctx: ctx}
+	go s.Make(context.Background())()
+}
+
+// [GOOD]: Factory method of another package given a fresh context
+//
+// A method may get ctx from its receiver, so it is not judged by what it is
+// given.
+func goodOtherPkgFactoryMethodFreshCtxErrgroup(ctx context.Context) {
+	s := &ctxworker.Svc{Ctx: ctx}
+	g := new(errgroup.Group)
+	g.Go(s.MakeErr(context.Background()))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory method of another package given a fresh context
+//
+// A method may get ctx from its receiver, so it is not judged by what it is
+// given.
+func goodOtherPkgFactoryMethodFreshCtxWaitGroup(ctx context.Context) {
+	s := &ctxworker.Svc{Ctx: ctx}
+	var wg sync.WaitGroup
+	wg.Go(s.Make(context.TODO()))
+	wg.Wait()
+}
+
+// [GOOD]: Factory method of another package given a fresh context
+//
+// A method may get ctx from its receiver, so it is not judged by what it is
+// given.
+func goodOtherPkgFactoryMethodFreshCtxSpawner(ctx context.Context) {
+	s := &ctxworker.Svc{Ctx: ctx}
+	g := new(errgroup.Group)
+	runWithGroup(g, s.MakeErr(context.Background()))
 	_ = g.Wait()
 }
 
