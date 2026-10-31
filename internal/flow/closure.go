@@ -19,10 +19,10 @@ import (
 // implements context.Context counts as a context. A context the closure
 // reads from a field or an element of a variable it captures counts, unless
 // it is fresh. So does a method called on a captured value that returns a
-// context, and a method called on a captured value that holds a context the
-// analyzed code can have put there ([ctxkind.Holds]), as a method spawned
-// directly is left alone. A captured closure that captures a context counts
-// too.
+// context, and a call that takes a captured value that holds a context the
+// analyzed code can have put there ([ctxkind.Holds]), as its receiver or as
+// any argument, as a function or method spawned directly with it is left
+// alone. A captured closure that captures a context counts too.
 func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool {
 	defer f.ask()()
 	return closureCaptures(f, closure, kinds, make(map[*ssa.Function]bool))
@@ -64,7 +64,8 @@ type closureReader struct {
 
 // reads reports whether a context or a carrier is read from v, through the
 // fields and elements of what it holds and the local variables it is copied
-// to, or a method is called on a value that returns or holds one. A context
+// to, or a method is called on a value that returns one, or a call takes a
+// value that holds one. A context
 // that is only ever fresh does not count.
 func (r *closureReader) reads(v ssa.Value) bool {
 	if r.seen[v] {
@@ -75,7 +76,12 @@ func (r *closureReader) reads(v ssa.Value) bool {
 		var part ssa.Value
 		switch x := ref.(type) {
 		case ssa.CallInstruction:
-			if r.callsContextMethod(x.Common(), v) || r.callsHolderMethod(x.Common(), v) {
+			if r.callsContextMethod(x.Common(), v) || r.callsWithHolder(x.Common(), v, v) {
+				return true
+			}
+			continue
+		case *ssa.MakeInterface:
+			if r.givesHolderAsInterface(x, v) {
 				return true
 			}
 			continue
@@ -150,16 +156,26 @@ func (r *closureReader) callsContextMethod(call *ssa.CallCommon, v ssa.Value) bo
 	return false
 }
 
-// callsHolderMethod reports whether call is a method called on v, and v,
-// past its pointers, holds a context or a carrier that the analyzed code can
-// have put there ([ctxkind.Holds]).
-// Whether the method reads it is not looked into, as for a method spawned
-// directly.
-func (r *closureReader) callsHolderMethod(call *ssa.CallCommon, v ssa.Value) bool {
-	if call.IsInvoke() || call.Signature().Recv() == nil || len(call.Args) == 0 || call.Args[0] != v {
+// callsWithHolder reports whether call takes v, as the receiver of a method
+// or as any argument, and held, past its pointers, holds a context or a
+// carrier that the analyzed code can have put there ([ctxkind.Holds]). held
+// is v, or the value v converts to an interface. Whether the callee reads
+// it is not looked into, as for a function or method spawned directly with
+// the same value. A builtin, as append or len, does not count.
+func (r *closureReader) callsWithHolder(call *ssa.CallCommon, v, held ssa.Value) bool {
+	if _, isBuiltin := call.Value.(*ssa.Builtin); isBuiltin || !slices.Contains(call.Args, v) {
 		return false
 	}
-	return r.kinds.Is(typeutil.UnwrapPointer(v.Type()), ctxkind.Holds)
+	return r.kinds.Is(typeutil.UnwrapPointer(held.Type()), ctxkind.Holds)
+}
+
+// givesHolderAsInterface reports whether conv, v converted to an interface,
+// is given to a call as [closureReader.callsWithHolder] judges it.
+func (r *closureReader) givesHolderAsInterface(conv *ssa.MakeInterface, v ssa.Value) bool {
+	return slices.ContainsFunc(*conv.Referrers(), func(ref ssa.Instruction) bool {
+		call, ok := ref.(ssa.CallInstruction)
+		return ok && r.callsWithHolder(call.Common(), conv, v)
+	})
 }
 
 // closurePackage gives the package of closure, or nil when SSA has none, as

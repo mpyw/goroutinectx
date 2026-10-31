@@ -591,6 +591,118 @@ func notCheckedCapturedStructFreshCtxMethodSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Captured struct that holds a context, given to a function =====
+
+// [GOOD]: Captured struct that holds a context, given to a function
+//
+// The function may read the context, as for go serveCtxService(s) (#227).
+func goodCapturedStructCtxArgGoroutine(ctx context.Context) {
+	s := &ctxService{ctx: ctx}
+	go func() { serveCtxService(s) }()
+}
+
+// [GOOD]: Captured struct that holds a context, given to a function
+//
+// The function may read the context, as for go serveCtxService(s) (#227).
+func goodCapturedStructCtxArgErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &ctxService{ctx: ctx}
+	g.Go(func() error { serveCtxService(s); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Captured struct that holds a context, given to a function
+//
+// The function may read the context, as for go serveCtxService(s) (#227).
+func goodCapturedStructCtxArgWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := &ctxService{ctx: ctx}
+	wg.Go(func() { serveCtxService(s) })
+	wg.Wait()
+}
+
+// [GOOD]: Captured struct that holds a context, given to a function
+//
+// The function may read the context, as for go serveCtxService(s) (#227).
+func goodCapturedStructCtxArgSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &ctxService{ctx: ctx}
+	runWithGroup(g, func() error { serveCtxService(s); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Captured struct that holds a context, given to a method as a later argument
+//
+// The holder counts at any argument position, and as an interface too (#227).
+func goodCapturedStructCtxLaterArgGoroutine(ctx context.Context, srv *ctxServer) {
+	s := &ctxService{ctx: ctx}
+	go func() { srv.handle("x", s) }()
+}
+
+// [GOOD]: Captured struct that holds a context, given as an interface
+//
+// The holder counts at any argument position, and as an interface too (#227).
+func goodCapturedStructCtxInterfaceArgGoroutine(ctx context.Context) {
+	s := &ctxService{ctx: ctx}
+	go func() { runAny(s) }()
+}
+
+// ===== Captured *testing.T given to a function =====
+
+// [BAD]: Captured *testing.T given to a function
+//
+// t holds the test's own context in an unexported field, not ctx, so giving
+// it to a function does not count, as for a method of t (#191).
+func badCapturedTestingTArgGoroutine(ctx context.Context, t *testing.T) {
+	go func() { logTo(t) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured *testing.T given to a function
+//
+// t holds the test's own context in an unexported field, not ctx, so giving
+// it to a function does not count, as for a method of t (#191).
+func badCapturedTestingTArgErrgroup(ctx context.Context, t *testing.T) {
+	g := new(errgroup.Group)
+	g.Go(func() error { logTo(t); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured *testing.T given to a function
+//
+// t holds the test's own context in an unexported field, not ctx, so giving
+// it to a function does not count, as for a method of t (#191).
+func badCapturedTestingTArgWaitGroup(ctx context.Context, t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Go(func() { logTo(t) }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Captured *testing.T given to a function
+//
+// t holds the test's own context in an unexported field, not ctx, so giving
+// it to a function does not count, as for a method of t (#191).
+func badCapturedTestingTArgSpawner(ctx context.Context, t *testing.T) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { logTo(t); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured struct with no context given to a function
+//
+// A value that holds no context gives the function none.
+func badCapturedStructNoCtxArgGoroutine(ctx context.Context) {
+	h := &plainHolder{name: "x"}
+	go func() { runAny(h) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured struct that holds a context, given only to a builtin
+//
+// Appending the value to a slice does not read its context.
+func badCapturedStructCtxBuiltinArgGoroutine(ctx context.Context) {
+	s := &ctxService{ctx: ctx}
+	go func() { _ = append([]*ctxService(nil), s) }() // want `goroutine does not propagate context "ctx"`
+}
+
 // ===== Method of a captured *testing.T =====
 
 // [BAD]: Method of a captured *testing.T
@@ -900,6 +1012,20 @@ type ctxHolder struct {
 type ctxService struct{ ctx context.Context }
 
 func (s *ctxService) run() { use(s.ctx) }
+
+func serveCtxService(s *ctxService) { s.run() }
+
+// ctxServer takes a ctxService to handle.
+type ctxServer struct{}
+
+func (*ctxServer) handle(name string, s *ctxService) { s.run() }
+
+func runAny(v any) { _ = v }
+
+func logTo(t *testing.T) { t.Log("x") }
+
+// plainHolder holds no context.
+type plainHolder struct{ name string }
 
 // ctxWrapper is a context with a value of its own.
 type ctxWrapper struct {
