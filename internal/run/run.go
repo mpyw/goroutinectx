@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/token"
 	"reflect"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -177,11 +178,8 @@ func Run(pass *analysis.Pass, cfg Config) error {
 		return err
 	}
 
-	// Build set of files to skip
-	skipFiles := buildSkipFiles(pass)
-
-	// Build ignore maps for each file (excluding skipped files)
-	ignoreMaps := buildIgnoreMaps(pass, skipFiles)
+	// Read the directives of each file that is not generated
+	skipFiles, ignoreMaps := readDirectives(pass)
 
 	// Build spawner map from //goroutinectx:spawner directives and -external-spawner flag
 	marked, ok := pass.ResultOf[spawner.Analyzer].(*spawner.Marked)
@@ -215,9 +213,6 @@ func Run(pass *analysis.Pass, cfg Config) error {
 
 	// Report unused ignore directives
 	reportUnusedIgnores(pass, ignoreMaps, r.enabled)
-
-	// Report directives written in a form other than //goroutinectx:name
-	reportMalformedDirectives(pass, skipFiles)
 
 	return nil
 }
@@ -266,8 +261,10 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 	// Build context scopes for functions with context parameters
 	funcScopes := scope.Build(r.pass, insp, r.carriers)
 
-	// Node types we're interested in
+	// Node types we're interested in. A file is visited to skip a generated
+	// one whole.
 	nodeFilter := []ast.Node{
+		(*ast.File)(nil),
 		(*ast.FuncDecl)(nil),
 		(*ast.FuncLit)(nil),
 		(*ast.GoStmt)(nil),
@@ -280,9 +277,8 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 			return true
 		}
 
-		filename := r.pass.Fset.PositionFor(n.Pos(), false).Filename
-		if r.skipFiles[filename] {
-			return true
+		if file, ok := n.(*ast.File); ok {
+			return !r.skipFiles[r.pass.Fset.PositionFor(file.Pos(), false).Filename]
 		}
 
 		s := scope.FindEnclosing(funcScopes, stack)
@@ -317,58 +313,52 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 // call is the call's position, or token.NoPos. The ignore is asked only for
 // a report it would silence. Asking it first marked it used on a line with
 // nothing to report, so an ignore that silenced nothing was never reported
-// as unused.
+// as unused. Only the ignore that silences the report is marked used: the
+// one at its own line, or else the one at the call.
 func (r *runner) report(name checker.Name, diags []analysis.Diagnostic, call token.Pos) {
 	for _, d := range diags {
-		if r.shouldIgnore(d.Pos, name) || (call.IsValid() && r.shouldIgnore(call, name)) {
+		e := r.ignoreAt(d.Pos, name)
+		if e == nil && call.IsValid() {
+			e = r.ignoreAt(call, name)
+		}
+		if e != nil {
+			e.MarkUsed(name)
 			continue
 		}
 		r.pass.Report(d)
 	}
 }
 
-// shouldIgnore checks if the position should be ignored for the given checker.
-func (r *runner) shouldIgnore(pos token.Pos, name checker.Name) bool {
+// ignoreAt gives the ignore that silences the reports of the checker name
+// at pos, or nil.
+func (r *runner) ignoreAt(pos token.Pos, name checker.Name) *ignore.Entry {
 	position := r.pass.Fset.PositionFor(pos, false)
-	ignoreMap, ok := r.ignoreMaps[position.Filename]
-	if !ok {
-		return false
-	}
-	return ignoreMap.ShouldIgnore(position.Line, name)
+	return r.ignoreMaps[position.Filename].Covering(position.Line, name)
 }
 
-// buildSkipFiles creates a set of filenames to skip.
-func buildSkipFiles(pass *analysis.Pass) map[string]bool {
+// readDirectives scans each file once with directive.Scan, skipping a
+// generated file whole, and reports the comments addressed to goroutinectx
+// that do nothing. It gives the names of the files skipped, and the ignore
+// map of each file read.
+func readDirectives(pass *analysis.Pass) (map[string]bool, map[string]ignore.Map) {
 	skipFiles := make(map[string]bool)
-
-	for _, file := range pass.Files {
-		filename := pass.Fset.PositionFor(file.Pos(), false).Filename
-
-		if ast.IsGenerated(file) {
-			skipFiles[filename] = true
-		}
-	}
-
-	return skipFiles
-}
-
-// buildIgnoreMaps creates ignore maps for each file in the pass.
-func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]ignore.Map {
 	ignoreMaps := make(map[string]ignore.Map)
 
 	for _, file := range pass.Files {
 		filename := pass.Fset.PositionFor(file.Pos(), false).Filename
-		if skipFiles[filename] {
+		if ast.IsGenerated(file) {
+			skipFiles[filename] = true
 			continue
 		}
-		m, problems := ignore.Build(pass.Fset, file)
+		found := directive.Scan(file)
+		m, problems := ignore.Build(pass.Fset, file, found.Ignores)
 		ignoreMaps[filename] = m
-		for _, p := range problems {
+		for _, p := range slices.Concat(problems, found.Problems) {
 			pass.Reportf(p.Pos, "%s", p.Message)
 		}
 	}
 
-	return ignoreMaps
+	return skipFiles, ignoreMaps
 }
 
 // buildCheckers builds each checker of [checkerdef.Defs] that cfg turns on,
@@ -407,38 +397,6 @@ func reportUnusedIgnores(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, 
 					checkerNames[i] = string(c)
 				}
 				pass.Reportf(unused.Pos, "unused goroutinectx:ignore directive for checker(s): %s", strings.Join(checkerNames, ", "))
-			}
-		}
-	}
-}
-
-// reportMalformedDirectives reports comments that look like a directive but
-// are not in the canonical form, and spawner directives outside the doc
-// comment of a function. Such a comment does nothing, and would otherwise be
-// dropped with no sign: a spawner would not be checked, and an ignore would
-// not suppress anything.
-func reportMalformedDirectives(pass *analysis.Pass, skipFiles map[string]bool) {
-	for _, file := range pass.Files {
-		if skipFiles[pass.Fset.PositionFor(file.Pos(), false).Filename] {
-			continue
-		}
-		funcDocs := make(map[*ast.CommentGroup]bool)
-		for _, decl := range file.Decls {
-			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Doc != nil {
-				funcDocs[fn.Doc] = true
-			}
-		}
-		for _, cg := range file.Comments {
-			for _, c := range cg.List {
-				d, ok := directive.Parse(c.Text)
-				switch {
-				case directive.Malformed(c.Text):
-					pass.Reportf(c.Pos(), "malformed goroutinectx directive: write it as //goroutinectx:name")
-				case ok && !directive.Known(d.Name):
-					pass.Reportf(c.Pos(), "unknown directive goroutinectx:%s", d.Name)
-				case ok && d.Name == "spawner" && !funcDocs[cg]:
-					pass.Reportf(c.Pos(), "goroutinectx:spawner has no effect here: write it in the doc comment of a function")
-				}
 			}
 		}
 	}

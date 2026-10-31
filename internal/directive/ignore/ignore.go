@@ -26,53 +26,47 @@ type Map map[int]*Entry
 // EnabledCheckers tracks which checkers are currently enabled.
 type EnabledCheckers map[checker.Name]bool
 
-// Problem is an ignore directive that names a checker goroutinectx does not
-// have. It is not an ignore: it silences nothing.
-type Problem struct {
-	Pos     token.Pos
-	Message string
-}
-
-// Build scans a file for ignore comments and returns a map, and the ignore
-// comments that name an unknown checker.
-func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
+// Build gives the ignore map of a file from its ignore directives, as
+// [directive.Scan] finds them, and the ignores that name a checker
+// goroutinectx does not have. Such an ignore silences nothing: the whole
+// directive is dropped on one unknown name.
+func Build(fset *token.FileSet, file *ast.File, ignores []directive.Ignore) (Map, []directive.Problem) {
 	m := make(Map)
-	var problems []Problem
-	type found struct {
-		comment  *ast.Comment
-		checkers []checker.Name
-	}
-	var directives []found
-	for _, cg := range file.Comments {
-		for _, c := range cg.List {
-			checkers, problem, ok := parseComment(c.Text)
-			if !ok {
-				continue
-			}
-			if problem != "" {
-				problems = append(problems, Problem{Pos: c.Pos(), Message: problem})
-				continue
-			}
-			directives = append(directives, found{comment: c, checkers: checkers})
+	var problems []directive.Problem
+	known := ignores[:0:0]
+	for _, d := range ignores {
+		if i := slices.IndexFunc(d.Checkers, func(n checker.Name) bool { return !slices.Contains(checkerdef.Names, n) }); i >= 0 {
+			problems = append(problems, directive.Problem{Pos: d.Comment.Pos(), Message: unknownChecker(d.Checkers[i])})
+			continue
 		}
+		known = append(known, d)
 	}
-	if len(directives) == 0 {
+	if len(known) == 0 {
 		return m, problems // Most files have none, and need no walk of their code
 	}
 
 	codeStarts := codeStartsByLine(fset, file)
-	for _, d := range directives {
-		line := fset.PositionFor(d.comment.Pos(), false).Line
+	for _, d := range known {
+		line := fset.PositionFor(d.Comment.Pos(), false).Line
 		start, hasCode := codeStarts[line]
 		m[line] = &Entry{
-			pos:      d.comment.Pos(),
-			trailing: hasCode && start < d.comment.Pos(),
-			checkers: d.checkers,
+			pos:      d.Comment.Pos(),
+			trailing: hasCode && start < d.Comment.Pos(),
+			checkers: d.Checkers,
 			used:     make(map[checker.Name]bool),
 		}
 	}
 
 	return m, problems
+}
+
+func unknownChecker(name checker.Name) string {
+	names := make([]string, len(checkerdef.Names))
+	for i, n := range checkerdef.Names {
+		names[i] = string(n)
+	}
+	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after //)",
+		string(name), strings.Join(names, ", "))
 }
 
 // codeStartsByLine gives, for each line where a node of file starts or ends,
@@ -100,83 +94,35 @@ func codeStartsByLine(fset *token.FileSet, file *ast.File) map[int]token.Pos {
 	return starts
 }
 
-// parseComment parses an ignore directive and returns the checker names.
-// Returns nil slice if no specific checkers are specified (ignore all).
-// Returns false if not an ignore comment. A reason goes after "//", which
-// directive.Parse drops, or after " - ", kept for compatibility. Anything else
-// after the name is read as checker names, and a name goroutinectx does not
-// have is a problem: the directive silences nothing. A misspelled checker or a
-// reason written without a separator would otherwise be read as a checker that
-// never reports.
-func parseComment(text string) ([]checker.Name, string, bool) {
-	d, ok := directive.Parse(text)
-	if !ok || d.Name != "ignore" {
-		return nil, "", false
+// Covering gives the ignore that silences the reports of the checker name on
+// line, or nil: an ignore on the line, or one on its own on the line above.
+// An ignore that follows code covers its own line only. Asking marks
+// nothing: call [Entry.MarkUsed] on the ignore that silences a report.
+func (m Map) Covering(line int, name checker.Name) *Entry {
+	if e := m[line]; e.silences(name) {
+		return e
+	}
+	if above := m[line-1]; above != nil && !above.trailing && above.silences(name) {
+		return above
 	}
 
-	rest, _, _ := strings.Cut(d.Args, " - ")
-	if strings.HasPrefix(rest, "- ") || rest == "-" {
-		return nil, "", true
-	}
-
-	var checkers []checker.Name
-	for part := range strings.SplitSeq(rest, ",") {
-		name := checker.Name(strings.TrimSpace(part))
-		if name == "" {
-			continue
-		}
-		if !slices.Contains(checkerdef.Names, name) {
-			return nil, unknownChecker(name), true
-		}
-		checkers = append(checkers, name)
-	}
-
-	// No specific checkers = ignore all
-	return checkers, "", true
+	return nil
 }
 
-func unknownChecker(name checker.Name) string {
-	names := make([]string, len(checkerdef.Names))
-	for i, n := range checkerdef.Names {
-		names[i] = string(n)
-	}
-	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after //)",
-		string(name), strings.Join(names, ", "))
-}
-
-// ShouldIgnore returns true if the given line should be ignored for the
-// specified checker: an ignore sits on the line, or on its own on the line
-// above. An ignore that follows code covers its own line only.
-func (m Map) ShouldIgnore(line int, name checker.Name) bool {
-	if m.shouldIgnoreEntry(m[line], name) {
-		return true
-	}
-	if above := m[line-1]; above != nil && !above.trailing && m.shouldIgnoreEntry(above, name) {
-		return true
-	}
-
-	return false
-}
-
-// shouldIgnoreEntry checks if an entry ignores the specified checker.
-func (m Map) shouldIgnoreEntry(entry *Entry, name checker.Name) bool {
-	if entry == nil {
+// silences reports whether e ignores the checker name.
+func (e *Entry) silences(name checker.Name) bool {
+	if e == nil {
 		return false
 	}
 
 	// Empty checkers list means ignore all
-	if len(entry.checkers) == 0 {
-		entry.used[name] = true
-		return true
-	}
+	return len(e.checkers) == 0 || slices.Contains(e.checkers, name)
+}
 
-	// Check if the specified checker is in the list
-	if slices.Contains(entry.checkers, name) {
-		entry.used[name] = true
-		return true
-	}
-
-	return false
+// MarkUsed records that e silenced a report of the checker name, so it is
+// not reported as unused for it.
+func (e *Entry) MarkUsed(name checker.Name) {
+	e.used[name] = true
 }
 
 // UnusedIgnore represents an unused ignore directive.

@@ -45,6 +45,8 @@ Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) 
 
 Directive matching and file filters use unadjusted positions (`fset.PositionFor(pos, false)`), so a `//line` directive does not move them. Only diagnostics show adjusted positions.
 
+`directive.Scan` reads the directives of a file in one pass over its comments: the ignores, the functions marked spawner, and the comments that do nothing. `ignore.Build` then reports an ignore that names an unknown checker, since `directive` cannot import `checkerdef`, which imports the spawner analyzer. The runner and `spawner.Analyzer` both use it. The runner skips a generated file whole, at the file, not at each node. An ignore is marked used only by the runner, on the one ignore that silences a report: the one at the report's line, or else the one at the call it is inside.
+
 ## Architecture
 
 ```

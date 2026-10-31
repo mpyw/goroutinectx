@@ -116,30 +116,12 @@ func ParseExternal(parts []string) ([]funcspec.Spec, error) {
 	return specs, nil
 }
 
-// buildForFile scans a single file for functions whose doc comment holds a
+// buildForFile adds the functions of a file whose doc comment holds a
 // spawner directive. The directive may sit on any line of it.
 func buildForFile(pass *analysis.Pass, file *ast.File, m map[*types.Func]struct{}) {
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok || funcDecl.Doc == nil {
-			continue
+	for _, funcDecl := range directive.Scan(file).Spawners {
+		if fn, ok := pass.TypesInfo.ObjectOf(funcDecl.Name).(*types.Func); ok {
+			m[fn] = struct{}{}
 		}
-
-		if !slices.ContainsFunc(funcDecl.Doc.List, func(c *ast.Comment) bool { return isSpawnerComment(c.Text) }) {
-			continue
-		}
-
-		fn, ok := pass.TypesInfo.ObjectOf(funcDecl.Name).(*types.Func)
-		if !ok {
-			continue
-		}
-
-		m[fn] = struct{}{}
 	}
-}
-
-// isSpawnerComment checks if a comment is a spawner directive.
-func isSpawnerComment(text string) bool {
-	d, ok := directive.Parse(text)
-	return ok && d.Name == "spawner"
 }
