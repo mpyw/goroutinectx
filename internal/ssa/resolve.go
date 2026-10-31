@@ -283,6 +283,26 @@ func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
 	return resolvedStores(fv, nil)
 }
 
+// resolvedPartValues gives the values v can be when it is a field, or an
+// element at a constant index, of a value: that part of each value the value
+// can be. Any other v is given as it is. ok is false when the part cannot be
+// followed.
+//
+//declscope:shared // closure.go judges a context read from a part of a captured value
+func resolvedPartValues(v ssa.Value) (values []ssa.Value, ok bool) {
+	switch x := v.(type) {
+	case *ssa.Field:
+		return resolvedPart(x.X, []int{x.Field}, newResolvedWalk())
+	case *ssa.Index:
+		i, ok := resolvedConstIndex(x.Index)
+		if !ok {
+			return nil, false
+		}
+		return resolvedPart(x.X, []int{i}, newResolvedWalk())
+	}
+	return []ssa.Value{v}, true
+}
+
 // ResolvedSliceElems gives the elements of a slice made from a whole local
 // array, as a slice literal or the slice of a variadic call is, or of each
 // slice a function called to make it returns. ok is false for any other
@@ -846,17 +866,63 @@ func resolvedRoots(base ssa.Value, w resolvedWalk) ([]*ssa.Alloc, bool) {
 }
 
 // resolvedPartWrites gives each store into root, or into a part of it, with
-// the path to what it writes. ok is false when root may be written in a way
-// not followed: through an address that is passed on, at an index that is
-// not constant, or in a closure.
+// the path to what it writes. An address of root kept in a local variable
+// that holds nothing else, as h := &T{} that a closure captures keeps it, is
+// followed through the loads of that variable. ok is false when root may be
+// written in a way not followed: through an address that is passed on, at
+// an index that is not constant, or in a closure.
 func resolvedPartWrites(root *ssa.Alloc) (map[*ssa.Store][]int, bool) {
 	writes := make(map[*ssa.Store][]int)
+	kept := make(map[ssa.Value]ssa.Value)
 	var walk func(v ssa.Value, path []int, inClosure bool) bool
+	// keep walks the loads of v, a variable that addr, the address of root
+	// or of its part at path, is stored in. A variable that holds any other
+	// value is not followed.
+	var keep func(v, addr ssa.Value, path []int, inClosure bool) bool
+	keep = func(v, addr ssa.Value, path []int, inClosure bool) bool {
+		if held, ok := kept[v]; ok {
+			return held == addr
+		}
+		kept[v] = addr
+		for _, ref := range *v.Referrers() {
+			switch r := ref.(type) {
+			case *ssa.Store:
+				if r.Addr != v || r.Val != addr {
+					return false
+				}
+			case *ssa.UnOp:
+				if r.Op != token.MUL || !walk(r, path, inClosure) {
+					return false
+				}
+			case *ssa.MakeClosure:
+				fn, ok := r.Fn.(*ssa.Function)
+				if !ok {
+					return false
+				}
+				for i, b := range r.Bindings {
+					if b == v && !keep(fn.FreeVars[i], addr, path, true) {
+						return false
+					}
+				}
+			case *ssa.DebugRef:
+			default:
+				return false
+			}
+		}
+		return true
+	}
 	walk = func(v ssa.Value, path []int, inClosure bool) bool {
 		for _, ref := range *v.Referrers() {
 			switch r := ref.(type) {
 			case *ssa.Store:
-				if r.Addr != v || inClosure {
+				if r.Addr != v {
+					a, ok := r.Addr.(*ssa.Alloc)
+					if !ok || r.Val != v || !keep(a, v, path, inClosure) {
+						return false
+					}
+					continue
+				}
+				if inClosure {
 					return false
 				}
 				writes[r] = path
