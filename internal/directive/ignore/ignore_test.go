@@ -1,6 +1,8 @@
 package ignore
 
 import (
+	"go/parser"
+	"go/token"
 	"slices"
 	"strings"
 	"testing"
@@ -64,6 +66,77 @@ func TestParseComment(t *testing.T) {
 			}
 			if tt.unknown != "" && !strings.HasPrefix(problem, "unknown checker \""+tt.unknown+"\" in goroutinectx:ignore (want one of ") {
 				t.Errorf("parseComment(%q) problem = %q, want one naming %q", tt.text, problem, tt.unknown)
+			}
+		})
+	}
+}
+
+func TestBuild(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		src      string
+		trailing map[int]bool // Line of each ignore → whether it follows code
+		problems int
+	}{
+		{
+			name: "no directive",
+			src:  "package p\n\n// A comment.\nfunc f() {}\n",
+		},
+		{
+			name:     "unknown checker only",
+			src:      "package p\n\n//goroutinectx:ignore typo\nfunc f() {}\n",
+			problems: 1,
+		},
+		{
+			name:     "own line",
+			src:      "package p\n\nfunc f() {\n\t//goroutinectx:ignore\n\tgo f()\n}\n",
+			trailing: map[int]bool{4: false},
+		},
+		{
+			name:     "trailing",
+			src:      "package p\n\nfunc f() {\n\tgo f() //goroutinectx:ignore goroutine\n}\n",
+			trailing: map[int]bool{4: true},
+		},
+		{
+			name:     "after the end of a multi-line call",
+			src:      "package p\n\nfunc g(int) {}\n\nfunc f() {\n\tg(\n\t\t1,\n\t) //goroutinectx:ignore\n}\n",
+			trailing: map[int]bool{8: true},
+		},
+		{
+			name:     "with an unknown checker",
+			src:      "package p\n\nfunc f() {\n\t//goroutinectx:ignore gorutine\n\tgo f() //goroutinectx:ignore\n}\n",
+			trailing: map[int]bool{5: true},
+			problems: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "p.go", tt.src, parser.ParseComments)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, problems := Build(fset, file)
+			if len(problems) != tt.problems {
+				t.Errorf("Build() problems = %v, want %d", problems, tt.problems)
+			}
+			if len(m) != len(tt.trailing) {
+				t.Errorf("Build() has %d ignores, want %d", len(m), len(tt.trailing))
+			}
+			for line, trailing := range tt.trailing {
+				entry := m[line]
+				if entry == nil {
+					t.Errorf("Build() has no ignore on line %d", line)
+					continue
+				}
+				if entry.trailing != trailing {
+					t.Errorf("Build() ignore on line %d trailing = %v, want %v", line, entry.trailing, trailing)
+				}
 			}
 		})
 	}

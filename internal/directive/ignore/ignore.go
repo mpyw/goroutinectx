@@ -37,8 +37,11 @@ type Problem struct {
 func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 	m := make(Map)
 	var problems []Problem
-	codeStarts := codeStartsByLine(fset, file)
-
+	type found struct {
+		comment  *ast.Comment
+		checkers []checker.Name
+	}
+	var directives []found
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
 			checkers, problem, ok := parseComment(c.Text)
@@ -49,14 +52,22 @@ func Build(fset *token.FileSet, file *ast.File) (Map, []Problem) {
 				problems = append(problems, Problem{Pos: c.Pos(), Message: problem})
 				continue
 			}
-			line := fset.PositionFor(c.Pos(), false).Line
-			start, hasCode := codeStarts[line]
-			m[line] = &Entry{
-				pos:      c.Pos(),
-				trailing: hasCode && start < c.Pos(),
-				checkers: checkers,
-				used:     make(map[checker.Name]bool),
-			}
+			directives = append(directives, found{comment: c, checkers: checkers})
+		}
+	}
+	if len(directives) == 0 {
+		return m, problems // Most files have none, and need no walk of their code
+	}
+
+	codeStarts := codeStartsByLine(fset, file)
+	for _, d := range directives {
+		line := fset.PositionFor(d.comment.Pos(), false).Line
+		start, hasCode := codeStarts[line]
+		m[line] = &Entry{
+			pos:      d.comment.Pos(),
+			trailing: hasCode && start < d.comment.Pos(),
+			checkers: d.checkers,
+			used:     make(map[checker.Name]bool),
 		}
 	}
 
