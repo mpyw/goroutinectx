@@ -70,10 +70,7 @@ func (r *FuncResolver) passes(v ssa.Value, seen map[ssa.Value]bool) bool {
 
 // closurePasses judges fn when it is a function literal.
 func (r *FuncResolver) closurePasses(fn *ssa.Function) bool {
-	if fn == nil {
-		return true
-	}
-	if _, ok := fn.Syntax().(*ast.FuncLit); !ok {
+	if Classify(fn) != ClassifiedLiteral {
 		return true
 	}
 	return r.Closure(fn)
@@ -153,7 +150,7 @@ func (r *FuncResolver) factoryFuncPasses(fn *ssa.Function, depth int, seen map[s
 	if r.Factory != nil && r.Factory(fn) {
 		return true
 	}
-	returned := resolvedReturns(fn)
+	returned := returns(fn, returnedFirst)
 	return len(returned) == 0 || slices.ContainsFunc(returned, func(v ssa.Value) bool { return r.resultPasses(v, depth-1, seen) })
 }
 
@@ -316,7 +313,7 @@ func resolvedSliceElemsAt(v ssa.Value, w resolvedWalk) ([]ssa.Value, bool) {
 			return nil, false
 		}
 		var elems []ssa.Value
-		for _, ret := range resolvedReturns(fn) {
+		for _, ret := range returns(fn, returnedFirst) {
 			e, ok := resolvedSliceElemsAt(ret, w.deeper())
 			if !ok {
 				return nil, false
@@ -365,17 +362,6 @@ func resolvedSliceElems(slice ssa.Value, n int) []ssa.Value {
 		return nil
 	}
 	return elems
-}
-
-// resolvedReturns gives the first result of each return of fn.
-func resolvedReturns(fn *ssa.Function) []ssa.Value {
-	var returned []ssa.Value
-	for _, block := range fn.Blocks {
-		if ret, ok := block.Instrs[len(block.Instrs)-1].(*ssa.Return); ok && len(ret.Results) > 0 {
-			returned = append(returned, ret.Results[0])
-		}
-	}
-	return returned
 }
 
 // resolvedStores gives the values stored at addr that a load at the

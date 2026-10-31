@@ -299,15 +299,14 @@ func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher, given 
 	for _, fn := range given {
 		calls = append(calls, closureDeriverCall{fn: fn})
 	}
-	(&CallWalker{}).Walk(closure, func(site WalkedCall) bool {
+	for site := range Runs(closure, RunOptions{}) {
 		if site.isGo {
-			return true
+			continue
 		}
 		if fn := ExtractCalledFunc(site.Call); fn != nil {
 			calls = append(calls, closureDeriverCall{fn: fn, inDefer: site.inDefer})
 		}
-		return true
-	})
+	}
 
 	// Check if any OR group is satisfied at start
 	for _, andGroup := range matcher.OrGroups {

@@ -72,12 +72,29 @@
 // That includes a variable whose address is passed on, or a part written in
 // a closure, since the code there may write it.
 //
-// # Walking Calls
+// # Function Kinds
 //
-// [CallWalker] walks the Call, Defer and Go instructions of a function, going
-// into IIFEs and range-over-func loop bodies, and with Goroutines set into
-// the literal a go statement runs.
-// The deriver check and the spawnerlabel checker both walk calls with it.
+// [Classify] tells what kind of function an SSA function is: a function
+// literal, the body of a range-over-func loop, a named function, a method, a
+// bound method wrapper, a thunk, a method wrapper, or a function built from
+// type information. An instantiation of a generic function is classified as
+// its generic origin. Every check that tells these apart asks it.
+//
+// # What a Function Runs
+//
+// [Runs] gives the Call, Defer and Go instructions a function runs, each
+// with whether it is deferred and whether it is a go statement. It goes into
+// IIFEs and range-over-func loop bodies, and as [RunOptions] asks, into the
+// literal a go statement runs and the closures a called factory returns.
+// The deriver check walks only the function and what it calls in place;
+// spawnerlabel walks goroutines and returned closures too.
+//
+// # Returned Values
+//
+// One scanner reads the returns of a function, in two ways. A factory is
+// followed through the first result of each return only, while spawnerlabel
+// takes a closure returned as any result. The two are kept apart so that
+// neither report changes.
 //
 // # Context Parameters
 //
@@ -130,5 +147,6 @@
 // The package exports helper functions for SSA analysis:
 //
 //   - [ExtractCalledFunc]: Get types.Func from CallCommon
-//   - [CallWalker]: Walk calls, going into immediately-invoked function expressions and range-over-func loop bodies
+//   - [Classify]: Tell a function literal, a named function, a method and the synthetic wrappers apart
+//   - [Runs]: Give the calls a function runs, going into immediately-invoked function expressions and range-over-func loop bodies
 package flow

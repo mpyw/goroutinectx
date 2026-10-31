@@ -159,7 +159,16 @@ type Env struct {
 
 ### internal/flow/
 
-Follows values through the package's SSA form: the instruction of a go statement or a call (`Program.GoAt`, `Program.CallAt`), what a closure captures (`ClosureCapturesContext`), what it calls (`ClosureCallsDeriver`, `CallWalker`), and where a spawned function comes from (`FuncResolver`). It wraps `golang.org/x/tools/go/ssa`, which is imported as `ssa`.
+Follows values through the package's SSA form: the instruction of a go statement or a call (`Program.GoAt`, `Program.CallAt`), what a closure captures (`ClosureCapturesContext`), what it runs (`ClosureCallsDeriver`, `Runs`), what kind of function it is (`Classify`), and where a spawned function comes from (`FuncResolver`). It wraps `golang.org/x/tools/go/ssa`, which is imported as `ssa`.
+
+`Classify` is the one place that tells a function literal, a range-over-func body, a named function, a method, and the synthetic wrappers (bound method, thunk, promoted method) apart. It classifies an instantiation as its generic origin. `Runs` is the one walk of what a function runs. Its options decide whether it goes into goroutines and into the closures a called factory returns:
+
+| Caller | Goroutines | Returned closures |
+|--------|------------|-------------------|
+| Deriver check (`ClosureCallsDeriver`) | No | No |
+| spawnerlabel | Yes | Yes |
+
+The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only. spawnerlabel takes a closure returned as any result.
 
 It also holds both tests for a context parameter. They differ on purpose:
 

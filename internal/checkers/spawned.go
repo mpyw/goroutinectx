@@ -67,12 +67,7 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 		return false
 	}
 	fn, ok := call.Value.(*ssa.Function)
-	if ok && fn.Origin() != nil {
-		// An instantiation of a generic function is a synthetic wrapper.
-		fn = fn.Origin()
-	}
-	return ok && fn.Parent() == nil && fn.Synthetic == "" && fn.Signature.Recv() == nil &&
-		flow.GivesOnlyFreshContext(call, e.Carriers)
+	return ok && flow.Classify(fn) == flow.ClassifiedNamed && flow.GivesOnlyFreshContext(call, e.Carriers)
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.
@@ -111,7 +106,7 @@ func spawnedCallee(e *env.Env, call *ast.CallExpr) (*types.Func, int) {
 	fn := flow.ExtractCalledFunc(common)
 	// A method value is a bound wrapper that holds the receiver. A method
 	// called any other way is given the receiver first.
-	if _, bound := common.Value.(*ssa.MakeClosure); !bound && fn != nil && fn.Signature().Recv() != nil {
+	if flow.Classify(common.StaticCallee()) != flow.ClassifiedBound && fn != nil && fn.Signature().Recv() != nil {
 		return fn, 1
 	}
 	return fn, 0

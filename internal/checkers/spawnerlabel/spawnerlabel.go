@@ -175,35 +175,12 @@ func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 		return nil
 	}
 
-	var info *spawnCallInfo
-	w := &flow.CallWalker{Goroutines: true}
-	var visit func(flow.WalkedCall) bool
-	visit = func(site flow.WalkedCall) bool {
-		info = c.spawnCallInfoOf(site.Call)
-		if info != nil {
-			return false
+	for site := range flow.Runs(ssaFn, flow.RunOptions{Goroutines: true, Returned: true}) {
+		if info := c.spawnCallInfoOf(site.Call); info != nil {
+			return info
 		}
-		if site.Call.IsInvoke() {
-			return true
-		}
-		// Calling what a function returns runs the closures it returns.
-		values, _ := flow.ResolvedValues(site.Call.Value)
-		for _, v := range values {
-			inner, ok := v.(*ssa.Call)
-			if !ok || inner.Call.StaticCallee() == nil {
-				continue
-			}
-			for _, closure := range returnedClosures(inner.Call.StaticCallee()) {
-				if !w.Walk(closure, visit) {
-					return false
-				}
-			}
-		}
-		return true
 	}
-	w.Walk(ssaFn, visit)
-
-	return info
+	return nil
 }
 
 // spawnCallInfoOf reports the API a call spawns through, or nil.
@@ -229,33 +206,6 @@ func (c *Checker) spawnCallInfoOf(call *ssa.CallCommon) *spawnCallInfo {
 	}
 
 	return nil
-}
-
-// returnedClosures gives the closures fn returns.
-func returnedClosures(fn *ssa.Function) []*ssa.Function {
-	var closures []*ssa.Function
-	for _, block := range fn.Blocks {
-		for _, instr := range block.Instrs {
-			ret, ok := instr.(*ssa.Return)
-			if !ok {
-				continue
-			}
-			for _, result := range ret.Results {
-				switch r := result.(type) {
-				case *ssa.MakeClosure:
-					if closureFn, ok := r.Fn.(*ssa.Function); ok {
-						closures = append(closures, closureFn)
-					}
-				case *ssa.Function:
-					// A function literal that captures nothing.
-					if r.Parent() != nil {
-						closures = append(closures, r)
-					}
-				}
-			}
-		}
-	}
-	return closures
 }
 
 // ssaFuncOfDecl finds the SSA function of decl in p, or nil.

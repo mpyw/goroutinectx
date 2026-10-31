@@ -216,7 +216,7 @@ type Matcher struct {
 func (m *Matcher) MatchesFunc(fn *types.Func) bool
 ```
 
-`flow.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `flow.CallWalker`, which also goes into the body of a range-over-func loop (the synthetic `range-over-func yield` closure SSA passes to the iterator), keeping whether it is deferred, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
+`flow.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `flow.Runs`, which also goes into the body of a range-over-func loop (the synthetic `range-over-func yield` closure SSA passes to the iterator), keeping whether it is deferred, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
 
 **Parsing Logic:**
 - `pkg.Func1,pkg.Func2` → OR: either Func1 or Func2
