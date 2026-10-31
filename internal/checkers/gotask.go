@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
-	gossa "golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/env"
+	"github.com/mpyw/goroutinectx/internal/flow"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
-	"github.com/mpyw/goroutinectx/internal/probe"
 	"github.com/mpyw/goroutinectx/internal/registry"
-	"github.com/mpyw/goroutinectx/internal/ssa"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -50,12 +50,12 @@ func (*GotaskChecker) Name() checker.Name {
 
 // CheckCall checks the call expression. A variadic API may give a report
 // for each argument.
-func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
+func (c *GotaskChecker) CheckCall(e *env.Env, _ string, call *ast.CallExpr) []analysis.Diagnostic {
 	if c.derivers.IsEmpty() {
 		return nil
 	}
 
-	fn, recvArgs := spawnedCallee(cctx, call)
+	fn, recvArgs := spawnedCallee(e, call)
 	if fn == nil {
 		return nil
 	}
@@ -67,23 +67,23 @@ func (c *GotaskChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []ana
 
 	switch {
 	case entry.AlwaysSpawns:
-		return c.checkDoAsync(cctx, call, entry, recvArgs)
+		return c.checkDoAsync(e, call, entry, recvArgs)
 	case entry.Variadic:
 		// For variadic APIs, we report each failing argument separately
-		return c.checkVariadic(cctx, call, entry)
+		return c.checkVariadic(e, call, entry)
 	}
 	return nil
 }
 
 // checkDoAsync checks a DoAsync call. recvArgs is 1 for a method
 // expression, whose first argument is the task.
-func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry, recvArgs int) []analysis.Diagnostic {
-	instr := cctx.SSAProg.CallAt(call)
+func (c *GotaskChecker) checkDoAsync(e *env.Env, call *ast.CallExpr, entry registry.Entry, recvArgs int) []analysis.Diagnostic {
+	instr := e.SSA.CallAt(call)
 	if len(call.Args) <= recvArgs || instr == nil {
 		return nil
 	}
 	common := instr.Common()
-	args := ssa.ResolvedArgs(common, call)
+	args := flow.ResolvedArgs(common, call)
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
 	if args != nil && c.ctxIsDerived(args[recvArgs]) {
@@ -91,11 +91,11 @@ func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, en
 	}
 
 	// Check 2: Does the task's callback call the deriver?
-	recv := ssa.ResolvedReceiver(common)
+	recv := gotaskReceiver(common)
 	if recvArgs == 1 && args != nil {
 		recv = args[0]
 	}
-	if recv != nil && c.taskDerives(cctx, recv) {
+	if recv != nil && c.taskDerives(e, recv) {
 		return nil
 	}
 
@@ -107,7 +107,7 @@ func (c *GotaskChecker) checkDoAsync(cctx *probe.Context, call *ast.CallExpr, en
 	return []analysis.Diagnostic{{Pos: pos, Message: entry.Spec.FullName() + "() 1st argument should call goroutine deriver"}}
 }
 
-func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
+func (c *GotaskChecker) checkVariadic(e *env.Env, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
 	startIdx := entry.CallbackArgIdx
 	if startIdx >= len(call.Args) {
 		return nil
@@ -116,19 +116,19 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 	// Check if this is a variadic expansion (e.g., DoAllFns(ctx, slice...))
 	isVariadicExpansion := call.Ellipsis.IsValid()
 
-	args := spawnedCallArgs(cctx, call)
-	r := c.resolver(cctx)
+	args := spawnedCallArgs(e, call)
+	r := c.resolver(e)
 	var diags []analysis.Diagnostic
 	for i := startIdx; i < len(call.Args); i++ {
 		var passes bool
-		var v gossa.Value
+		var v ssa.Value
 		if args != nil {
 			v = args[i]
 		}
 		if isVariadicExpansion {
-			passes = c.expandedArgDerives(cctx, call.Args[i], v, r)
+			passes = c.expandedArgDerives(e, call.Args[i], v, r)
 		} else {
-			passes = spawnedFuncPasses(cctx, call.Args[i], v, r)
+			passes = spawnedFuncPasses(e, call.Args[i], v, r)
 		}
 		if passes {
 			continue
@@ -153,24 +153,24 @@ func (c *GotaskChecker) checkVariadic(cctx *probe.Context, call *ast.CallExpr, e
 // a call, as lo.Map makes one, passes when calling one of the call's
 // callbacks gives a task function that derives. A slice variable whose
 // elements are not traced, as a parameter, is reported.
-func (c *GotaskChecker) expandedArgDerives(cctx *probe.Context, arg ast.Expr, v gossa.Value, r *ssa.FuncResolver) bool {
+func (c *GotaskChecker) expandedArgDerives(e *env.Env, arg ast.Expr, v ssa.Value, r *flow.FuncResolver) bool {
 	if elems, ok := gotaskSliceElems(v); ok {
-		return !slices.ContainsFunc(elems, func(e gossa.Value) bool { return !r.Passes(e) })
+		return !slices.ContainsFunc(elems, func(e ssa.Value) bool { return !r.Passes(e) })
 	}
 	switch arg := ast.Unparen(arg).(type) {
 	case *ast.Ident:
-		obj, ok := cctx.Pass.TypesInfo.ObjectOf(arg).(*types.Var)
+		obj, ok := e.Pass.TypesInfo.ObjectOf(arg).(*types.Var)
 		if !ok {
 			return true
 		}
 		_, isSlice := obj.Type().Underlying().(*types.Slice)
 		return !isSlice
 	case *ast.CallExpr:
-		call, ok := v.(*gossa.Call)
+		call, ok := v.(*ssa.Call)
 		if !ok {
 			return true
 		}
-		return slices.ContainsFunc(call.Call.Args, func(arg gossa.Value) bool {
+		return slices.ContainsFunc(call.Call.Args, func(arg ssa.Value) bool {
 			_, isFunc := arg.Type().Underlying().(*types.Signature)
 			return isFunc && r.ResultPasses(arg)
 		})
@@ -183,24 +183,24 @@ func (c *GotaskChecker) expandedArgDerives(cctx *probe.Context, arg ast.Expr, v 
 // function it wraps. A task built by Parallel, ParallelSettled or Race
 // passes when every task it is given does, and one built by Then or Catch
 // when its task or its function does.
-func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
-	r := &ssa.FuncResolver{
-		Closure: func(fn *gossa.Function) bool { return ssa.ClosureCallsDeriver(fn, c.derivers).FoundAtStart },
+func (c *GotaskChecker) resolver(e *env.Env) *flow.FuncResolver {
+	r := &flow.FuncResolver{
+		Closure: func(fn *ssa.Function) bool { return flow.ClosureCallsDeriver(fn, c.derivers).FoundAtStart },
 	}
-	r.Call = func(call *gossa.CallCommon) (bool, bool) {
+	r.Call = func(call *ssa.CallCommon) (bool, bool) {
 		if call.IsInvoke() {
 			// An interface method is not traced, so the task it gives is
 			// reported.
 			return false, true
 		}
-		fn := ssa.ExtractCalledFunc(call)
+		fn := flow.ExtractCalledFunc(call)
 		switch {
 		case fn == nil:
 			return false, false
 		case gotaskIsConstructor(fn):
 			return len(call.Args) > 0 && r.Passes(call.Args[0]), true
 		case gotaskIsTaskMethod(fn):
-			return c.taskDerives(cctx, ssa.ResolvedReceiver(call)), true
+			return c.taskDerives(e, gotaskReceiver(call)), true
 		case gotaskIsCombinator(fn, gotaskSpawningCombinators):
 			return gotaskSpawningDerives(call, r), true
 		case gotaskIsCombinator(fn, gotaskSerialCombinators):
@@ -232,45 +232,45 @@ func gotaskIsCombinator(fn *types.Func, names []string) bool {
 // is given derives, as each runs in a goroutine of its own. The tasks come in
 // its variadic slice. A slice whose elements are not traced, as a parameter,
 // passes, as a task the resolver can't follow does.
-func gotaskSpawningDerives(call *gossa.CallCommon, r *ssa.FuncResolver) bool {
-	return !slices.ContainsFunc(call.Args, func(arg gossa.Value) bool {
+func gotaskSpawningDerives(call *ssa.CallCommon, r *flow.FuncResolver) bool {
+	return !slices.ContainsFunc(call.Args, func(arg ssa.Value) bool {
 		elems, ok := gotaskSliceElems(arg)
-		return ok && slices.ContainsFunc(elems, func(e gossa.Value) bool { return !r.Passes(e) })
+		return ok && slices.ContainsFunc(elems, func(e ssa.Value) bool { return !r.Passes(e) })
 	})
 }
 
 // gotaskSerialDerives reports whether the task or the function a serial
 // combinator call is given derives. Both run in one goroutine, so one call
 // of the deriver is enough, as it is in a go statement.
-func gotaskSerialDerives(call *gossa.CallCommon, r *ssa.FuncResolver) bool {
+func gotaskSerialDerives(call *ssa.CallCommon, r *flow.FuncResolver) bool {
 	return slices.ContainsFunc(call.Args, r.Passes)
 }
 
 // ctxIsDerived reports whether every value v can be is a call of the
 // deriver, or a context the context package's With functions, as
 // context.WithCancel, make from one.
-func (c *GotaskChecker) ctxIsDerived(v gossa.Value) bool {
-	return c.ctxIsDerivedFrom(v, make(map[gossa.Value]bool))
+func (c *GotaskChecker) ctxIsDerived(v ssa.Value) bool {
+	return c.ctxIsDerivedFrom(v, make(map[ssa.Value]bool))
 }
 
-func (c *GotaskChecker) ctxIsDerivedFrom(v gossa.Value, seen map[gossa.Value]bool) bool {
+func (c *GotaskChecker) ctxIsDerivedFrom(v ssa.Value, seen map[ssa.Value]bool) bool {
 	if seen[v] {
 		return false
 	}
 	seen[v] = true
-	values, ok := ssa.ResolvedValues(v)
+	values, ok := flow.ResolvedValues(v)
 	if !ok || len(values) == 0 {
 		return false
 	}
-	return !slices.ContainsFunc(values, func(v gossa.Value) bool {
-		if ext, ok := v.(*gossa.Extract); ok {
+	return !slices.ContainsFunc(values, func(v ssa.Value) bool {
+		if ext, ok := v.(*ssa.Extract); ok {
 			v = ext.Tuple
 		}
-		call, ok := v.(*gossa.Call)
+		call, ok := v.(*ssa.Call)
 		if !ok {
 			return true
 		}
-		fn := ssa.ExtractCalledFunc(call.Common())
+		fn := flow.ExtractCalledFunc(call.Common())
 		switch {
 		case fn == nil:
 			return true
@@ -294,21 +294,21 @@ func gotaskIsContextWith(fn *types.Func) bool {
 
 // taskDerives reports whether every task v can be wraps a function that
 // calls the deriver. A task traced to nothing does not.
-func (c *GotaskChecker) taskDerives(cctx *probe.Context, v gossa.Value) bool {
+func (c *GotaskChecker) taskDerives(e *env.Env, v ssa.Value) bool {
 	if v == nil {
 		return false
 	}
-	values, ok := ssa.ResolvedValues(v)
+	values, ok := flow.ResolvedValues(v)
 	if !ok || len(values) == 0 {
 		return false
 	}
-	r := c.resolver(cctx)
-	return !slices.ContainsFunc(values, func(v gossa.Value) bool {
+	r := c.resolver(e)
+	return !slices.ContainsFunc(values, func(v ssa.Value) bool {
 		// DoAsync of a CancelableTask runs the Task it embeds.
-		if f, ok := v.(*gossa.Field); ok && gotaskIsTaskType(f.X.Type()) {
-			return !c.taskDerives(cctx, f.X)
+		if f, ok := v.(*ssa.Field); ok && gotaskIsTaskType(f.X.Type()) {
+			return !c.taskDerives(e, f.X)
 		}
-		call, ok := v.(*gossa.Call)
+		call, ok := v.(*ssa.Call)
 		if !ok {
 			return true
 		}
@@ -318,22 +318,22 @@ func (c *GotaskChecker) taskDerives(cctx *probe.Context, v gossa.Value) bool {
 }
 
 // gotaskSliceElems gives the elements of a slice of tasks or task functions,
-// as ssa.ResolvedSliceElems does, and for gotask.TasksFrom, the functions it
+// as flow.ResolvedSliceElems does, and for gotask.TasksFrom, the functions it
 // is given.
-func gotaskSliceElems(v gossa.Value) ([]gossa.Value, bool) {
-	if call, ok := v.(*gossa.Call); ok {
-		fn := ssa.ExtractCalledFunc(call.Common())
+func gotaskSliceElems(v ssa.Value) ([]ssa.Value, bool) {
+	if call, ok := v.(*ssa.Call); ok {
+		fn := flow.ExtractCalledFunc(call.Common())
 		if fn != nil && (funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: "TasksFrom"}).Matches(fn) {
 			if len(call.Call.Args) != 1 {
 				return nil, false
 			}
-			return ssa.ResolvedSliceElems(call.Call.Args[0])
+			return flow.ResolvedSliceElems(call.Call.Args[0])
 		}
 	}
 	if v == nil {
 		return nil, false
 	}
-	return ssa.ResolvedSliceElems(v)
+	return flow.ResolvedSliceElems(v)
 }
 
 // gotaskIsConstructor reports whether fn is the task constructor.
@@ -379,4 +379,23 @@ func gotaskArgOrdinal(n int) string {
 		}
 	}
 	return fmt.Sprintf("%d%s", n, suffix)
+}
+
+// gotaskReceiver gives the receiver of a static method call, or of a call
+// of a method value, which a bound method wrapper holds. It gives nil for
+// any other call.
+func gotaskReceiver(common *ssa.CallCommon) ssa.Value {
+	if common.IsInvoke() {
+		return nil
+	}
+	if mc, ok := common.Value.(*ssa.MakeClosure); ok {
+		if fn, ok := mc.Fn.(*ssa.Function); ok && fn.Synthetic != "" && len(mc.Bindings) == 1 {
+			return mc.Bindings[0]
+		}
+		return nil
+	}
+	if common.Signature().Recv() == nil || len(common.Args) == 0 {
+		return nil
+	}
+	return common.Args[0]
 }

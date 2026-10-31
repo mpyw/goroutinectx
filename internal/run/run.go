@@ -22,10 +22,9 @@ import (
 	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
+	"github.com/mpyw/goroutinectx/internal/env"
+	"github.com/mpyw/goroutinectx/internal/flow"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
-	"github.com/mpyw/goroutinectx/internal/probe"
-	"github.com/mpyw/goroutinectx/internal/scope"
-	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // Config is what the analyzer's flags, or the golangci-lint plugin's
@@ -154,7 +153,7 @@ func (cfg Config) parse() (parsedConfig, error) {
 // calls it must require them. None of them is built for dependencies but
 // spawner.Analyzer, which exports facts and reads only comments, so SSA is
 // built only for the packages analyzed.
-var Requires = []*analysis.Analyzer{inspect.Analyzer, ssa.ProgramAnalyzer, spawner.Analyzer}
+var Requires = []*analysis.Analyzer{inspect.Analyzer, flow.ProgramAnalyzer, spawner.Analyzer}
 
 // ErrNoInspector is returned when the inspect analyzer's result is missing.
 var ErrNoInspector = errors.New("inspector analyzer result not found")
@@ -189,20 +188,18 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	spawners := spawner.Build(marked, parsed.external)
 
 	// Build SSA program
-	ssaProg := ssa.BuildProgram(pass)
+	ssaProg := flow.BuildProgram(pass)
 	if ssaProg == nil {
 		return ErrNoSSA
 	}
 
 	r := &runner{
-		pass:       pass,
-		ssaProg:    ssaProg,
-		carriers:   parsed.carriers,
+		env:        env.New(pass, ssaProg, parsed.carriers, parsed.derivers, spawners),
 		ignoreMaps: ignoreMaps,
 		skipFiles:  skipFiles,
 		enabled:    make(ignore.EnabledCheckers),
 	}
-	packageCheckers := r.buildCheckers(cfg, checkerdef.Deps{Derivers: parsed.derivers, Spawners: spawners, SSA: ssaProg})
+	packageCheckers := r.buildCheckers(cfg)
 
 	r.checkNodes(insp)
 
@@ -221,8 +218,10 @@ func Run(pass *analysis.Pass, cfg Config) error {
 type goStmtChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
 	Name() checker.Name
-	// CheckGoStmt gives the reports for one go statement.
-	CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic
+	// CheckGoStmt gives the reports for one go statement. ctxName is the
+	// first context parameter of the nearest enclosing function that has
+	// one, for the message.
+	CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
 }
 
 // callChecker checks function call expressions.
@@ -230,8 +229,8 @@ type callChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
 	Name() checker.Name
 	// CheckCall gives the reports for one call, none for a call the checker
-	// does not check.
-	CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
+	// does not check. ctxName is as for CheckGoStmt.
+	CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
 }
 
 // packageChecker checks a whole package once, after the other checkers.
@@ -244,11 +243,9 @@ type packageChecker interface {
 
 // runner runs the go statement and call checkers over one package.
 type runner struct {
-	pass           *analysis.Pass
+	env            *env.Env
 	goStmtCheckers []goStmtChecker
 	callCheckers   []callChecker
-	ssaProg        *ssa.Program
-	carriers       []carrier.Carrier
 	ignoreMaps     map[string]ignore.Map
 	skipFiles      map[string]bool
 	// enabled holds the name of each checker built.
@@ -258,8 +255,8 @@ type runner struct {
 // checkNodes runs the go statement and call checkers on each node inside a
 // function with a context in scope.
 func (r *runner) checkNodes(insp *inspector.Inspector) {
-	// Build context scopes for functions with context parameters
-	funcScopes := scope.Build(r.pass, insp, r.carriers)
+	pass := r.env.Pass
+	ctxNames := runFuncContexts(r.env, insp)
 
 	// Node types we're interested in. A file is visited to skip a generated
 	// one whole.
@@ -278,34 +275,59 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 		}
 
 		if file, ok := n.(*ast.File); ok {
-			return !r.skipFiles[r.pass.Fset.PositionFor(file.Pos(), false).Filename]
+			return !r.skipFiles[pass.Fset.PositionFor(file.Pos(), false).Filename]
 		}
 
-		s := scope.FindEnclosing(funcScopes, stack)
-		if s == nil {
+		ctxName, ok := runEnclosingContext(ctxNames, stack)
+		if !ok {
 			return true // No context in scope
-		}
-
-		cctx := &probe.Context{
-			Pass:     r.pass,
-			SSAProg:  r.ssaProg,
-			CtxNames: s.CtxNames,
-			Carriers: r.carriers,
 		}
 
 		switch node := n.(type) {
 		case *ast.GoStmt:
 			for _, c := range r.goStmtCheckers {
-				r.report(c.Name(), c.CheckGoStmt(cctx, node), token.NoPos)
+				r.report(c.Name(), c.CheckGoStmt(r.env, ctxName, node), token.NoPos)
 			}
 		case *ast.CallExpr:
 			for _, c := range r.callCheckers {
-				r.report(c.Name(), c.CheckCall(cctx, node), node.Pos())
+				r.report(c.Name(), c.CheckCall(r.env, ctxName, node), node.Pos())
 			}
 		}
 
 		return true
 	})
+}
+
+// runFuncContexts maps each function declaration and literal that has a
+// context parameter, as [flow.ContextParamNames] finds one, to the name of
+// the first.
+func runFuncContexts(e *env.Env, insp *inspector.Inspector) map[ast.Node]string {
+	ctxNames := make(map[ast.Node]string)
+	insp.Preorder([]ast.Node{(*ast.FuncDecl)(nil), (*ast.FuncLit)(nil)}, func(n ast.Node) {
+		var fnType *ast.FuncType
+		switch fn := n.(type) {
+		case *ast.FuncDecl:
+			fnType = fn.Type
+		case *ast.FuncLit:
+			fnType = fn.Type
+		}
+		if names := flow.ContextParamNames(e.Pass.TypesInfo, fnType, e.Carriers); len(names) > 0 {
+			ctxNames[n] = names[0]
+		}
+	})
+	return ctxNames
+}
+
+// runEnclosingContext gives the context name of the innermost function of
+// stack that has one. A function literal without a context parameter of its
+// own is checked under the context of the function around it.
+func runEnclosingContext(ctxNames map[ast.Node]string, stack []ast.Node) (string, bool) {
+	for _, n := range slices.Backward(stack) {
+		if name, ok := ctxNames[n]; ok {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // report reports each diagnostic that no ignore for name silences, at its
@@ -325,14 +347,14 @@ func (r *runner) report(name checker.Name, diags []analysis.Diagnostic, call tok
 			e.MarkUsed(name)
 			continue
 		}
-		r.pass.Report(d)
+		r.env.Pass.Report(d)
 	}
 }
 
 // ignoreAt gives the ignore that silences the reports of the checker name
 // at pos, or nil.
 func (r *runner) ignoreAt(pos token.Pos, name checker.Name) *ignore.Entry {
-	position := r.pass.Fset.PositionFor(pos, false)
+	position := r.env.Pass.Fset.PositionFor(pos, false)
 	return r.ignoreMaps[position.Filename].Covering(position.Line, name)
 }
 
@@ -362,15 +384,16 @@ func readDirectives(pass *analysis.Pass) (map[string]bool, map[string]ignore.Map
 }
 
 // buildCheckers builds each checker of [checkerdef.Defs] that cfg turns on,
-// and that has the deriver it needs, and marks it enabled. It gives the go
-// statement and call checkers to r, and returns the package checkers.
-func (r *runner) buildCheckers(cfg Config, deps checkerdef.Deps) []packageChecker {
+// and that has the deriver it needs, from r's Env, and marks it enabled. It
+// gives the go statement and call checkers to r, and returns the package
+// checkers.
+func (r *runner) buildCheckers(cfg Config) []packageChecker {
 	var packageCheckers []packageChecker
 	for _, d := range checkerdef.Defs {
-		if (d.HasFlag() && !cfg.Checkers[d.Name]) || (d.NeedsDeriver && deps.Derivers == nil) {
+		if (d.HasFlag() && !cfg.Checkers[d.Name]) || (d.NeedsDeriver && r.env.Derivers == nil) {
 			continue
 		}
-		switch c := d.Build(deps).(type) {
+		switch c := d.Build(r.env).(type) {
 		case goStmtChecker:
 			r.goStmtCheckers = append(r.goStmtCheckers, c)
 		case callChecker:

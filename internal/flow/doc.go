@@ -1,9 +1,10 @@
-// Package ssa provides SSA-based analysis utilities for goroutinectx.
+// Package flow follows values through the SSA form of a package for
+// goroutinectx: where a spawned function comes from, what a closure
+// captures, and what a function calls.
 //
 // # Overview
 //
-// This package provides SSA (Static Single Assignment) analysis capabilities
-// for more accurate context propagation detection than AST-only analysis.
+// It is built on golang.org/x/tools/go/ssa, which its callers import as ssa.
 //
 // # SSA vs AST Analysis
 //
@@ -20,7 +21,7 @@
 //
 // Use [BuildProgram] to create an SSA program from analysis pass:
 //
-//	ssaProg := ssa.BuildProgram(pass)
+//	ssaProg := flow.BuildProgram(pass)
 //
 // The [Program] type wraps the SSA program and the package's source functions:
 //
@@ -43,10 +44,10 @@
 // Plain functions check an SSA function for context propagation:
 //
 //	// Check if closure captures context
-//	captures := ssa.ClosureCapturesContext(ssaFn, carriers, module)
+//	captures := flow.ClosureCapturesContext(ssaFn, carriers, module)
 //
 //	// Check if closure calls deriver function
-//	result := ssa.ClosureCallsDeriver(ssaFn, deriveMatcher)
+//	result := flow.ClosureCallsDeriver(ssaFn, deriveMatcher)
 //	if result.FoundAtStart {
 //	    // Deriver called at goroutine start - OK
 //	} else if result.FoundOnlyInDefer {
@@ -62,8 +63,8 @@
 // elements, map lookups at constant keys, and calls of factories, to each
 // function literal it can hold, and judges each one:
 //
-//	r := &ssa.FuncResolver{
-//	    Closure: func(fn *ssa.Function) bool { return ssa.ClosureCapturesContext(fn, carriers, module) },
+//	r := &flow.FuncResolver{
+//	    Closure: func(fn *ssa.Function) bool { return flow.ClosureCapturesContext(fn, carriers, module) },
 //	}
 //	ok := r.Passes(goInstr.Call.Value)
 //
@@ -77,6 +78,19 @@
 // into IIFEs and range-over-func loop bodies, and with Goroutines set into
 // the literal a go statement runs.
 // The deriver check and the spawnerlabel checker both walk calls with it.
+//
+// # Context Parameters
+//
+// Two functions tell whether a function has a context parameter, a
+// context.Context or a carrier, and they differ on purpose (see #210):
+//
+//   - [HasContextParam] reads the SSA parameters. It counts a blank
+//     parameter, as func(_ context.Context) has, and a method's receiver.
+//     The checkers judge spawned closures and factories with it.
+//   - [ContextParamNames] reads the syntax of a function declaration or
+//     literal. It leaves out a blank parameter, which cannot be used, and
+//     the receiver. The runner checks the go statements and calls of a
+//     function only when it gives a name, and reports the first.
 //
 // # Closure Free Variables
 //
@@ -117,5 +131,4 @@
 //
 //   - [ExtractCalledFunc]: Get types.Func from CallCommon
 //   - [CallWalker]: Walk calls, going into immediately-invoked function expressions and range-over-func loop bodies
-//   - [CallHasFuncArgs]: Check if call has function-typed arguments
-package ssa
+package flow

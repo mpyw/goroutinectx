@@ -1,4 +1,4 @@
-package ssa
+package flow
 
 import (
 	"golang.org/x/tools/go/ssa"

@@ -70,25 +70,25 @@ goroutinectx/
 │   ├── directive/             # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
+│   ├── env/                   # Env: what the checkers read about the pass, built once per pass
+│   ├── flow/                  # SSA program, context parameters, closure checks,
+│   │                          # value resolution, call walker
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
-│   ├── probe/                 # The per-node state the checkers get
 │   ├── registry/              # The one table of supported spawning APIs
-│   ├── scope/                 # Context scope detection
-│   ├── ssa/                   # SSA program, closure checks, value resolution, call walker
-│   └── typeutil/              # Type checking utilities
+│   └── typeutil/              # Context types, package paths
 ├── testdata/
-│   └── src/                   # Test fixtures
-│       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
-│       ├── patternsderive/    # The same, with -goroutine-deriver
-│       ├── goroutine/         # goroutine-only cases
-│       ├── errgroup/          # errgroup-only cases
-│       ├── waitgroup/         # waitgroup-only cases
-│       ├── spawner/           # spawner directive tests
-│       ├── goroutinederive/   # Single deriver tests
-│       ├── goroutinederiveand/    # AND (all must be called) tests
-│       ├── goroutinederivemixed/  # Mixed AND/OR tests
-│       ├── gotask/            # gotask checker tests
-│       └── carrier/           # Context carrier tests
+│   ├── src/                   # Test fixtures
+│   │   ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
+│   │   ├── patternsderive/    # The same, with -goroutine-deriver
+│   │   ├── goroutine/         # goroutine-only cases
+│   │   ├── errgroup/          # errgroup-only cases
+│   │   ├── waitgroup/         # waitgroup-only cases
+│   │   ├── spawner/           # spawner directive tests
+│   │   ├── goroutinederive/   # Single deriver tests
+│   │   ├── goroutinederiveand/    # AND (all must be called) tests
+│   │   ├── goroutinederivemixed/  # Mixed AND/OR tests
+│   │   ├── gotask/            # gotask checker tests
+│   │   └── carrier/           # Context carrier tests
 │   └── receivermodule/        # A module and a module it replaces, for which receivers count (#191)
 ├── docs/                      # Documentation
 ├── .github/workflows/         # CI configuration
@@ -100,7 +100,7 @@ goroutinectx/
 
 1. **Type-safe analysis**: Uses [`go/types`](https://pkg.go.dev/go/types) for accurate detection (not just name-based)
 2. **Nested function support**: Uses [`inspector.WithStack`](https://pkg.go.dev/golang.org/x/tools/go/ast/inspector#Inspector.WithStack) to track context through closures
-3. **Shadowing support**: `UsesContext` uses type identity, not name matching
+3. **Shadowing support**: a closure's context is found from its SSA free variables, not by name
 4. **Interface segregation**: call and go statement checker interfaces (no BaseChecker)
 5. **Minimal exports**: Only necessary types/functions are exported from `checkers` package
 6. **Zero false positives**: Prefer missing issues over false alarms
@@ -113,12 +113,12 @@ goroutinectx/
 // runner applies //goroutinectx:ignore at each report's position.
 type goStmtChecker interface {
     Name() checker.Name
-    CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic
+    CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
 }
 
 type callChecker interface {
     Name() checker.Name
-    CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
+    CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
 }
 
 type packageChecker interface {
@@ -128,6 +128,8 @@ type packageChecker interface {
 ```
 
 The set of checkers named by an unused-ignore report is the set of checkers built: their `Name()`s.
+
+`Run` builds one `env.Env` for the pass: the pass, the SSA program, the carriers, the derivers, the spawners and the module path. Every checker is built from it and gets it for each node. The only state of a node is `ctxName`, the first context parameter of the nearest enclosing function that has one (`flow.ContextParamNames`), which the messages name. A node outside such a function is not checked.
 
 **Why three interfaces?**
 - `goStmtChecker`: For `go` keyword statements (`go func() {}()`)
@@ -146,7 +148,7 @@ The first two are AST-level distinctions: `go` is a statement, function calls ar
 | `Default` | Whether it is on when its flag is not set |
 | `FlagDoc` | The help of its flag. Empty means no flag and no setting: it is on whenever it can be built (goroutinederive) |
 | `NeedsDeriver` | Built only when `-goroutine-deriver` is set (goroutinederive, gotask) |
-| `Build` | Builds it from the derivers, the spawners and the SSA program |
+| `Build` | Builds it from the pass's `env.Env` |
 
 The flags, `goroutinectx.New`'s `unknown checker` error, the plugin's settings (`run.Config.UnmarshalJSON`), the checkers `Run` builds, and the names `//goroutinectx:ignore` accepts all come from it. Its order is the order `Run` builds the checkers in, and the order an unknown-checker report in an ignore lists them in.
 
@@ -169,9 +171,9 @@ Four checkers handle goroutine context propagation:
 - Method expression or method value: `(*errgroup.Group).Go(g, fn)`, `goFn := (*errgroup.Group).Go` or `goFn := g.Go` - the callback after the receiver is checked
 - Directive: Functions marked with `//goroutinectx:spawner` check their func arguments
 
-**How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `ssa.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A struct field, an element at a constant index and a map value at a constant key are followed the same way, as parts of the variable they are in, so a store to the field after the struct literal counts and one replaced before the spawn does not (#116). A struct made with `&T{}` is followed through the variable that holds its address, as long as no closure writes it. A value it cannot follow passes: a parameter, an interface method, a variable a closure writes, a variable whose address is passed on.
+**How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `flow.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A struct field, an element at a constant index and a map value at a constant key are followed the same way, as parts of the variable they are in, so a store to the field after the struct literal counts and one replaced before the spawn does not (#116). A struct made with `&T{}` is followed through the variable that holds its address, as long as no closure writes it. A value it cannot follow passes: a parameter, an interface method, a variable a closure writes, a variable whose address is passed on.
 
-**What a closure counts as a context.** `ssa.ClosureCapturesContext` reads the closure's free variables. A captured context counts unless every value it can hold is a fresh `context.Background()` or `TODO()`. A context read from a field or an element of a captured value is judged the same way, with the part resolved as above (#182). A captured value whose type implements `context.Context` counts as a context, and so does a method called on a captured value that returns a context, as `req.Context()` does. A method called on a captured value that has a context in a field counts too (#184). The method is not looked into, so a receiver that holds only a fresh context passes, as a method spawned directly with `go s.run()` or `g.Go(s.run)` does.
+**What a closure counts as a context.** `flow.ClosureCapturesContext` reads the closure's free variables. A captured context counts unless every value it can hold is a fresh `context.Background()` or `TODO()`. A context read from a field or an element of a captured value is judged the same way, with the part resolved as above (#182). A captured value whose type implements `context.Context` counts as a context, and so does a method called on a captured value that returns a context, as `req.Context()` does. A method called on a captured value that has a context in a field counts too (#184). The method is not looked into, so a receiver that holds only a fresh context passes, as a method spawned directly with `go s.run()` or `g.Go(s.run)` does.
 
 **Only a context field the analyzed code can set counts for a receiver** (#191). That is a field that is exported, or that is declared in the analyzed package or in another package of its module (`pass.Module`, by import path prefix). Counting every field made `go func() { t.Log("x") }()` pass, as `*testing.T`, `*http.Request` and `*exec.Cmd` hold a context of their own in an unexported field, which is not `ctx`. When the driver does not give the module (`pass.Module` is nil or has no path, as in GOPATH mode), a field of any package outside the standard library counts, since it may be of the module and a report there could be false. A package is of the standard library when the first element of its path has no dot, as `testing` and `net/http`. So `*testing.T`, `*http.Request` and `*exec.Cmd` are still reported. golangci-lint v2 gives the module: its runner sets `Pass.Module` from `packages.Module`, and asks for `packages.NeedModule`. The `patterns` tests run in GOPATH mode and so take the path without a module. `testdata/receivermodule` runs in module mode, with a second module through `replace`, to test the module path.
 
@@ -214,7 +216,7 @@ type Matcher struct {
 func (m *Matcher) MatchesFunc(fn *types.Func) bool
 ```
 
-`ssa.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `ssa.CallWalker`, which also goes into the body of a range-over-func loop (the synthetic `range-over-func yield` closure SSA passes to the iterator), keeping whether it is deferred, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
+`flow.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `flow.CallWalker`, which also goes into the body of a range-over-func loop (the synthetic `range-over-func yield` closure SSA passes to the iterator), keeping whether it is deferred, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
 
 **Parsing Logic:**
 - `pkg.Func1,pkg.Func2` → OR: either Func1 or Func2
@@ -279,13 +281,13 @@ func (*MyChecker) Name() checker.Name { return checker.My }
 
 // For call expression checks. A spawning API goes in the table in
 // internal/registry, with this checker's name.
-func (c *MyChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
+func (c *MyChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic {
     // Return nil for a call it does not check, else one diagnostic per
     // report, at its own position
 }
 
 // OR for go statement checks
-func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic { ... }
+func (c *MyChecker) CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic { ... }
 ```
 
 2. Add its `Def` to `checkerdef.Defs` in `internal/checkerdef` (see [The Checker Table](#the-checker-table)). That gives it its flag, its `goroutinectx.New` and plugin setting, and its place in `Run`. A checker that is not a go statement or call checker implements `packageChecker`

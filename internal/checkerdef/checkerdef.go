@@ -8,9 +8,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
-	"github.com/mpyw/goroutinectx/internal/deriver"
-	"github.com/mpyw/goroutinectx/internal/directive/spawner"
-	"github.com/mpyw/goroutinectx/internal/ssa"
+	"github.com/mpyw/goroutinectx/internal/env"
 )
 
 // Def defines one checker.
@@ -25,9 +23,10 @@ type Def struct {
 	FlagDoc string
 	// NeedsDeriver builds the checker only when -goroutine-deriver is set.
 	NeedsDeriver bool
-	// Build builds the checker. What it returns runs as a go statement, a
-	// call or a package checker by the methods it has, which Run tells apart.
-	Build func(Deps) Checker
+	// Build builds the checker from the pass's Env. What it returns runs as
+	// a go statement, a call or a package checker by the methods it has,
+	// which Run tells apart.
+	Build func(*env.Env) Checker
 }
 
 // Checker is a built checker.
@@ -36,50 +35,40 @@ type Checker interface {
 	Name() checker.Name
 }
 
-// Deps holds what Run gives each checker it builds.
-type Deps struct {
-	// Derivers is -goroutine-deriver, nil when it is not set.
-	Derivers *deriver.Matcher
-	// Spawners are the functions marked as spawners, and -external-spawner.
-	Spawners *spawner.Map
-	// SSA is the package's SSA program.
-	SSA *ssa.Program
-}
-
 // Defs defines every checker. Its order is the order Run builds them in, and
 // the order the report of an unknown name in an ignore lists them in.
 var Defs = []Def{
 	{
 		Name: checker.Goroutine, Default: true, FlagDoc: "enable goroutine checker",
-		Build: func(Deps) Checker { return &checkers.Goroutine{} },
+		Build: func(*env.Env) Checker { return &checkers.Goroutine{} },
 	},
 	{
 		Name: checker.GoroutineDerive, NeedsDeriver: true,
-		Build: func(d Deps) Checker { return checkers.NewGoroutineDerive(d.Derivers) },
+		Build: func(e *env.Env) Checker { return checkers.NewGoroutineDerive(e.Derivers) },
 	},
 	{
 		Name: checker.Waitgroup, Default: true, FlagDoc: "enable waitgroup checker",
-		Build: func(d Deps) Checker { return checkers.NewSpawnCallbackChecker(checker.Waitgroup, d.Derivers) },
+		Build: func(e *env.Env) Checker { return checkers.NewSpawnCallbackChecker(checker.Waitgroup, e.Derivers) },
 	},
 	{
 		Name: checker.Errgroup, Default: true, FlagDoc: "enable errgroup checker",
-		Build: func(d Deps) Checker { return checkers.NewSpawnCallbackChecker(checker.Errgroup, d.Derivers) },
+		Build: func(e *env.Env) Checker { return checkers.NewSpawnCallbackChecker(checker.Errgroup, e.Derivers) },
 	},
 	{
 		Name: checker.Conc, Default: true, FlagDoc: "enable conc (sourcegraph/conc) checker",
-		Build: func(d Deps) Checker { return checkers.NewSpawnCallbackChecker(checker.Conc, d.Derivers) },
+		Build: func(e *env.Env) Checker { return checkers.NewSpawnCallbackChecker(checker.Conc, e.Derivers) },
 	},
 	{
 		Name: checker.Spawner, Default: true, FlagDoc: "enable spawner checker",
-		Build: func(d Deps) Checker { return checkers.NewSpawnerChecker(d.Spawners, d.Derivers) },
+		Build: func(e *env.Env) Checker { return checkers.NewSpawnerChecker(e.Spawners, e.Derivers) },
 	},
 	{
 		Name: checker.Spawnerlabel, FlagDoc: "enable spawnerlabel checker",
-		Build: func(d Deps) Checker { return spawnerlabel.New(d.Spawners, d.SSA) },
+		Build: func(e *env.Env) Checker { return spawnerlabel.New(e.Spawners, e.SSA) },
 	},
 	{
 		Name: checker.Gotask, Default: true, FlagDoc: "enable gotask checker (requires -goroutine-deriver)", NeedsDeriver: true,
-		Build: func(d Deps) Checker { return checkers.NewGotaskChecker(d.Derivers) },
+		Build: func(e *env.Env) Checker { return checkers.NewGotaskChecker(e.Derivers) },
 	},
 }
 

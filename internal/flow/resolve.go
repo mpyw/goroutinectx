@@ -1,4 +1,4 @@
-package ssa
+package flow
 
 import (
 	"fmt"
@@ -184,25 +184,6 @@ func ResolvedArgs(common *ssa.CallCommon, call *ast.CallExpr) []ssa.Value {
 		return nil
 	}
 	return append(slices.Clone(args[:fixed]), elems...)
-}
-
-// ResolvedReceiver gives the receiver of a static method call, or of a call
-// of a method value, which a bound method wrapper holds. It gives nil for
-// any other call.
-func ResolvedReceiver(common *ssa.CallCommon) ssa.Value {
-	if common.IsInvoke() {
-		return nil
-	}
-	if mc, ok := common.Value.(*ssa.MakeClosure); ok {
-		if fn, ok := mc.Fn.(*ssa.Function); ok && fn.Synthetic != "" && len(mc.Bindings) == 1 {
-			return mc.Bindings[0]
-		}
-		return nil
-	}
-	if common.Signature().Recv() == nil || len(common.Args) == 0 {
-		return nil
-	}
-	return common.Args[0]
 }
 
 // ResolvedValues gives each value v can be, through Phi nodes, type changes,

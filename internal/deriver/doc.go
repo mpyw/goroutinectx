@@ -4,7 +4,7 @@
 //
 // When the -goroutine-deriver flag is set, this package parses its value
 // into a [Matcher] that tells whether a function is one of the derivers.
-// Whether a goroutine calls them is judged by ssa.ClosureCallsDeriver.
+// Whether a goroutine calls them is judged by flow.ClosureCallsDeriver.
 //
 // # Flag Syntax
 //
@@ -47,10 +47,10 @@
 //	}
 //
 // [Matcher.MatchesFunc] tells whether a called function is any of the
-// derivers. ssa.ClosureCallsDeriver walks a goroutine's function and tells
+// derivers. flow.ClosureCallsDeriver walks a goroutine's function and tells
 // whether an OR group is called at its start, or only in defer:
 //
-//	result := ssa.ClosureCallsDeriver(fn, matcher)
+//	result := flow.ClosureCallsDeriver(fn, matcher)
 //	if result.FoundAtStart {
 //	    // At least one OR group is fully called at the start
 //	}

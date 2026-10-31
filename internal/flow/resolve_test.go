@@ -1,4 +1,4 @@
-package ssa
+package flow
 
 import (
 	"go/constant"

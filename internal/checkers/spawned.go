@@ -4,12 +4,12 @@ import (
 	"go/ast"
 	"go/types"
 
-	gossa "golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/deriver"
+	"github.com/mpyw/goroutinectx/internal/env"
+	"github.com/mpyw/goroutinectx/internal/flow"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
-	"github.com/mpyw/goroutinectx/internal/probe"
-	"github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // spawnedFuncPasses judges the function a goroutine or a callback runs. expr
@@ -19,9 +19,9 @@ import (
 // it is in. A literal SSA has no value for is found by its syntax.
 //
 //declscope:shared // goroutine.go, spawn.go and gotask.go judge spawned functions alike
-func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa.FuncResolver) bool {
+func spawnedFuncPasses(e *env.Env, expr ast.Expr, v ssa.Value, r *flow.FuncResolver) bool {
 	if lit, ok := ast.Unparen(expr).(*ast.FuncLit); ok && v == nil {
-		fn := cctx.SSAProg.FindFuncLit(lit)
+		fn := e.SSA.FindFuncLit(lit)
 		return fn == nil || r.Closure(fn)
 	}
 	if v == nil {
@@ -37,19 +37,19 @@ func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa
 // fails, as it has no other way to get ctx.
 //
 //declscope:shared // goroutine.go and spawn.go check for a context alike
-func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa.FuncResolver {
-	return &ssa.FuncResolver{
-		Closure: func(fn *gossa.Function) bool {
-			return ssa.HasContextParam(fn, cctx.Carriers) || ssa.ClosureCapturesContext(fn, cctx.Carriers, cctx.Module()) ||
-				(!derivers.IsEmpty() && ssa.ClosureCallsDeriver(fn, derivers).FoundAtStart)
+func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncResolver {
+	return &flow.FuncResolver{
+		Closure: func(fn *ssa.Function) bool {
+			return flow.HasContextParam(fn, e.Carriers) || flow.ClosureCapturesContext(fn, e.Carriers, e.Module) ||
+				(!derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, derivers).FoundAtStart)
 		},
-		Call: func(call *gossa.CallCommon) (passes, handled bool) {
-			return false, spawnedGivesNamedFuncOnlyFreshContext(cctx, call)
+		Call: func(call *ssa.CallCommon) (passes, handled bool) {
+			return false, spawnedGivesNamedFuncOnlyFreshContext(e, call)
 		},
-		FactoryCall: func(call *gossa.CallCommon) bool {
-			return ssa.ArgsInvolveContext(call, cctx.Carriers) && !ssa.GivesOnlyFreshContext(call, cctx.Carriers)
+		FactoryCall: func(call *ssa.CallCommon) bool {
+			return flow.ArgsInvolveContext(call, e.Carriers) && !flow.GivesOnlyFreshContext(call, e.Carriers)
 		},
-		Factory: func(fn *gossa.Function) bool { return ssa.HasContextParam(fn, cctx.Carriers) },
+		Factory: func(fn *ssa.Function) bool { return flow.HasContextParam(fn, e.Carriers) },
 	}
 }
 
@@ -62,28 +62,28 @@ func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa
 // one.
 //
 //declscope:shared // goroutine.go judges a named function a go statement calls alike
-func spawnedGivesNamedFuncOnlyFreshContext(cctx *probe.Context, call *gossa.CallCommon) bool {
+func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) bool {
 	if call.IsInvoke() {
 		return false
 	}
-	fn, ok := call.Value.(*gossa.Function)
+	fn, ok := call.Value.(*ssa.Function)
 	if ok && fn.Origin() != nil {
 		// An instantiation of a generic function is a synthetic wrapper.
 		fn = fn.Origin()
 	}
 	return ok && fn.Parent() == nil && fn.Synthetic == "" && fn.Signature.Recv() == nil &&
-		ssa.GivesOnlyFreshContext(call, cctx.Carriers)
+		flow.GivesOnlyFreshContext(call, e.Carriers)
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.
 //
 //declscope:shared // spawn.go and gotask.go read the arguments of a call
-func spawnedCallArgs(cctx *probe.Context, call *ast.CallExpr) []gossa.Value {
-	instr := cctx.SSAProg.CallAt(call)
+func spawnedCallArgs(e *env.Env, call *ast.CallExpr) []ssa.Value {
+	instr := e.SSA.CallAt(call)
 	if instr == nil {
 		return nil
 	}
-	return ssa.ResolvedArgs(instr.Common(), call)
+	return flow.ResolvedArgs(instr.Common(), call)
 }
 
 // spawnedCallee gives the function call calls, and the number of arguments
@@ -94,24 +94,24 @@ func spawnedCallArgs(cctx *probe.Context, call *ast.CallExpr) []gossa.Value {
 // gofn := (*errgroup.Group).Go, is found through SSA.
 //
 //declscope:shared // spawn.go and gotask.go find the API a call makes alike
-func spawnedCallee(cctx *probe.Context, call *ast.CallExpr) (*types.Func, int) {
-	if fn := funcspec.ExtractFunc(cctx.Pass, call); fn != nil {
+func spawnedCallee(e *env.Env, call *ast.CallExpr) (*types.Func, int) {
+	if fn := funcspec.ExtractFunc(e.Pass, call); fn != nil {
 		if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok {
-			if s := cctx.Pass.TypesInfo.Selections[sel]; s != nil && s.Kind() == types.MethodExpr {
+			if s := e.Pass.TypesInfo.Selections[sel]; s != nil && s.Kind() == types.MethodExpr {
 				return fn, 1
 			}
 		}
 		return fn, 0
 	}
-	instr := cctx.SSAProg.CallAt(call)
+	instr := e.SSA.CallAt(call)
 	if instr == nil || instr.Common().IsInvoke() || instr.Common().StaticCallee() == nil {
 		return nil, 0
 	}
 	common := instr.Common()
-	fn := ssa.ExtractCalledFunc(common)
+	fn := flow.ExtractCalledFunc(common)
 	// A method value is a bound wrapper that holds the receiver. A method
 	// called any other way is given the receiver first.
-	if _, bound := common.Value.(*gossa.MakeClosure); !bound && fn != nil && fn.Signature().Recv() != nil {
+	if _, bound := common.Value.(*ssa.MakeClosure); !bound && fn != nil && fn.Signature().Recv() != nil {
 		return fn, 1
 	}
 	return fn, 0
