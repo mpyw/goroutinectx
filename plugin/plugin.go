@@ -30,7 +30,7 @@ type pluginAnalyzer struct {
 func newPlugin(settings any) (register.LinterPlugin, error) {
 	// register.DecodeSettings decodes into a zero value, which would turn
 	// off every checker left out. Decode onto the defaults instead. The
-	// settings are keyed by run.Config's json tags.
+	// settings are keyed as run.Config.UnmarshalJSON reads them.
 	cfg := run.DefaultConfig()
 	if settings != nil {
 		var buf bytes.Buffer
@@ -43,19 +43,15 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 			return nil, fmt.Errorf("decoding settings: %w", err)
 		}
 	}
+	checkers := make(map[string]bool, len(cfg.Checkers))
+	for name, on := range cfg.Checkers {
+		checkers[string(name)] = on
+	}
 	a, err := goroutinectx.New(goroutinectx.Config{
 		GoroutineDeriver: cfg.GoroutineDeriver,
 		ExternalSpawner:  cfg.ExternalSpawner,
 		ContextCarriers:  cfg.ContextCarriers,
-		Checkers: map[string]bool{
-			"goroutine":    cfg.Goroutine,
-			"waitgroup":    cfg.Waitgroup,
-			"errgroup":     cfg.Errgroup,
-			"conc":         cfg.Conc,
-			"spawner":      cfg.Spawner,
-			"spawnerlabel": cfg.Spawnerlabel,
-			"gotask":       cfg.Gotask,
-		},
+		Checkers:         checkers,
 	})
 	if err != nil {
 		return nil, err

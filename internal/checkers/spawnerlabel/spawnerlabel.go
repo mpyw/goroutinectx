@@ -8,6 +8,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
+	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/registry"
 	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
@@ -22,6 +23,11 @@ type Checker struct {
 // New creates a new spawnerlabel checker.
 func New(spawners *spawner.Map, ssaProg *internalssa.Program) *Checker {
 	return &Checker{spawners: spawners, ssaProg: ssaProg}
+}
+
+// Name returns the checker name.
+func (*Checker) Name() checker.Name {
+	return checker.Spawnerlabel
 }
 
 // spawnCallInfo contains information about a detected spawn call.

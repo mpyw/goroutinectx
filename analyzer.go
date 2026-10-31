@@ -3,12 +3,16 @@
 package goroutinectx
 
 import (
+	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
 
+	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkerdef"
 	"github.com/mpyw/goroutinectx/internal/run"
 )
 
@@ -52,13 +56,11 @@ func New(cfg Config) (*analysis.Analyzer, error) {
 	c.GoroutineDeriver = cfg.GoroutineDeriver
 	c.ExternalSpawner = cfg.ExternalSpawner
 	c.ContextCarriers = cfg.ContextCarriers
-	checkers := analyzerCheckers(&c)
 	for name, on := range cfg.Checkers {
-		field, ok := checkers[name]
-		if !ok {
+		if !checkerdef.Settable(checker.Name(name)) {
 			return nil, fmt.Errorf("unknown checker %q", name)
 		}
-		*field = on
+		c.Checkers[checker.Name(name)] = on
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -79,28 +81,12 @@ func analyzerWithFlags() *analysis.Analyzer {
 	a.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 
-	// Checker flags
-	a.Flags.BoolVar(&c.Goroutine, "goroutine", c.Goroutine, "enable goroutine checker")
-	a.Flags.BoolVar(&c.Waitgroup, "waitgroup", c.Waitgroup, "enable waitgroup checker")
-	a.Flags.BoolVar(&c.Errgroup, "errgroup", c.Errgroup, "enable errgroup checker")
-	a.Flags.BoolVar(&c.Conc, "conc", c.Conc, "enable conc (sourcegraph/conc) checker")
-	a.Flags.BoolVar(&c.Spawner, "spawner", c.Spawner, "enable spawner checker")
-	a.Flags.BoolVar(&c.Spawnerlabel, "spawnerlabel", c.Spawnerlabel, "enable spawnerlabel checker")
-	a.Flags.BoolVar(&c.Gotask, "gotask", c.Gotask, "enable gotask checker (requires -goroutine-deriver)")
-	return a
-}
-
-// analyzerCheckers maps each checker's name to its field of c.
-func analyzerCheckers(c *run.Config) map[string]*bool {
-	return map[string]*bool{
-		"goroutine":    &c.Goroutine,
-		"waitgroup":    &c.Waitgroup,
-		"errgroup":     &c.Errgroup,
-		"conc":         &c.Conc,
-		"spawner":      &c.Spawner,
-		"spawnerlabel": &c.Spawnerlabel,
-		"gotask":       &c.Gotask,
+	for _, d := range checkerdef.Defs {
+		if d.HasFlag() {
+			a.Flags.Var(analyzerChecker{c.Checkers, d.Name}, string(d.Name), d.FlagDoc)
+		}
 	}
+	return a
 }
 
 // analyzerBuild builds an analyzer that runs with the settings c holds when
@@ -167,3 +153,29 @@ func (d analyzerDeriver) Set(s string) error {
 	*d.value = s
 	return nil
 }
+
+// analyzerChecker is the flag that turns one checker on or off. It is a
+// boolean flag, as flag.BoolVar would give, that sets the checker's entry in
+// checkers.
+type analyzerChecker struct {
+	checkers map[checker.Name]bool
+	name     checker.Name
+}
+
+func (c analyzerChecker) String() string {
+	return strconv.FormatBool(c.checkers[c.name])
+}
+
+func (c analyzerChecker) Set(s string) error {
+	on, err := strconv.ParseBool(s)
+	if err != nil {
+		// The error flag.BoolVar gives.
+		return errors.New("parse error")
+	}
+	c.checkers[c.name] = on
+	return nil
+}
+
+// IsBoolFlag lets the flag be set with no value, and lists it as a boolean
+// flag.
+func (analyzerChecker) IsBoolFlag() bool { return true }

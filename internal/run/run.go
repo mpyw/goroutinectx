@@ -1,9 +1,13 @@
 package run
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/token"
+	"reflect"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -12,8 +16,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkers"
-	"github.com/mpyw/goroutinectx/internal/checkers/spawnerlabel"
+	"github.com/mpyw/goroutinectx/internal/checkerdef"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
@@ -36,26 +39,81 @@ type Config struct {
 	// ContextCarriers is -context-carriers. The flag is comma-separated.
 	ContextCarriers []string `json:"context-carriers"`
 
-	// Each checker is on when its field is true.
-	Goroutine    bool `json:"goroutine"`
-	Waitgroup    bool `json:"waitgroup"`
-	Errgroup     bool `json:"errgroup"`
-	Conc         bool `json:"conc"`
-	Spawner      bool `json:"spawner"`
-	Spawnerlabel bool `json:"spawnerlabel"`
-	Gotask       bool `json:"gotask"`
+	// Checkers turns each checker that has a flag on or off by its name: on
+	// when its value is true. In JSON each is a key of its own, beside the
+	// keys above.
+	Checkers map[checker.Name]bool `json:"-"`
 }
 
 // DefaultConfig is the configuration the flags give when none is set.
 func DefaultConfig() Config {
-	return Config{
-		Goroutine: true,
-		Waitgroup: true,
-		Errgroup:  true,
-		Conc:      true,
-		Spawner:   true,
-		Gotask:    true,
+	cfg := Config{Checkers: make(map[checker.Name]bool)}
+	for _, d := range checkerdef.Defs {
+		if d.HasFlag() {
+			cfg.Checkers[d.Name] = d.Default
+		}
 	}
+	return cfg
+}
+
+// UnmarshalJSON decodes settings onto cfg: an object keyed by the flags'
+// names, which is an error with any other key. It decodes them as onto a
+// struct with a field for each flag, so the settings it takes and the errors
+// it gives are those of such a struct named Config.
+func (cfg *Config) UnmarshalJSON(data []byte) error {
+	configType := reflect.TypeFor[Config]()
+	var fields []reflect.StructField
+	for i := range configType.NumField() {
+		if f := configType.Field(i); f.Tag.Get("json") != "-" {
+			fields = append(fields, reflect.StructField{Name: f.Name, Type: f.Type, Tag: f.Tag})
+		}
+	}
+	nflags := len(fields)
+	var names []checker.Name
+	for _, d := range checkerdef.Defs {
+		if d.HasFlag() {
+			fields = append(fields, reflect.StructField{
+				Name: fmt.Sprintf("Checker%d", len(names)),
+				Type: reflect.TypeFor[bool](),
+				Tag:  reflect.StructTag(fmt.Sprintf("json:%q", d.Name)),
+			})
+			names = append(names, d.Name)
+		}
+	}
+	flat := reflect.New(reflect.StructOf(fields)).Elem()
+	src := reflect.ValueOf(cfg).Elem()
+	for i := range nflags {
+		flat.Field(i).Set(src.FieldByName(fields[i].Name))
+	}
+	for i, name := range names {
+		flat.Field(nflags + i).SetBool(cfg.Checkers[name])
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(flat.Addr().Interface()); err != nil {
+		// Name the struct, which has no name, as the errors of Config did.
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			if typeErr.Field != "" {
+				typeErr.Struct = configType.Name()
+			}
+			if typeErr.Type == flat.Type() {
+				typeErr.Type = configType
+			}
+		}
+		return err
+	}
+
+	for i := range nflags {
+		src.FieldByName(fields[i].Name).Set(flat.Field(i))
+	}
+	checkers := make(map[checker.Name]bool, len(names))
+	for i, name := range names {
+		checkers[name] = flat.Field(nflags + i).Bool()
+	}
+	cfg.Checkers = checkers
+	return nil
 }
 
 // Validate reports the first flag value Run would reject: a function
@@ -146,20 +204,13 @@ func Run(pass *analysis.Pass, cfg Config) error {
 		skipFiles:  skipFiles,
 		enabled:    make(ignore.EnabledCheckers),
 	}
-	r.goStmtCheckers, r.callCheckers = buildCheckers(cfg, parsed.derivers, spawners)
-	for _, c := range r.goStmtCheckers {
-		r.enabled[c.Name()] = true
-	}
-	for _, c := range r.callCheckers {
-		r.enabled[c.Name()] = true
-	}
+	packageCheckers := r.buildCheckers(cfg, checkerdef.Deps{Derivers: parsed.derivers, Spawners: spawners, SSA: ssaProg})
 
 	r.checkNodes(insp)
 
-	// Run spawnerlabel checker if enabled
-	if cfg.Spawnerlabel {
-		r.enabled[checker.Spawnerlabel] = true
-		r.report(checker.Spawnerlabel, spawnerlabel.New(spawners, ssaProg).Check(pass, skipFiles), token.NoPos)
+	// Run the package checkers, such as spawnerlabel
+	for _, c := range packageCheckers {
+		r.report(c.Name(), c.Check(pass, skipFiles), token.NoPos)
 	}
 
 	// Report unused ignore directives
@@ -186,6 +237,14 @@ type callChecker interface {
 	// CheckCall gives the reports for one call, none for a call the checker
 	// does not check.
 	CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
+}
+
+// packageChecker checks a whole package once, after the other checkers.
+type packageChecker interface {
+	// Name returns the checker name, which its reports are ignored by.
+	Name() checker.Name
+	// Check gives the reports for the package, skipping skipFiles.
+	Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic
 }
 
 // runner runs the go statement and call checkers over one package.
@@ -312,42 +371,28 @@ func buildIgnoreMaps(pass *analysis.Pass, skipFiles map[string]bool) map[string]
 	return ignoreMaps
 }
 
-// buildCheckers creates the checker instances.
-func buildCheckers(cfg Config, derivers *deriver.Matcher, spawners *spawner.Map) ([]goStmtChecker, []callChecker) {
-	var goStmtCheckers []goStmtChecker
-	var callCheckers []callChecker
-
-	// Goroutine checkers
-	if cfg.Goroutine {
-		goStmtCheckers = append(goStmtCheckers, &checkers.Goroutine{})
+// buildCheckers builds each checker of [checkerdef.Defs] that cfg turns on,
+// and that has the deriver it needs, and marks it enabled. It gives the go
+// statement and call checkers to r, and returns the package checkers.
+func (r *runner) buildCheckers(cfg Config, deps checkerdef.Deps) []packageChecker {
+	var packageCheckers []packageChecker
+	for _, d := range checkerdef.Defs {
+		if (d.HasFlag() && !cfg.Checkers[d.Name]) || (d.NeedsDeriver && deps.Derivers == nil) {
+			continue
+		}
+		switch c := d.Build(deps).(type) {
+		case goStmtChecker:
+			r.goStmtCheckers = append(r.goStmtCheckers, c)
+		case callChecker:
+			r.callCheckers = append(r.callCheckers, c)
+		case packageChecker:
+			packageCheckers = append(packageCheckers, c)
+		default:
+			panic(fmt.Sprintf("checker %s is not a go statement, call or package checker", d.Name))
+		}
+		r.enabled[d.Name] = true
 	}
-
-	if derivers != nil {
-		goStmtCheckers = append(goStmtCheckers, checkers.NewGoroutineDerive(derivers))
-	}
-
-	// Call checkers
-	if cfg.Errgroup {
-		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Errgroup, derivers))
-	}
-
-	if cfg.Waitgroup {
-		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Waitgroup, derivers))
-	}
-
-	if cfg.Conc {
-		callCheckers = append(callCheckers, checkers.NewSpawnCallbackChecker(checker.Conc, derivers))
-	}
-
-	if cfg.Spawner {
-		callCheckers = append(callCheckers, checkers.NewSpawnerChecker(spawners, derivers))
-	}
-
-	if cfg.Gotask && derivers != nil {
-		callCheckers = append(callCheckers, checkers.NewGotaskChecker(derivers))
-	}
-
-	return goStmtCheckers, callCheckers
+	return packageCheckers
 }
 
 // reportUnusedIgnores reports any ignore directives that were not used.

@@ -57,6 +57,7 @@ goroutinectx/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
 │   ├── checker/               # Checker names
+│   ├── checkerdef/            # The one table of checkers: flags, defaults, builders
 │   ├── checkers/              # Checker implementations
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
 │   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
@@ -117,15 +118,35 @@ type callChecker interface {
     Name() checker.Name
     CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
 }
+
+type packageChecker interface {
+    Name() checker.Name
+    Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic
+}
 ```
 
 The set of checkers named by an unused-ignore report is the set of checkers built: their `Name()`s.
 
-**Why two interfaces?**
+**Why three interfaces?**
 - `goStmtChecker`: For `go` keyword statements (`go func() {}()`)
 - `callChecker`: For function calls (`g.Go()`, `wg.Go()`)
+- `packageChecker`: For a check over the whole package, run once after the others (spawnerlabel)
 
-These are AST-level distinctions: `go` is a statement, function calls are expressions.
+The first two are AST-level distinctions: `go` is a statement, function calls are expressions. `Run` tells a checker's kind by the interface its built value has.
+
+### The Checker Table
+
+`checkerdef.Defs` defines every checker once:
+
+| Field | Meaning |
+| --- | --- |
+| `Name` | The name its reports are ignored by, and the name of its flag and plugin setting |
+| `Default` | Whether it is on when its flag is not set |
+| `FlagDoc` | The help of its flag. Empty means no flag and no setting: it is on whenever it can be built (goroutinederive) |
+| `NeedsDeriver` | Built only when `-goroutine-deriver` is set (goroutinederive, gotask) |
+| `Build` | Builds it from the derivers, the spawners and the SSA program |
+
+The flags, `goroutinectx.New`'s `unknown checker` error, the plugin's settings (`run.Config.UnmarshalJSON`), the checkers `Run` builds, and the names `//goroutinectx:ignore` accepts all come from it. Its order is the order `Run` builds the checkers in, and the order an unknown-checker report in an ignore lists them in.
 
 ### Goroutine-Related Checkers
 
@@ -265,7 +286,7 @@ func (c *MyChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysi
 func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysis.Diagnostic { ... }
 ```
 
-2. Build it in `buildCheckers` in `internal/run/run.go`
+2. Add its `Def` to `checkerdef.Defs` in `internal/checkerdef` (see [The Checker Table](#the-checker-table)). That gives it its flag, its `goroutinectx.New` and plugin setting, and its place in `Run`. A checker that is not a go statement or call checker implements `packageChecker`
 
 3. Add its variant of each case in `testdata/src/patterns/` that it can express, and its own cases in `testdata/src/<name>/` (see [Where a Test Case Goes](#where-a-test-case-goes))
 
