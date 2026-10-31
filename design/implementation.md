@@ -206,7 +206,10 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 | `gotask.Do*` functions | Task arguments (2nd+) must call deriver in their body |
 | `Task.DoAsync` | Context argument (1st) must be derived |
 | `CancelableTask.DoAsync` | The `Task.DoAsync` it embeds, judged the same way |
-| A combinator: `Parallel`, `ParallelSettled`, `Race`, `Then`, `Catch` | Every task and function it is given must call the deriver. The resolver handles it in `Call`, so it does not fall to the factory rules, which pass a callee without a body |
+| `Parallel`, `ParallelSettled`, `Race` | Every task it is given must call the deriver, as each runs in a goroutine of its own |
+| `Then`, `Catch` | The task or the function it is given must call the deriver, as both run in one goroutine |
+
+The resolver handles a combinator in `Call`, so it does not fall to the factory rules, which pass a callee without a body.
 
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 

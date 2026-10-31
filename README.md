@@ -333,12 +333,12 @@ func handler(ctx context.Context) {
 }
 ```
 
-A task built by a combinator is judged by what it is given. It passes only when every task and function it is given calls the deriver:
+A task built by a combinator is judged by what it is given:
 
 | Combinator | Judged by |
 |------------|-----------|
-| [`gotask.Parallel`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Parallel), [`gotask.ParallelSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#ParallelSettled), [`gotask.Race`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Race) | Each task. Each one runs in a goroutine of its own |
-| [`gotask.Then`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Then), [`gotask.Catch`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Catch) | The task and the function. The function gets the context the task was given, not the one the task derives |
+| [`gotask.Parallel`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Parallel), [`gotask.ParallelSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#ParallelSettled), [`gotask.Race`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Race) | Passes when every task calls the deriver. Each task runs in a goroutine of its own |
+| [`gotask.Then`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Then), [`gotask.Catch`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Catch) | Passes when the task or the function calls the deriver. Both run in one goroutine, so one call is enough, as in a `go` statement |
 
 ```go
 func handler(ctx context.Context) {
