@@ -15,7 +15,10 @@ A parameter is a context when its type is one of these:
 
 - `context.Context`
 - An alias of it, such as `type Ctx = context.Context` or [`golang.org/x/net/context.Context`](https://pkg.go.dev/golang.org/x/net/context#Context)
-- A type parameter whose constraint is `context.Context`, or an interface literal that embeds it: `[C context.Context]` or `[C interface{ context.Context; Name() string }]`
+- An interface that embeds it, named or not: `type MyCtx interface{ context.Context }` or `interface{ context.Context; Name() string }`
+- A type parameter whose constraint is one of the above: `[C context.Context]` or `[C MyCtx]`
+
+Only an embedded `context.Context` counts. An interface that declares some or all of its methods itself is not a context.
 
 ## Installation & Usage
 
@@ -479,7 +482,7 @@ Name each type with the full import path of its package, as for `-goroutine-deri
 
 Example with [`echo.Context`](https://pkg.go.dev/github.com/labstack/echo/v4#Context) and [`cli.Context`](https://pkg.go.dev/github.com/urfave/cli/v2#Context).
 
-When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs. An alias of a carrier, and a type parameter constrained by one, count as the carrier, the same as for `context.Context`.
+When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs. An alias of a carrier, an interface that embeds one, and a type parameter constrained by one, count as the carrier, the same as for `context.Context`.
 
 ### `-external-spawner`
 

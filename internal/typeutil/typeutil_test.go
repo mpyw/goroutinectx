@@ -104,6 +104,11 @@ func TestIsContextType(t *testing.T) {
 	embedding := func(embeddeds ...types.Type) types.Type {
 		return types.NewInterfaceType(nil, embeddeds)
 	}
+	named := func(name string, underlying types.Type) types.Type {
+		return types.NewNamed(types.NewTypeName(token.NoPos, pkg, name, nil), underlying, nil)
+	}
+	myCtx := named("MyCtx", embedding(ctx))
+	done := types.NewFunc(token.NoPos, pkg, "Done", types.NewSignatureType(nil, nil, nil, nil, nil, false))
 
 	tests := []struct {
 		name string
@@ -121,8 +126,16 @@ func TestIsContextType(t *testing.T) {
 		{name: "nested embedding constraint", typ: typeParam(embedding(embedding(ctx))), want: true},
 		{name: "other Context", typ: other, want: false},
 		{name: "any type parameter", typ: typeParam(embedding()), want: false},
-		{name: "named interface embedding context", typ: typeParam(types.NewNamed(
-			types.NewTypeName(token.NoPos, pkg, "MyCtx", nil), embedding(ctx), nil)), want: false},
+		{name: "interface literal embedding context", typ: embedding(ctx), want: true},
+		{name: "named interface embedding context", typ: myCtx, want: true},
+		{name: "pointer to named interface embedding context", typ: types.NewPointer(myCtx), want: true},
+		{name: "named interface embedding alias", typ: named("AliasCtx", embedding(alias)), want: true},
+		{name: "nested named interface", typ: named("Outer", embedding(myCtx)), want: true},
+		{name: "named interface constraint", typ: typeParam(myCtx), want: true},
+		{name: "interface with a context method only", typ: named("Doner", types.NewInterfaceType([]*types.Func{done}, nil)), want: false},
+		{name: "struct embedding context", typ: named("S", types.NewStruct(
+			[]*types.Var{types.NewField(token.NoPos, pkg, "Context", ctx, true)}, nil)), want: false},
+		{name: "named interface embedding other Context", typ: named("OtherCtx", embedding(other)), want: false},
 		{name: "basic", typ: types.Typ[types.Int], want: false},
 	}
 
