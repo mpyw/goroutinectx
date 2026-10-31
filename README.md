@@ -208,7 +208,7 @@ func handler(ctx context.Context) {
 
 A context made with [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) does not count, wherever the goroutine gets it.
 
-A context the goroutine reads from a field or an element of a value it captures counts. So does a value whose type implements `context.Context`, such as a struct that embeds one. A method called on a captured value counts too when it returns a context, as `req.Context()` does, or when the value holds a context your code can have put there, as the method is not looked into, the same as for `go s.run()`. A context field counts when it is exported, or when it is declared in your package or another package of your module. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported.
+A context the goroutine reads from a field or an element of a value it captures counts. So does a value whose type implements `context.Context`, such as a struct that embeds one. A method called on a captured value counts too when it returns a context, as `req.Context()` does, or when the value holds a context your code can have put there, as the method is not looked into, the same as for `go s.run()`. A context field counts when it is exported, or when it is declared in your package or another package of your module. When the driver does not tell which module, a field of any package outside the standard library counts. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported.
 
 ### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 
