@@ -384,6 +384,316 @@ func limitationFuncFromVariadicParameterSpawner(ctx context.Context, fns ...func
 	wg.Wait()
 }
 
+// ===== Func value called inside a literal =====
+
+// [NOTCHECKED]: Func from a parameter, called inside a literal
+//
+// The func cannot be traced, so it passes, as go fn() does (#228).
+func notCheckedParamFuncInLiteralGoroutine(ctx context.Context, fn func()) {
+	go func() { fn() }()
+}
+
+// [NOTCHECKED]: Func from a parameter, called inside a literal
+//
+// The func cannot be traced, so it passes, as g.Go(fn) does (#228).
+func notCheckedParamFuncInLiteralErrgroup(ctx context.Context, fn func() error) {
+	g := new(errgroup.Group)
+	g.Go(func() error { return fn() })
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Func from a parameter, called inside a literal
+//
+// The func cannot be traced, so it passes, as wg.Go(fn) does (#228).
+func notCheckedParamFuncInLiteralWaitGroup(ctx context.Context, fn func()) {
+	var wg sync.WaitGroup
+	wg.Go(func() { fn() })
+	wg.Wait()
+}
+
+// [NOTCHECKED]: Func from a parameter, called inside a literal
+//
+// The func cannot be traced, so it passes, as runWithGroup(g, fn) does
+// (#228).
+func notCheckedParamFuncInLiteralSpawner(ctx context.Context, fn func() error) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { return fn() })
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Func from a field of a parameter, called inside a literal
+//
+// The field cannot be traced, so it passes, as go h.fn() does (#228).
+func notCheckedParamFieldFuncInLiteralGoroutine(ctx context.Context, h *funcHolder) {
+	go func() { h.fn() }()
+}
+
+// [NOTCHECKED]: Func from a field of a parameter, called inside a literal
+//
+// The field cannot be traced, so it passes, as g.Go(h.fn) does (#228).
+func notCheckedParamFieldFuncInLiteralErrgroup(ctx context.Context, h *errFuncHolder) {
+	g := new(errgroup.Group)
+	g.Go(func() error { return h.fn() })
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Func from a field of a parameter, called inside a literal
+//
+// The field cannot be traced, so it passes, as wg.Go(h.fn) does (#228).
+func notCheckedParamFieldFuncInLiteralWaitGroup(ctx context.Context, h *funcHolder) {
+	var wg sync.WaitGroup
+	wg.Go(func() { h.fn() })
+	wg.Wait()
+}
+
+// [NOTCHECKED]: Func from a field of a parameter, called inside a literal
+//
+// The field cannot be traced, so it passes, as runWithGroup(g, h.fn) does
+// (#228).
+func notCheckedParamFieldFuncInLiteralSpawner(ctx context.Context, h *errFuncHolder) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { return h.fn() })
+	_ = g.Wait()
+}
+
+// [GOOD]: Func from a factory given ctx, called inside a literal
+//
+// The factory is given ctx, as for go run() (#228).
+func goodFactoryFuncInLiteralGoroutine(ctx context.Context) {
+	run, _ := serveWithCtx(ctx)
+	go func() { _ = run() }()
+}
+
+// [GOOD]: Func from a factory given ctx, called inside a literal
+//
+// The factory is given ctx, as for g.Go(run) (#228).
+func goodFactoryFuncInLiteralErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	run, _ := serveWithCtx(ctx)
+	g.Go(func() error { return run() })
+	_ = g.Wait()
+}
+
+// [GOOD]: Func from a factory given ctx, called inside a literal
+//
+// The factory is given ctx, as for wg.Go(run) (#228).
+func goodFactoryFuncInLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	run := makeWorkerWithCtxGoroutine(ctx)
+	wg.Go(func() { run() })
+	wg.Wait()
+}
+
+// [GOOD]: Func from a factory given ctx, called inside a literal
+//
+// The factory is given ctx, as for runWithGroup(g, run) (#228).
+func goodFactoryFuncInLiteralSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	run := makeWorkerWithCtxErrgroup(ctx)
+	runWithGroup(g, func() error { return run() })
+	_ = g.Wait()
+}
+
+// [BAD]: Func from a named factory given only a fresh context, called inside a literal
+//
+// The factory gets no ctx, as for go makeWorkerWithCtxGoroutine(context.Background())().
+func badFreshFactoryFuncInLiteralGoroutine(ctx context.Context) {
+	run := makeWorkerWithCtxGoroutine(context.Background())
+	go func() { run() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Func from a slice element, called inside a literal
+//
+// An element at an index that is not constant is not followed, so it
+// passes, as go op() does (#228). Here every element uses ctx.
+func goodSliceElemFuncInLiteralGoroutine(ctx context.Context) {
+	ops := []func(){
+		func() { _ = ctx },
+		func() { _ = ctx },
+	}
+	for _, op := range ops {
+		go func() { op() }()
+	}
+}
+
+// [GOOD]: Func from a slice element, called inside a literal
+//
+// An element at an index that is not constant is not followed, so it
+// passes, as g.Go(op) does (#228). Here every element uses ctx.
+func goodSliceElemFuncInLiteralErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ops := []func() error{
+		func() error { return ctx.Err() },
+		func() error { return ctx.Err() },
+	}
+	for _, op := range ops {
+		g.Go(func() error { return op() })
+	}
+	_ = g.Wait()
+}
+
+// [GOOD]: Func from a slice element, called inside a literal
+//
+// An element at an index that is not constant is not followed, so it
+// passes, as wg.Go(op) does (#228). Here every element uses ctx.
+func goodSliceElemFuncInLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ops := []func(){
+		func() { _ = ctx },
+		func() { _ = ctx },
+	}
+	for _, op := range ops {
+		wg.Go(func() { op() })
+	}
+	wg.Wait()
+}
+
+// [GOOD]: Func from a slice element, called inside a literal
+//
+// An element at an index that is not constant is not followed, so it
+// passes, as runWithGroup(g, op) does (#228). Here every element uses ctx.
+func goodSliceElemFuncInLiteralSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ops := []func() error{
+		func() error { return ctx.Err() },
+		func() error { return ctx.Err() },
+	}
+	for _, op := range ops {
+		runWithGroup(g, func() error { return op() })
+	}
+	_ = g.Wait()
+}
+
+// [GOOD]: Func copied from a variable set on two branches, called inside a literal
+//
+// Each closure the copy can hold uses ctx.
+func goodBranchCopyFuncInLiteralGoroutine(ctx context.Context) {
+	var f func()
+	if conditionFlag {
+		f = func() { _ = ctx }
+	} else {
+		f = func() { use(ctx) }
+	}
+	g := f
+	go func() { g() }()
+}
+
+// [GOOD]: Func copied from a variable set on two branches, called inside a literal
+//
+// Each closure the copy can hold uses ctx.
+func goodBranchCopyFuncInLiteralErrgroup(ctx context.Context) {
+	eg := new(errgroup.Group)
+	var f func() error
+	if conditionFlag {
+		f = func() error { return ctx.Err() }
+	} else {
+		f = func() error { use(ctx); return nil }
+	}
+	g := f
+	eg.Go(func() error { return g() })
+	_ = eg.Wait()
+}
+
+// [GOOD]: Func copied from a variable set on two branches, called inside a literal
+//
+// Each closure the copy can hold uses ctx.
+func goodBranchCopyFuncInLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var f func()
+	if conditionFlag {
+		f = func() { _ = ctx }
+	} else {
+		f = func() { use(ctx) }
+	}
+	g := f
+	wg.Go(func() { g() })
+	wg.Wait()
+}
+
+// [GOOD]: Func copied from a variable set on two branches, called inside a literal
+//
+// Each closure the copy can hold uses ctx.
+func goodBranchCopyFuncInLiteralSpawner(ctx context.Context) {
+	eg := new(errgroup.Group)
+	var f func() error
+	if conditionFlag {
+		f = func() error { return ctx.Err() }
+	} else {
+		f = func() error { use(ctx); return nil }
+	}
+	g := f
+	runWithGroup(eg, func() error { return g() })
+	_ = eg.Wait()
+}
+
+// [BAD]: Func from a field of a local struct, called inside a literal
+//
+// The field is followed to a closure that does not use ctx.
+func badLocalFieldFuncInLiteralGoroutine(ctx context.Context) {
+	h := &funcHolder{fn: func() { fmt.Println("no ctx") }}
+	go func() { h.fn() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Func from a field of a local struct, called inside a literal
+//
+// The field is followed to a closure that does not use ctx.
+func badLocalFieldFuncInLiteralErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &errFuncHolder{fn: func() error { return nil }}
+	g.Go(func() error { return h.fn() }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Func from a field of a local struct, called inside a literal
+//
+// The field is followed to a closure that does not use ctx.
+func badLocalFieldFuncInLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := &funcHolder{fn: func() { fmt.Println("no ctx") }}
+	wg.Go(func() { h.fn() }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Func from a field of a local struct, called inside a literal
+//
+// The field is followed to a closure that does not use ctx.
+func badLocalFieldFuncInLiteralSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &errFuncHolder{fn: func() error { return nil }}
+	runWithGroup(g, func() error { return h.fn() }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Func variable copied from a closure without ctx, called inside a literal
+//
+// Each closure the copy can hold is followed, and none uses ctx.
+func badBranchCopyNoCtxFuncInLiteralGoroutine(ctx context.Context) {
+	var f func()
+	if conditionFlag {
+		f = func() { fmt.Println("a") }
+	} else {
+		f = func() { fmt.Println("b") }
+	}
+	g := f
+	go func() { g() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Func from a parameter, only compared inside a literal
+//
+// The func is not run, so it gives the goroutine nothing.
+func badParamFuncComparedInLiteralGoroutine(ctx context.Context, fn func()) {
+	go func() { // want `goroutine does not propagate context "ctx"`
+		if fn != nil {
+			fmt.Println("set")
+		}
+	}()
+}
+
+// serveWithCtx gives a func that waits for ctx, and an error.
+func serveWithCtx(ctx context.Context) (func() error, error) {
+	return func() error { <-ctx.Done(); return nil }, nil
+}
+
 //goroutinectx:spawner
 func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 	wg.Add(1)

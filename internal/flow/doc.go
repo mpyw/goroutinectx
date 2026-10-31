@@ -44,7 +44,7 @@
 // Plain functions check an SSA function for context propagation:
 //
 //	// Check if closure captures context
-//	captures := e.Flow.ClosureCapturesContext(ssaFn, e.Kinds)
+//	captures := e.Flow.ClosureCapturesContext(ssaFn, e.Kinds, nil)
 //
 //	// Check if closure calls deriver function
 //	result := flow.ClosureCallsDeriver(ssaFn, deriveMatcher)
@@ -86,7 +86,7 @@
 //
 //	r := &flow.FuncResolver{
 //	    Flow:    e.Flow,
-//	    Closure: func(fn *ssa.Function) bool { return e.Flow.ClosureCapturesContext(fn, e.Kinds) },
+//	    Closure: func(fn *ssa.Function) bool { return e.Flow.ClosureCapturesContext(fn, e.Kinds, nil) },
 //	}
 //	ok := r.Passes(goInstr.Call.Value)
 //

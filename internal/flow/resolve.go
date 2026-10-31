@@ -39,6 +39,31 @@ func (r *FuncResolver) Passes(v ssa.Value) bool {
 	return r.passes(v, make(map[ssa.Value]bool))
 }
 
+// CapturedPasses reports whether every function v can hold passes, v being
+// read from a variable a closure captures, as [Flow.CapturedSources] reads
+// it. A free variable captured by value from an outer closure is read the
+// same way, out to the function that makes it. A value that cannot be
+// followed passes, as [FuncResolver.Passes] judges it.
+func (r *FuncResolver) CapturedPasses(v ssa.Value) bool {
+	defer r.Flow.ask()()
+	read, judged := make(map[ssa.Value]bool), make(map[ssa.Value]bool)
+	var captured func(v ssa.Value) bool
+	captured = func(v ssa.Value) bool {
+		if read[v] {
+			return true
+		}
+		read[v] = true
+		sources, complete := r.Flow.CapturedSources(v)
+		return !complete || !slices.ContainsFunc(sources, func(s Source) bool {
+			if fv, ok := s.Value.(*ssa.FreeVar); ok && fv != v {
+				return !captured(fv)
+			}
+			return !r.passes(s.Value, judged)
+		})
+	}
+	return captured(v)
+}
+
 // ResultPasses reports whether calling v gives a function that passes, as
 // for a callback that makes tasks.
 func (r *FuncResolver) ResultPasses(v ssa.Value) bool {
@@ -75,11 +100,17 @@ func (r *FuncResolver) sourcesPass(v ssa.Value, sources []Source, seen map[ssa.V
 
 // sourcePasses judges one source: a function literal by Closure, and the
 // result of a call by the rules of callPasses. The result of a call with
-// several results, as fn, err := makeFn() gives, is not followed.
+// several results, as fn, err := makeFn() gives, is not followed. A
+// parameter passes, as what it is given is not known, unless it is of a
+// factory whose result is followed from a call: callPasses has found that
+// the call gives it no func that passes, as when the closure a decorator
+// returns runs the func the decorator is given.
 func (r *FuncResolver) sourcePasses(s Source, seen map[ssa.Value]bool) bool {
 	switch s.Kind {
 	case SourceLiteral:
 		return r.Closure(s.Func())
+	case SourceParam:
+		return r.Flow.called[s.Value.Parent()] == 0
 	case SourceCall:
 		if call, ok := s.Value.(*ssa.Call); ok {
 			return r.callPasses(call.Common(), seen)
@@ -110,6 +141,12 @@ func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool)
 		return true
 	}
 	callees, _ := r.Flow.Sources(call.Value)
+	for _, s := range callees {
+		if fn := s.Func(); fn != nil {
+			r.Flow.called[fn]++
+			defer func() { r.Flow.called[fn]-- }()
+		}
+	}
 	return r.resultPasses(callees, 1, seen)
 }
 

@@ -211,8 +211,9 @@ Every check that follows a value is a fold over these:
 | Check | Fold |
 |-------|------|
 | `FuncResolver.Passes` | Every source passes: a literal by `Closure`, a call by the factory rules. Of a factory, one of the values `Returns` gives passing is enough |
+| `FuncResolver.CapturedPasses` | `Passes` of each value `CapturedSources` gives, or true when they cannot all be followed |
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
-| `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured func variable counts when one of them is a closure that captures a context |
+| `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `FuncResolver.CapturedPasses` passes it, as if it were spawned directly |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
 | gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives |
 
@@ -345,7 +346,7 @@ r := &flow.FuncResolver{Flow: e.Flow, Closure: func(fn *ssa.Function) bool { ...
 ok := r.Passes(value)
 ```
 
-It takes the sources of the value from `Flow.Sources`, which goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, and map lookups at constant keys, and follows calls of factories through what `Flow.Returns` gives. Only the stores that reach the spawn count. A value it cannot follow passes.
+It takes the sources of the value from `Flow.Sources`, which goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, and map lookups at constant keys, and follows calls of factories through what `Flow.Returns` gives. Only the stores that reach the spawn count. A value it cannot follow passes, and so does a parameter, unless it is of a factory followed from a call that gives it no func that passes.
 
 ### Deriver Matching
 

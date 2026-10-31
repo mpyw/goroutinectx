@@ -810,6 +810,24 @@ func badDecoratorSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// [BAD]: Factory that returns the func it is given, without ctx
+//
+// The parameter holds the func the call gives, which does not use ctx, so it
+// does not pass for being a parameter.
+func badIdentityFactoryGoroutine(ctx context.Context) {
+	go identityFunc(func() { fmt.Println("no ctx") })() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Factory that returns the func it is given
+//
+// The func the call gives uses ctx.
+func goodIdentityFactoryGoroutine(ctx context.Context) {
+	go identityFunc(func() { _ = ctx })()
+}
+
+// identityFunc returns f.
+func identityFunc(f func()) func() { return f }
+
 // recoverWrap runs f, recovering a panic.
 func recoverWrap(f func()) func() {
 	return func() {

@@ -23,20 +23,30 @@ import (
 // analyzed code can have put there ([ctxkind.Holds]), as its receiver or as
 // any argument, as a function or method spawned directly with it is left
 // alone. A captured closure that captures a context counts too.
-func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool {
+//
+// A func value the closure calls or passes on, read from a variable it
+// captures or from a part of one, counts when funcs passes it, as it would
+// pass the same value spawned directly: one funcs cannot follow passes, as
+// a parameter, a field of a parameter, an element at an index that is not
+// constant or a result of a call with several results. funcs may be nil,
+// and then only a captured closure that captures a context counts.
+func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier, funcs *FuncResolver) bool {
 	defer f.ask()()
-	return closureCaptures(f, closure, kinds, make(map[*ssa.Function]bool))
+	return closureCaptures(f, closure, kinds, funcs, make(map[*ssa.Function]bool))
 }
 
-func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, seen map[*ssa.Function]bool) bool {
-	if closure == nil || seen[closure] {
+func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, funcs *FuncResolver, seen map[*ssa.Function]bool) bool {
+	if closure == nil || seen[closure] || f.closures[closure] {
 		return false
 	}
 	seen[closure] = true
+	f.closures[closure] = true
+	defer delete(f.closures, closure)
 
 	r := &closureReader{
 		flow:  f,
 		kinds: kinds.From(closurePackage(closure)),
+		funcs: funcs,
 		seen:  make(map[ssa.Value]bool),
 	}
 	return slices.ContainsFunc(closure.FreeVars, func(fv *ssa.FreeVar) bool {
@@ -48,7 +58,7 @@ func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, 
 		case k&ctxkind.Implements != 0:
 			return true
 		}
-		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, seen)
+		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv)
 	})
 }
 
@@ -59,6 +69,8 @@ type closureReader struct {
 	flow *Flow
 	// kinds judges Holds for the closure's package.
 	kinds *ctxkind.Classifier
+	// funcs judges a func value the closure runs, or nil.
+	funcs *FuncResolver
 	seen  map[ssa.Value]bool
 }
 
@@ -108,7 +120,7 @@ func (r *closureReader) reads(v ssa.Value) bool {
 		default:
 			continue
 		}
-		if r.carries(part) || r.reads(part) {
+		if r.carries(part) || r.runsPassing(part) || r.reads(part) {
 			return true
 		}
 	}
@@ -187,9 +199,47 @@ func closurePackage(closure *ssa.Function) *types.Package {
 	return closure.Pkg.Pkg
 }
 
+// runsPassing reports whether v, a func value read from what the closure
+// captures, or a captured variable that holds one, is called or given to a
+// call in the closure, and every function it can hold passes, as r.funcs
+// judges a captured value ([FuncResolver.CapturedPasses]). A func value
+// only compared, as with nil, does not count.
+func (r *closureReader) runsPassing(v ssa.Value) bool {
+	if r.funcs == nil {
+		return false
+	}
+	t := v.Type()
+	if _, isFV := v.(*ssa.FreeVar); isFV {
+		t = typeutil.UnwrapPointer(t)
+	}
+	if _, isFunc := t.Underlying().(*types.Signature); !isFunc || !closureRuns(v, true) {
+		return false
+	}
+	return r.funcs.CapturedPasses(v)
+}
+
+// closureRuns reports whether v is called, or given to a call that is not
+// of a builtin. With throughLoads, a value loaded from v, as v is a variable
+// captured by reference, counts too.
+func closureRuns(v ssa.Value, throughLoads bool) bool {
+	return slices.ContainsFunc(*v.Referrers(), func(ref ssa.Instruction) bool {
+		switch x := ref.(type) {
+		case ssa.CallInstruction:
+			call := x.Common()
+			if _, isBuiltin := call.Value.(*ssa.Builtin); isBuiltin {
+				return false
+			}
+			return call.Value == v || slices.Contains(call.Args, v)
+		case *ssa.UnOp:
+			return throughLoads && x.Op == token.MUL && closureRuns(x, false)
+		}
+		return false
+	})
+}
+
 // closureHoldsCapturing reports whether the func variable fv captures holds
 // a closure that captures a context.
-func closureHoldsCapturing(f *Flow, fv *ssa.FreeVar, kinds *ctxkind.Classifier, seen map[*ssa.Function]bool) bool {
+func closureHoldsCapturing(f *Flow, fv *ssa.FreeVar, kinds *ctxkind.Classifier, funcs *FuncResolver, seen map[*ssa.Function]bool) bool {
 	if _, isFunc := typeutil.UnwrapPointer(fv.Type()).Underlying().(*types.Signature); !isFunc {
 		return false
 	}
@@ -200,7 +250,7 @@ func closureHoldsCapturing(f *Flow, fv *ssa.FreeVar, kinds *ctxkind.Classifier, 
 			return false
 		}
 		fn, _ := mc.Fn.(*ssa.Function)
-		return closureCaptures(f, fn, kinds, seen)
+		return closureCaptures(f, fn, kinds, funcs, seen)
 	})
 }
 
