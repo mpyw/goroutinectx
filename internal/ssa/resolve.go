@@ -142,7 +142,9 @@ func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]b
 // factoryFuncPasses reports whether fn takes what it needs, or calling one
 // of the values it returns depth-1 more times gives a function that passes.
 func (r *FuncResolver) factoryFuncPasses(fn *ssa.Function, depth int, seen map[ssa.Value]bool) bool {
-	if fn != nil && fn.Blocks == nil {
+	if fn != nil && fn.Origin() != nil {
+		// An instantiation of a generic function is a synthetic wrapper, or
+		// has no body of its own.
 		fn = fn.Origin()
 	}
 	if fn == nil || fn.Blocks == nil || fn.Synthetic != "" {

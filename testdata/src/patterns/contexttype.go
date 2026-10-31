@@ -238,6 +238,58 @@ func goodNetContextSpawner(ctx netcontext.Context) {
 	_ = g.Wait()
 }
 
+// ===== Fresh golang.org/x/net/context =====
+
+// [BAD]: Named function given a fresh x/net/context
+//
+// golang.org/x/net/context.Background() is as fresh as
+// context.Background() (#195).
+func badNetContextFreshNamedFuncGoroutine(ctx context.Context) {
+	go workCtx(netcontext.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured fresh x/net/context
+//
+// golang.org/x/net/context.TODO() is as fresh as context.TODO() (#195).
+func badNetContextFreshCaptureGoroutine(ctx context.Context) {
+	bg := netcontext.TODO()
+	go func() { // want `goroutine does not propagate context "ctx"`
+		workCtx(bg)
+	}()
+}
+
+// [BAD]: Factory given a fresh x/net/context
+//
+// golang.org/x/net/context.Background() is as fresh as
+// context.Background() (#195).
+func badNetContextFreshFactoryErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeWorkerWithCtxErrgroup(netcontext.Background())) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured fresh x/net/context
+//
+// golang.org/x/net/context.TODO() is as fresh as context.TODO() (#195).
+func badNetContextFreshCaptureWaitGroup(ctx context.Context) {
+	bg := netcontext.TODO()
+	var wg sync.WaitGroup
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		workCtx(bg)
+	})
+	wg.Wait()
+}
+
+// [BAD]: Factory given a fresh x/net/context
+//
+// golang.org/x/net/context.Background() is as fresh as
+// context.Background() (#195).
+func badNetContextFreshFactorySpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeWorkerWithCtxSpawner(netcontext.Background())) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
 // ===== Context as a type parameter =====
 
 // [BAD]: Type parameter ctx without use

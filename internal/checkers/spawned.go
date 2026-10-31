@@ -54,9 +54,10 @@ func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa
 }
 
 // spawnedGivesNamedFuncOnlyFreshContext reports whether call calls a named
-// function, not a method, and every context it gives it is a fresh
-// context.Background() or TODO(). A named function is not looked into, but
-// one given only a fresh context does not get ctx. A method is left alone, as
+// function, not a method, generic or not, and gives it a fresh
+// context.Background() or TODO() and nothing else that may hold a context.
+// A named function is not looked into, but one given only a fresh context
+// does not get ctx. A method is left alone, as
 // its receiver may hold a context, and so is a closure, which may capture
 // one.
 //
@@ -66,6 +67,10 @@ func spawnedGivesNamedFuncOnlyFreshContext(cctx *probe.Context, call *gossa.Call
 		return false
 	}
 	fn, ok := call.Value.(*gossa.Function)
+	if ok && fn.Origin() != nil {
+		// An instantiation of a generic function is a synthetic wrapper.
+		fn = fn.Origin()
+	}
 	return ok && fn.Parent() == nil && fn.Synthetic == "" && fn.Signature.Recv() == nil &&
 		ssa.GivesOnlyFreshContext(call, cctx.Carriers)
 }

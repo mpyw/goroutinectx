@@ -140,7 +140,7 @@ Four checkers handle goroutine context propagation:
 - Literal: `g.Go(func() { ... })`
 - Variable: `g.Go(fn)` where `fn := func() { ... }`
 - Call result: `g.Go(makeWorker())` where `makeWorker` returns a func
-- Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory. A context other than a fresh `context.Background()` or `TODO()` counts. A named function given only fresh contexts, as `g.Go(makeWorker(context.Background()))`, is reported. A factory closure or method is not, since it may get ctx from what it captures or its receiver
+- Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory. A context other than a fresh `Background()` or `TODO()` of `context` or `golang.org/x/net/context` counts. A named function given only fresh contexts, as `g.Go(makeWorker(context.Background()))`, is reported, generic or not. It is not reported when another argument may hold a context, as `&deps{ctx: ctx}` or a method value `s.run` may (#192). Only a value of a basic type, a type made only of basic types, or a function that captures nothing is sure to hold none. A factory closure or method is not reported either, since it may get ctx from what it captures or its receiver
 - Method expression or method value: `(*errgroup.Group).Go(g, fn)`, `goFn := (*errgroup.Group).Go` or `goFn := g.Go` - the callback after the receiver is checked
 - Directive: Functions marked with `//goroutinectx:spawner` check their func arguments
 
