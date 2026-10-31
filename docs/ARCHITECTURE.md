@@ -332,6 +332,8 @@ func bad(ctx context.Context) {
 
 Type-safe checking via `pass.TypesInfo` ensures accurate detection regardless of naming.
 
+A type is matched against `context.Context` or a carrier only after `typeutil.UnwrapPointer`, which strips pointers and aliases. An alias such as `type Ctx = context.Context`, or `golang.org/x/net/context.Context`, is a `*types.Alias`, not the `*types.Named` it names (#181). A type parameter is matched by its constraint, and by the types an interface literal constraint embeds (`typeutil.ConstraintEmbeds`, #186).
+
 ### 3. Interface Segregation
 
 **Decision:** Separate `CallChecker` and `GoStmtChecker` interfaces rather than a single `Checker` interface.

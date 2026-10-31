@@ -11,6 +11,12 @@ A Go linter that checks goroutine context propagation.
 
 `goroutinectx` detects cases where a [`context.Context`](https://pkg.go.dev/context#Context) is available in function parameters but not properly passed to downstream calls that should receive it.
 
+A parameter is a context when its type is one of these:
+
+- `context.Context`
+- An alias of it, such as `type Ctx = context.Context` or [`golang.org/x/net/context.Context`](https://pkg.go.dev/golang.org/x/net/context#Context)
+- A type parameter whose constraint is `context.Context`, or an interface literal that embeds it: `[C context.Context]` or `[C interface{ context.Context; Name() string }]`
+
 ## Installation & Usage
 
 ### <a href="https://mise.jdx.dev/"><img src="https://mise.jdx.dev/logo.svg" height="28" alt=""></a> Using [mise](https://mise.jdx.dev/) (macOS/Linux/Windows)
@@ -471,7 +477,7 @@ Name each type with the full import path of its package, as for `-goroutine-deri
 
 Example with [`echo.Context`](https://pkg.go.dev/github.com/labstack/echo/v4#Context) and [`cli.Context`](https://pkg.go.dev/github.com/urfave/cli/v2#Context).
 
-When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs.
+When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs. An alias of a carrier, and a type parameter constrained by one, count as the carrier, the same as for `context.Context`.
 
 ### `-external-spawner`
 

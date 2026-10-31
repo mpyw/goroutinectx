@@ -287,3 +287,37 @@ func goodGoroutineUsesCtxInSwitch(ctx context.Context) {
 		}
 	}()
 }
+
+// ===== CONTEXT TYPE FORMS PASSED AS ARGUMENT =====
+
+// aliasCtx is an alias of context.Context.
+type aliasCtx = context.Context
+
+// [GOOD]: Ctx passed as alias-typed argument to goroutine
+//
+// The goroutine's own parameter of an alias of context.Context is given ctx
+// (#181).
+func goodGoroutinePassesCtxAsAliasArg(ctx context.Context) {
+	go func(c aliasCtx) {
+		_ = c.Done()
+	}(ctx)
+}
+
+// [GOOD]: Type parameter ctx passed as argument to goroutine
+//
+// The goroutine's own parameter of a context type parameter is given ctx
+// (#186).
+func goodGoroutinePassesTypeParamCtxAsArg[C context.Context](ctx C) {
+	go func(c C) {
+		_ = c.Done()
+	}(ctx)
+}
+
+// [BAD]: Fresh ctx passed as alias-typed argument to goroutine
+//
+// A context.Background() given to an alias-typed parameter is not ctx.
+func badGoroutinePassesBackgroundAsAliasArg(ctx context.Context) {
+	go func(c aliasCtx) { // want `goroutine does not propagate context "ctx"`
+		_ = c.Done()
+	}(context.Background())
+}
