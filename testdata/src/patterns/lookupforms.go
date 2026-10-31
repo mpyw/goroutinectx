@@ -359,6 +359,108 @@ func badStructFieldReadInAClosureSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Struct field - pointer literal read in a closure =====
+
+// [BAD]: Struct field - pointer literal read in a closure
+//
+// The struct is followed through the variable that holds its address.
+func badStructFieldPointerLiteralReadInAClosureGoroutine(ctx context.Context) {
+	s := &funcHolder{fn: func() { fmt.Println("no ctx") }}
+	go func() {
+		_ = ctx
+		go s.fn() // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [BAD]: Struct field - pointer literal read in a closure
+//
+// The struct is followed through the variable that holds its address.
+func badStructFieldPointerLiteralReadInAClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &errFuncHolder{fn: func() error { return nil }}
+	func() {
+		g.Go(s.fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Struct field - pointer literal read in a closure
+//
+// The struct is followed through the variable that holds its address.
+func badStructFieldPointerLiteralReadInAClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := &funcHolder{fn: func() {}}
+	func() {
+		wg.Go(s.fn) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	}()
+	wg.Wait()
+}
+
+// [BAD]: Struct field - pointer literal read in a closure
+//
+// The struct is followed through the variable that holds its address.
+func badStructFieldPointerLiteralReadInAClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &errFuncHolder{fn: func() error { return nil }}
+	func() {
+		runWithGroup(g, s.fn) // want `runWithGroup\(\) func argument should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// ===== Struct field - pointer literal written in a closure =====
+
+// [NOTCHECKED]: Struct field - pointer literal written in a closure
+//
+// A closure may write the struct through its address, so it passes.
+func notCheckedStructFieldPointerLiteralWrittenInAClosureGoroutine(ctx context.Context) {
+	s := &funcHolder{fn: func() { fmt.Println("no ctx") }}
+	func() { s.fn = func() { _ = ctx } }()
+	go func() {
+		_ = ctx
+		go s.fn()
+	}()
+}
+
+// [NOTCHECKED]: Struct field - pointer literal written in a closure
+//
+// A closure may write the struct through its address, so it passes.
+func notCheckedStructFieldPointerLiteralWrittenInAClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &errFuncHolder{fn: func() error { return nil }}
+	func() { s.fn = func() error { _ = ctx; return nil } }()
+	func() {
+		g.Go(s.fn)
+	}()
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Struct field - pointer literal written in a closure
+//
+// A closure may write the struct through its address, so it passes.
+func notCheckedStructFieldPointerLiteralWrittenInAClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := &funcHolder{fn: func() {}}
+	func() { s.fn = func() { _ = ctx } }()
+	func() {
+		wg.Go(s.fn)
+	}()
+	wg.Wait()
+}
+
+// [NOTCHECKED]: Struct field - pointer literal written in a closure
+//
+// A closure may write the struct through its address, so it passes.
+func notCheckedStructFieldPointerLiteralWrittenInAClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &errFuncHolder{fn: func() error { return nil }}
+	func() { s.fn = func() error { _ = ctx; return nil } }()
+	func() {
+		runWithGroup(g, s.fn)
+	}()
+	_ = g.Wait()
+}
+
 // ===== Struct field - passed by pointer =====
 
 // [NOTCHECKED]: Struct field - passed by pointer

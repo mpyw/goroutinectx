@@ -387,8 +387,303 @@ func badCapturedStructOtherFieldSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Captured struct field with only a fresh context =====
+
+// [BAD]: Captured struct field with only a fresh context
+//
+// A fresh context does not count when it is read from a field either (#182).
+func badCapturedStructFreshCtxFieldGoroutine(ctx context.Context) {
+	h := &ctxHolder{ctx: context.Background()}
+	go func() { use(h.ctx) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured struct field with only a fresh context
+//
+// A fresh context does not count when it is read from a field either (#182).
+func badCapturedStructFreshCtxFieldErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: context.Background()}
+	g.Go(func() error { use(h.ctx); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured struct field with only a fresh context
+//
+// A fresh context does not count when it is read from a field either (#182).
+func badCapturedStructFreshCtxFieldWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := &ctxHolder{ctx: context.Background()}
+	wg.Go(func() { use(h.ctx) }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Captured struct field with only a fresh context
+//
+// A fresh context does not count when it is read from a field either (#182).
+func badCapturedStructFreshCtxFieldSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: context.Background()}
+	runWithGroup(g, func() error { use(h.ctx); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Captured slice element with only a fresh context =====
+
+// [BAD]: Captured slice element with only a fresh context
+//
+// A fresh context does not count when it is read from an element either (#182).
+func badCapturedSliceFreshCtxElemGoroutine(ctx context.Context) {
+	cs := []context.Context{context.TODO()}
+	go func() { use(cs[0]) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice element with only a fresh context
+//
+// A fresh context does not count when it is read from an element either (#182).
+func badCapturedSliceFreshCtxElemErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	cs := []context.Context{context.TODO()}
+	g.Go(func() error { use(cs[0]); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured slice element with only a fresh context
+//
+// A fresh context does not count when it is read from an element either (#182).
+func badCapturedSliceFreshCtxElemWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	cs := []context.Context{context.TODO()}
+	wg.Go(func() { use(cs[0]) }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Captured slice element with only a fresh context
+//
+// A fresh context does not count when it is read from an element either (#182).
+func badCapturedSliceFreshCtxElemSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	cs := []context.Context{context.TODO()}
+	runWithGroup(g, func() error { use(cs[0]); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Context through a copy of a captured struct =====
+
+// [GOOD]: Context through a copy of a captured struct
+//
+// The copy holds ctx, as the struct it is copied from does.
+func goodCapturedStructCopyCtxFieldGoroutine(ctx context.Context) {
+	h := &ctxHolder{ctx: ctx}
+	go func() { v := *h; use(v.ctx) }()
+}
+
+// [GOOD]: Context through a copy of a captured struct
+//
+// The copy holds ctx, as the struct it is copied from does.
+func goodCapturedStructCopyCtxFieldErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: ctx}
+	g.Go(func() error { v := *h; use(v.ctx); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context through a copy of a captured struct
+//
+// The copy holds ctx, as the struct it is copied from does.
+func goodCapturedStructCopyCtxFieldWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := &ctxHolder{ctx: ctx}
+	wg.Go(func() { v := *h; use(v.ctx) })
+	wg.Wait()
+}
+
+// [GOOD]: Context through a copy of a captured struct
+//
+// The copy holds ctx, as the struct it is copied from does.
+func goodCapturedStructCopyCtxFieldSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := &ctxHolder{ctx: ctx}
+	runWithGroup(g, func() error { v := *h; use(v.ctx); return nil })
+	_ = g.Wait()
+}
+
+// ===== Method of a captured struct that holds a context =====
+
+// [GOOD]: Method of a captured struct that holds a context
+//
+// The receiver may hold a context, as for a method spawned directly (#184).
+func goodCapturedStructCtxMethodGoroutine(ctx context.Context) {
+	s := &ctxService{ctx: ctx}
+	go func() { s.run() }()
+}
+
+// [GOOD]: Method of a captured struct that holds a context
+//
+// The receiver may hold a context, as for a method spawned directly (#184).
+func goodCapturedStructCtxMethodErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &ctxService{ctx: ctx}
+	g.Go(func() error { s.run(); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Method of a captured struct that holds a context
+//
+// The receiver may hold a context, as for a method spawned directly (#184).
+func goodCapturedStructCtxMethodWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := &ctxService{ctx: ctx}
+	wg.Go(func() { s.run() })
+	wg.Wait()
+}
+
+// [GOOD]: Method of a captured struct that holds a context
+//
+// The receiver may hold a context, as for a method spawned directly (#184).
+func goodCapturedStructCtxMethodSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &ctxService{ctx: ctx}
+	runWithGroup(g, func() error { s.run(); return nil })
+	_ = g.Wait()
+}
+
+// ===== Method of a captured struct that holds only a fresh context =====
+
+// [NOTCHECKED]: Method of a captured struct that holds only a fresh context
+//
+// The method is not looked into, so it passes, as `go s.run()` does.
+func notCheckedCapturedStructFreshCtxMethodGoroutine(ctx context.Context) {
+	s := &ctxService{ctx: context.Background()}
+	go func() { s.run() }()
+}
+
+// [NOTCHECKED]: Method of a captured struct that holds only a fresh context
+//
+// The method is not looked into, so it passes, as `go s.run()` does.
+func notCheckedCapturedStructFreshCtxMethodErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &ctxService{ctx: context.Background()}
+	g.Go(func() error { s.run(); return nil })
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Method of a captured struct that holds only a fresh context
+//
+// The method is not looked into, so it passes, as `go s.run()` does.
+func notCheckedCapturedStructFreshCtxMethodWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	s := &ctxService{ctx: context.Background()}
+	wg.Go(func() { s.run() })
+	wg.Wait()
+}
+
+// [NOTCHECKED]: Method of a captured struct that holds only a fresh context
+//
+// The method is not looked into, so it passes, as `go s.run()` does.
+func notCheckedCapturedStructFreshCtxMethodSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	s := &ctxService{ctx: context.Background()}
+	runWithGroup(g, func() error { s.run(); return nil })
+	_ = g.Wait()
+}
+
+// ===== Captured value that implements context.Context =====
+
+// [GOOD]: Captured value that implements context.Context
+//
+// A struct that embeds context.Context is a context itself (#184).
+func goodCapturedContextImplGoroutine(ctx context.Context) {
+	c := ctxWrapper{Context: ctx, user: "u"}
+	go func() { use(c) }()
+}
+
+// [GOOD]: Captured value that implements context.Context
+//
+// A struct that embeds context.Context is a context itself (#184).
+func goodCapturedContextImplErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	c := ctxWrapper{Context: ctx, user: "u"}
+	g.Go(func() error { use(c); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Captured value that implements context.Context
+//
+// A struct that embeds context.Context is a context itself (#184).
+func goodCapturedContextImplWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	c := ctxWrapper{Context: ctx, user: "u"}
+	wg.Go(func() { use(c) })
+	wg.Wait()
+}
+
+// [GOOD]: Captured value that implements context.Context
+//
+// A struct that embeds context.Context is a context itself (#184).
+func goodCapturedContextImplSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	c := ctxWrapper{Context: ctx, user: "u"}
+	runWithGroup(g, func() error { use(c); return nil })
+	_ = g.Wait()
+}
+
+// ===== Captured context.Context implementation made from a fresh context =====
+
+// [LIMITATION]: Captured context.Context implementation made from a fresh context
+//
+// A value whose type implements context.Context counts without looking at
+// what it is made from, so it passes. It should be reported.
+func limitationCapturedContextImplFreshGoroutine(ctx context.Context) {
+	c := ctxWrapper{Context: context.Background(), user: "u"}
+	go func() { use(c) }()
+}
+
+// [LIMITATION]: Captured context.Context implementation made from a fresh context
+//
+// A value whose type implements context.Context counts without looking at
+// what it is made from, so it passes. It should be reported.
+func limitationCapturedContextImplFreshErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	c := ctxWrapper{Context: context.Background(), user: "u"}
+	g.Go(func() error { use(c); return nil })
+	_ = g.Wait()
+}
+
+// [LIMITATION]: Captured context.Context implementation made from a fresh context
+//
+// A value whose type implements context.Context counts without looking at
+// what it is made from, so it passes. It should be reported.
+func limitationCapturedContextImplFreshWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	c := ctxWrapper{Context: context.Background(), user: "u"}
+	wg.Go(func() { use(c) })
+	wg.Wait()
+}
+
+// [LIMITATION]: Captured context.Context implementation made from a fresh context
+//
+// A value whose type implements context.Context counts without looking at
+// what it is made from, so it passes. It should be reported.
+func limitationCapturedContextImplFreshSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	c := ctxWrapper{Context: context.Background(), user: "u"}
+	runWithGroup(g, func() error { use(c); return nil })
+	_ = g.Wait()
+}
+
 // ctxHolder holds a context in a field.
 type ctxHolder struct {
 	ctx  context.Context
 	name string
+}
+
+// ctxService holds a context that its method uses.
+type ctxService struct{ ctx context.Context }
+
+func (s *ctxService) run() { use(s.ctx) }
+
+// ctxWrapper is a context with a value of its own.
+type ctxWrapper struct {
+	context.Context
+	user string
 }
