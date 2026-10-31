@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkerdef"
 	"github.com/mpyw/goroutinectx/internal/directive"
 )
 
@@ -124,7 +125,7 @@ func parseComment(text string) ([]checker.Name, string, bool) {
 		if name == "" {
 			continue
 		}
-		if !slices.Contains(checker.Names, name) {
+		if !slices.Contains(checkerdef.Names, name) {
 			return nil, unknownChecker(name), true
 		}
 		checkers = append(checkers, name)
@@ -135,8 +136,8 @@ func parseComment(text string) ([]checker.Name, string, bool) {
 }
 
 func unknownChecker(name checker.Name) string {
-	names := make([]string, len(checker.Names))
-	for i, n := range checker.Names {
+	names := make([]string, len(checkerdef.Names))
+	for i, n := range checkerdef.Names {
 		names[i] = string(n)
 	}
 	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after //)",

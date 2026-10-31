@@ -66,6 +66,7 @@ goroutinectx/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
 │   ├── checker/               # Checker names
+│   ├── checkerdef/            # The one table of checkers: flags, defaults, builders
 │   ├── checkers/              # Checker implementations
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
 │   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
@@ -109,7 +110,7 @@ goroutinectx/
 
 ### analyzer.go
 
-Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, checker toggles) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
+Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, and a toggle for each checker of `checkerdef.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`
 2. Use `inspector.WithStack` to traverse AST with stack context
 3. Build `funcScopes` map (function node -> ContextScope)
@@ -132,6 +133,11 @@ type goStmtChecker interface {
 type callChecker interface {
     Name() checker.Name
     CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic
+}
+
+type packageChecker interface {
+    Name() checker.Name
+    Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic
 }
 ```
 

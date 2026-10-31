@@ -1,5 +1,6 @@
 // Package checker names goroutinectx's checkers. A checker reports under its
-// name, and //goroutinectx:ignore selects the reports to silence by it.
+// name, and //goroutinectx:ignore selects the reports to silence by it. The
+// checkers themselves are defined in internal/checkerdef.
 package checker
 
 // Name is the name of a checker.
@@ -16,7 +17,3 @@ const (
 	Gotask          Name = "gotask"
 	Conc            Name = "conc"
 )
-
-// Names lists every checker, in the order the report of an unknown name in
-// an ignore lists them.
-var Names = []Name{Goroutine, GoroutineDerive, Waitgroup, Errgroup, Conc, Spawner, Spawnerlabel, Gotask}
