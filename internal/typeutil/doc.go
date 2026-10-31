@@ -13,22 +13,26 @@
 //	    // typ is context.Context
 //	}
 //
-// The function handles pointer types automatically:
+// The function handles pointers, aliases and type parameters:
 //
 //	IsContextType(contextContext)   // true
 //	IsContextType(*contextContext)  // true
+//	IsContextType(Ctx)              // true, for type Ctx = context.Context
+//	IsContextType(C)                // true, for [C context.Context]
 //
 // # Implementation Details
 //
 // The type checking works by:
-//  1. Unwrapping pointer types
+//  1. Unwrapping pointer types and aliases ([UnwrapPointer])
 //  2. Checking if the type is a named type
 //  3. Comparing package path and type name
+//  4. Failing that, checking the constraint of a type parameter, and the
+//     types its interface literal embeds ([ConstraintEmbeds])
 //
 // Example internal flow:
 //
-//	func IsContextType(t types.Type) bool {
-//	    t = unwrapPointer(t)            // *context.Context → context.Context
+//	func isContextNamed(t types.Type) bool {
+//	    t = UnwrapPointer(t)            // *Ctx → context.Context
 //	    named, ok := t.(*types.Named)   // Get named type
 //	    if !ok { return false }
 //	    obj := named.Obj()

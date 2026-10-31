@@ -133,3 +133,42 @@ func goodGoroutineErrorParam(c echo.Context) {
 		_ = c
 	}(nil)
 }
+
+// ===== CARRIER THROUGH AN ALIAS OR A TYPE PARAMETER =====
+
+// echoCtx is an alias of the carrier echo.Context.
+type echoCtx = echo.Context
+
+// [BAD]: Goroutine ignores an alias-typed carrier
+//
+// A parameter of an alias of the carrier is a carrier (#181).
+func badGoroutineAliasCarrier(c echoCtx) {
+	go func() { // want `goroutine does not propagate context "c"`
+	}()
+}
+
+// [GOOD]: Goroutine uses an alias-typed carrier
+//
+// The closure captures the alias-typed carrier.
+func goodGoroutineAliasCarrier(c echoCtx) {
+	go func() {
+		_ = c
+	}()
+}
+
+// [BAD]: Goroutine ignores a carrier type parameter
+//
+// A type parameter constrained by the carrier is a carrier (#186).
+func badGoroutineTypeParamCarrier[C echo.Context](c C) {
+	go func() { // want `goroutine does not propagate context "c"`
+	}()
+}
+
+// [GOOD]: Goroutine uses a carrier type parameter
+//
+// The closure captures the carrier of a type parameter.
+func goodGoroutineTypeParamCarrier[C echo.Context](c C) {
+	go func() {
+		_ = c
+	}()
+}

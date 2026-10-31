@@ -1,6 +1,8 @@
 package typeutil
 
 import (
+	"go/token"
+	"go/types"
 	"testing"
 )
 
@@ -81,6 +83,55 @@ func TestPkgPathMatches(t *testing.T) {
 
 			if got := PkgPathMatches(tt.pkgPath, tt.targetPkg); got != tt.want {
 				t.Errorf("PkgPathMatches(%q, %q) = %v, want %v", tt.pkgPath, tt.targetPkg, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsContextType(t *testing.T) {
+	t.Parallel()
+
+	ctxPkg := types.NewPackage("context", "context")
+	ctx := types.NewNamed(types.NewTypeName(token.NoPos, ctxPkg, "Context", nil), types.NewInterfaceType(nil, nil), nil)
+	other := types.NewNamed(types.NewTypeName(token.NoPos, types.NewPackage("other", "other"), "Context", nil), types.NewInterfaceType(nil, nil), nil)
+
+	pkg := types.NewPackage("p", "p")
+	alias := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "Ctx", nil), ctx)
+	ptrAlias := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "PCtx", nil), types.NewPointer(alias))
+	typeParam := func(constraint types.Type) types.Type {
+		return types.NewTypeParam(types.NewTypeName(token.NoPos, pkg, "C", nil), constraint)
+	}
+	embedding := func(embeddeds ...types.Type) types.Type {
+		return types.NewInterfaceType(nil, embeddeds)
+	}
+
+	tests := []struct {
+		name string
+		typ  types.Type
+		want bool
+	}{
+		{name: "context.Context", typ: ctx, want: true},
+		{name: "pointer", typ: types.NewPointer(ctx), want: true},
+		{name: "alias", typ: alias, want: true},
+		{name: "pointer to alias", typ: types.NewPointer(alias), want: true},
+		{name: "alias of pointer to alias", typ: ptrAlias, want: true},
+		{name: "type parameter", typ: typeParam(ctx), want: true},
+		{name: "type parameter of alias", typ: typeParam(alias), want: true},
+		{name: "embedding constraint", typ: typeParam(embedding(alias)), want: true},
+		{name: "nested embedding constraint", typ: typeParam(embedding(embedding(ctx))), want: true},
+		{name: "other Context", typ: other, want: false},
+		{name: "any type parameter", typ: typeParam(embedding()), want: false},
+		{name: "named interface embedding context", typ: typeParam(types.NewNamed(
+			types.NewTypeName(token.NoPos, pkg, "MyCtx", nil), embedding(ctx), nil)), want: false},
+		{name: "basic", typ: types.Typ[types.Int], want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := IsContextType(tt.typ); got != tt.want {
+				t.Errorf("IsContextType(%v) = %v, want %v", tt.typ, got, tt.want)
 			}
 		})
 	}

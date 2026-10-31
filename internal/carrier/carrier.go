@@ -17,11 +17,15 @@ type Carrier struct {
 	TypeName string
 }
 
-// Matches checks if the given type matches this carrier.
+// Matches checks if the given type matches this carrier, through pointers
+// and aliases. A type parameter whose constraint is, or embeds, the carrier
+// matches too.
 func (c Carrier) Matches(t types.Type) bool {
-	t = typeutil.UnwrapPointer(t)
+	return c.matchesNamed(t) || typeutil.ConstraintEmbeds(t, c.matchesNamed)
+}
 
-	named, ok := t.(*types.Named)
+func (c Carrier) matchesNamed(t types.Type) bool {
+	named, ok := typeutil.UnwrapPointer(t).(*types.Named)
 	if !ok {
 		return false
 	}
