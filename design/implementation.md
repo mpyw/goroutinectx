@@ -66,16 +66,17 @@ goroutinectx/
 │   │   ├── gotask.go          # gotask library checker
 │   │   └── spawnerlabel/      # spawnerlabel checker
 │   ├── carrier/               # Context carrier types (-context-carriers)
+│   ├── ctxkind/               # Classifier: what counts as a context, built once per pass
 │   ├── deriver/               # Matcher for OR/AND deriver matching
 │   ├── directive/             # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── env/                   # Env: what the checkers read about the pass, built once per pass
-│   ├── flow/                  # SSA program, context parameters, closure checks,
+│   ├── flow/                  # SSA program, fresh contexts, closure checks,
 │   │                          # value resolution, call walker
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
 │   ├── registry/              # The one table of supported spawning APIs
-│   └── typeutil/              # Context types, package paths
+│   └── typeutil/              # Pointers, embedded interfaces, package paths
 ├── testdata/
 │   ├── src/                   # Test fixtures
 │   │   ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
@@ -129,7 +130,9 @@ type packageChecker interface {
 
 The set of checkers named by an unused-ignore report is the set of checkers built: their `Name()`s.
 
-`Run` builds one `env.Env` for the pass: the pass, the SSA program, the carriers, the derivers, the spawners and the module path. Every checker is built from it and gets it for each node. The only state of a node is `ctxName`, the first context parameter of the nearest enclosing function that has one (`flow.ContextParamNames`), which the messages name. A node outside such a function is not checked.
+`Run` builds one `env.Env` for the pass: the pass, the SSA program, the context classifier (`ctxkind.Classifier`, which holds the carriers and the module path), the derivers and the spawners. Every checker is built from it and gets it for each node. The only state of a node is `ctxName`, the first context parameter of the nearest enclosing function that has one (`Kinds.ParamNames`), which the messages name. A node outside such a function is not checked.
+
+**What counts as a context.** `internal/ctxkind` is the one place that says it. `Kind` is a set: `Context` (`context.Context`, an interface that embeds it, a type parameter constrained by one), `Carrier` (a type of `-context-carriers`), `Implements` (implements `context.Context`, as a struct that embeds one) and `Holds` (a struct with such a field the analyzed code can set, #191). Each caller names the set it counts: `ctxkind.Param` (a context or a carrier) for parameters, arguments and operands, `ctxkind.Captured` (also `Implements`) for what a closure captures or reads, and `ctxkind.Context` alone where only a real context will do. The sets do not agree yet; #210 step 2 makes them. `ctxkind.IsFreshCall` (`Background`, `TODO`) and `ctxkind.IsWithCall` (`context.With*`) name the context package once.
 
 **Why three interfaces?**
 - `goStmtChecker`: For `go` keyword statements (`go func() {}()`)
@@ -342,7 +345,7 @@ In `patterns`, each checker's variant is a function of its own. When two variant
 - Follow standard Go conventions
 - Use [`go/analysis`](https://pkg.go.dev/golang.org/x/tools/go/analysis) framework
 - Prefer [`inspector.WithStack`](https://pkg.go.dev/golang.org/x/tools/go/ast/inspector#Inspector.WithStack) over [`ast.Inspect`](https://pkg.go.dev/go/ast#Inspect) for traversal
-- Type utilities go in `internal/typeutil/` (unexported)
+- Type utilities go in `internal/typeutil/`; what counts as a context goes in `internal/ctxkind/`
 - Checker types are unexported; only interface and registry are public
 - Prefix file-specific variables with checker name (e.g., `errgroupGoMethod`)
 

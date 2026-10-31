@@ -44,7 +44,7 @@
 // Plain functions check an SSA function for context propagation:
 //
 //	// Check if closure captures context
-//	captures := flow.ClosureCapturesContext(ssaFn, carriers, module)
+//	captures := flow.ClosureCapturesContext(ssaFn, e.Kinds)
 //
 //	// Check if closure calls deriver function
 //	result := flow.ClosureCallsDeriver(ssaFn, deriveMatcher)
@@ -64,7 +64,7 @@
 // function literal it can hold, and judges each one:
 //
 //	r := &flow.FuncResolver{
-//	    Closure: func(fn *ssa.Function) bool { return flow.ClosureCapturesContext(fn, carriers, module) },
+//	    Closure: func(fn *ssa.Function) bool { return flow.ClosureCapturesContext(fn, e.Kinds) },
 //	}
 //	ok := r.Passes(goInstr.Call.Value)
 //
@@ -96,18 +96,12 @@
 // takes a closure returned as any result. The two are kept apart so that
 // neither report changes.
 //
-// # Context Parameters
+// # Fresh Contexts
 //
-// Two functions tell whether a function has a context parameter, a
-// context.Context or a carrier, and they differ on purpose (see #210):
-//
-//   - [HasContextParam] reads the SSA parameters. It counts a blank
-//     parameter, as func(_ context.Context) has, and a method's receiver.
-//     The checkers judge spawned closures and factories with it.
-//   - [ContextParamNames] reads the syntax of a function declaration or
-//     literal. It leaves out a blank parameter, which cannot be used, and
-//     the receiver. The runner checks the go statements and calls of a
-//     function only when it gives a name, and reports the first.
+// [IsFreshContext] reports whether a value is only ever a
+// context.Background() or TODO(). [GivesOnlyFreshContext] reports whether a
+// call gives such a context and nothing else that may hold one. What counts
+// as a context is up to the ctxkind package.
 //
 // # Closure Free Variables
 //
@@ -119,10 +113,11 @@
 //	    }()
 //	}
 //
-// The capture check asks whether any free variable has context type:
+// The capture check asks whether any free variable is a context, as the
+// classifier judges it:
 //
 //	for _, fv := range closure.FreeVars {
-//	    if typeutil.IsContextType(fv.Type()) {
+//	    if kinds.Kind(fv.Type())&ctxkind.Captured != 0 {
 //	        return true  // Closure captures context
 //	    }
 //	}

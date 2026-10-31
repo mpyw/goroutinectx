@@ -8,12 +8,11 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/flow"
-	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Goroutine checks that go statements propagate context.
@@ -45,13 +44,13 @@ func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
 		// context other than a fresh context.Background() or TODO(), or
 		// gives another value that may hold a context.
 		args := g.Call.Args
-		onlyFresh := flow.GivesOnlyFreshContext(&g.Call, e.Carriers)
+		onlyFresh := flow.GivesOnlyFreshContext(&g.Call, e.Kinds)
 		r.Closure = func(fn *ssa.Function) bool {
-			if flow.ClosureCapturesContext(fn, e.Carriers, e.Module) {
+			if flow.ClosureCapturesContext(fn, e.Kinds) {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
-				if !typeutil.IsContextType(p.Type()) && !carrier.IsCarrierType(p.Type(), e.Carriers) {
+				if !e.Kinds.Is(p.Type(), ctxkind.Param) {
 					return false
 				}
 				i := slices.Index(fn.Params, p)
@@ -106,10 +105,10 @@ func (c *GoroutineDerive) failure(e *env.Env, stmt *ast.GoStmt) string {
 	if g := e.SSA.GoAt(stmt); g != nil {
 		given = goroutineArgCalls(&g.Call)
 	}
-	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e.Carriers, given, true)) {
+	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e.Kinds, given, true)) {
 		return ""
 	}
-	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e.Carriers, given, false)) {
+	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e.Kinds, given, false)) {
 		return c.deferMessage()
 	}
 	return c.message()
@@ -123,28 +122,29 @@ func (c *GoroutineDerive) deferMessage() string {
 	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
-// resolver judges a closure by whether it takes a context or one of
-// carriers, or calls the deriver: at its start when atStart is set, or else
+// resolver judges a closure by whether it takes a context or a carrier
+// ([ctxkind.Param]), or calls the deriver: at its start when atStart is set, or else
 // in defer too. given are the functions the go statement calls in its
 // arguments, which count as called at the start.
-func (c *GoroutineDerive) resolver(carriers []carrier.Carrier, given []*types.Func, atStart bool) *flow.FuncResolver {
+func (c *GoroutineDerive) resolver(kinds *ctxkind.Classifier, given []*types.Func, atStart bool) *flow.FuncResolver {
 	return &flow.FuncResolver{
 		Closure: func(fn *ssa.Function) bool {
-			if flow.HasContextParam(fn, carriers) {
+			if kinds.HasParam(fn, ctxkind.Param) {
 				return true
 			}
 			result := flow.ClosureCallsDeriver(fn, c.derivers, given...)
 			return result.FoundAtStart || (!atStart && result.FoundOnlyInDefer)
 		},
-		Factory: func(fn *ssa.Function) bool { return c.factoryDerives(fn, carriers) },
+		Factory: func(fn *ssa.Function) bool { return c.factoryDerives(kinds, fn) },
 	}
 }
 
-// factoryDerives passes a factory that takes a context or one of carriers,
-// or that makes a closure taking one or calling the deriver.
-func (c *GoroutineDerive) factoryDerives(fn *ssa.Function, carriers []carrier.Carrier) bool {
-	return flow.HasContextParam(fn, carriers) || slices.ContainsFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
-		return flow.HasContextParam(anon, carriers) || flow.ClosureCallsDeriver(anon, c.derivers).FoundAtStart
+// factoryDerives passes a factory that takes a context or a carrier
+// ([ctxkind.Param]), or that makes a closure taking one or calling the
+// deriver.
+func (c *GoroutineDerive) factoryDerives(kinds *ctxkind.Classifier, fn *ssa.Function) bool {
+	return kinds.HasParam(fn, ctxkind.Param) || slices.ContainsFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
+		return kinds.HasParam(anon, ctxkind.Param) || flow.ClosureCallsDeriver(anon, c.derivers).FoundAtStart
 	})
 }
 
