@@ -48,6 +48,46 @@ func goodMethodExprErrgroup(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Method expression in a variable =====
+
+// [BAD]: Method expression in a variable
+//
+// The receiver comes first, and the callback after it is checked (#185).
+func badMethodExprVarErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	goFn := (*errgroup.Group).Go
+	goFn(g, func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		fmt.Println("no context")
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [BAD]: Method expression in a variable
+//
+// The receiver comes first, and the callback after it is checked (#185).
+func badMethodExprVarWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	goFn := (*sync.WaitGroup).Go
+	goFn(&wg, func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		fmt.Println("no context")
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Method expression in a variable with ctx
+//
+// The callback uses ctx.
+func goodMethodExprVarErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	goFn := (*errgroup.Group).Go
+	goFn(g, func() error {
+		_ = ctx
+		return nil
+	})
+	_ = g.Wait()
+}
+
 // ===== Method or function value =====
 
 // [BAD]: Method or function value
