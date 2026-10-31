@@ -31,6 +31,9 @@ echo ""
 run_test "analyzer" \
     go test -v ./...
 
+run_test "golden" \
+    env GOROUTINECTX_GOLDEN=1 go test -count=1 -run TestGolden ./cmd/goroutinectx
+
 run_test "lint" \
     golangci-lint run ./...
 

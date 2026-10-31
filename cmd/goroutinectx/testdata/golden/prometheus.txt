@@ -1,0 +1,8 @@
+# github.com/prometheus/prometheus@9e28ec50ba751345a1f01a4fdc0d6887f533a37b linux/amd64
+discovery/aws/ecs.go:860:5: goroutine does not propagate context "ctx"
+discovery/aws/mq.go:454:3: goroutine does not propagate context "ctx"
+discovery/aws/msk.go:438:3: goroutine does not propagate context "ctx"
+discovery/dns/dns.go:184:2: goroutine does not propagate context "ctx"
+discovery/file/file.go:255:8: sync.WaitGroup.Go() closure should use context "ctx"
+storage/merge.go:174:2: goroutine does not propagate context "ctx"
+web/web.go:785:2: goroutine does not propagate context "ctx"

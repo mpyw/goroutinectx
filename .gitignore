@@ -30,3 +30,6 @@ TASKS.md
 /goroutinectx
 /bin/
 /dist/
+
+# Modules that the golden check analyzes
+/.cache/

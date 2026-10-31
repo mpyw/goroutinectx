@@ -1,0 +1,7 @@
+# github.com/mindersec/minder@ff5d7dfde5d67d51857f239b82dc8a7af8cd376e linux/amd64
+cmd/cli/app/provider/provider_enroll.go:300:2: goroutine does not propagate context "ctx"
+internal/controlplane/server.go:299:2: goroutine does not propagate context "ctx"
+internal/controlplane/server.go:420:2: goroutine does not propagate context "ctx"
+internal/controlplane/server.go:505:2: goroutine does not propagate context "ctx"
+internal/reminder/metrics_server.go:62:2: goroutine does not propagate context "ctx"
+internal/util/cli/rpc_client.go:324:2: goroutine does not propagate context "ctx"

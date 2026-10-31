@@ -1,0 +1,6 @@
+# github.com/cloudflare/cloudflared@872b241f94871665c1c157adefcf90c11f0ead96 linux/amd64
+connection/quic_connection_test.go:1237:2: goroutine does not propagate context "ctx"
+connection/quic_datagram_v2.go:171:2: goroutine does not propagate context "ctx"
+datagramsession/session.go:53:2: goroutine does not propagate context "ctx"
+metrics/metrics.go:195:2: goroutine does not propagate context "ctx"
+supervisor/tunnel.go:219:2: goroutine does not propagate context "ctx"
