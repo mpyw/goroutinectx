@@ -65,8 +65,9 @@ func TestGolden(t *testing.T) {
 	golden := filepath.Join(root, "cmd", "goroutinectx", "testdata", "golden")
 	cache := filepath.Join(root, ".cache", "golden")
 
+	// The targets run one after another: each can take several GB, and
+	// running them at once runs the CI runner out of memory.
 	t.Run("goroot", func(t *testing.T) {
-		t.Parallel()
 		goroot := goldenGoEnv(t, "GOROOT")
 		version := goldenGoEnv(t, "GOVERSION")
 		header := "# " + version + " linux/amd64"
@@ -84,7 +85,6 @@ func TestGolden(t *testing.T) {
 	})
 	for _, m := range goldenModules {
 		t.Run(m.name, func(t *testing.T) {
-			t.Parallel()
 			dir := filepath.Join(cache, m.name)
 			goldenFetch(t, dir, "https://github.com/"+m.repo, m.commit)
 			header := "# github.com/" + m.repo + "@" + m.commit + " linux/amd64"
