@@ -140,7 +140,8 @@ Four checkers handle goroutine context propagation:
 - Literal: `g.Go(func() { ... })`
 - Variable: `g.Go(fn)` where `fn := func() { ... }`
 - Call result: `g.Go(makeWorker())` where `makeWorker` returns a func
-- Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory
+- Call with ctx: `g.Go(makeWorker(ctx))` - ctx passed to factory. A context other than a fresh `context.Background()` or `TODO()` counts. A named function given only fresh contexts, as `g.Go(makeWorker(context.Background()))`, is reported. A factory closure or method is not, since it may get ctx from what it captures or its receiver
+- Method expression or method value: `(*errgroup.Group).Go(g, fn)`, `goFn := (*errgroup.Group).Go` or `goFn := g.Go` - the callback after the receiver is checked
 - Directive: Functions marked with `//goroutinectx:spawner` check their func arguments
 
 **How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `ssa.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A struct field, an element at a constant index and a map value at a constant key are followed the same way, as parts of the variable they are in, so a store to the field after the struct literal counts and one replaced before the spawn does not (#116). A value it cannot follow passes: a parameter, an interface method, a variable a closure writes, a variable whose address is passed on.

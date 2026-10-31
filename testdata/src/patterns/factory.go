@@ -80,6 +80,136 @@ func goodFactoryFunctionWithCtx(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Factory given a fresh context =====
+
+// [BAD]: Factory given a fresh context
+//
+// context.Background() carries nothing of ctx, so the func the factory
+// returns does not get ctx (#183).
+func badFactoryFreshCtxGoroutine(ctx context.Context) {
+	go makeWorkerWithCtxGoroutine(context.Background())() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Factory given a fresh context
+//
+// context.TODO() carries nothing of ctx, so the func the factory returns
+// does not get ctx (#183).
+func badFactoryFreshCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeWorkerWithCtxErrgroup(context.TODO())) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Factory given a fresh context
+//
+// context.Background() carries nothing of ctx, so the func the factory
+// returns does not get ctx (#183).
+func badFactoryFreshCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(makeWorkerWithCtxWaitGroup(context.Background())) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Factory given a fresh context
+//
+// A fresh context in a variable is followed to context.Background() (#183).
+func badFactoryFreshCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	bg := context.Background()
+	runWithGroup(g, makeWorkerWithCtxSpawner(bg)) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory given ctx and a fresh context
+//
+// One of the contexts the factory is given is ctx.
+func goodFactoryCtxAndFreshCtxGoroutine(ctx context.Context) {
+	go makeWorkerWithTwoCtxGoroutine(ctx, context.Background())()
+}
+
+// [GOOD]: Factory given ctx and a fresh context
+//
+// One of the contexts the factory is given is ctx.
+func goodFactoryCtxAndFreshCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeWorkerWithTwoCtxErrgroup(context.TODO(), ctx))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory given ctx and a fresh context
+//
+// One of the contexts the factory is given is ctx.
+func goodFactoryCtxAndFreshCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(makeWorkerWithTwoCtxGoroutine(ctx, context.Background()))
+	wg.Wait()
+}
+
+// [GOOD]: Factory given ctx and a fresh context
+//
+// One of the contexts the factory is given is ctx.
+func goodFactoryCtxAndFreshCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeWorkerWithTwoCtxErrgroup(ctx, context.Background()))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory given a context derived from ctx
+//
+// A context derived from ctx is not fresh.
+func goodFactoryDerivedCtxGoroutine(ctx context.Context) {
+	c, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go makeWorkerWithCtxGoroutine(c)()
+}
+
+// [GOOD]: Factory given a context derived from ctx
+//
+// A context derived from ctx is not fresh.
+func goodFactoryDerivedCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeWorkerWithCtxErrgroup(context.WithoutCancel(ctx)))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory given a context derived from ctx
+//
+// A context derived from ctx is not fresh.
+func goodFactoryDerivedCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	c, cancel := context.WithCancel(ctx)
+	defer cancel()
+	wg.Go(makeWorkerWithCtxWaitGroup(c))
+	wg.Wait()
+}
+
+// [GOOD]: Factory given a context derived from ctx
+//
+// A context derived from ctx is not fresh.
+func goodFactoryDerivedCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	c, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runWithGroup(g, makeWorkerWithCtxSpawner(c))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory closure given a fresh context
+//
+// A factory closure may capture ctx, so it is not judged by what it is given.
+func goodFactoryClosureFreshCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	makeWorker := func(c context.Context) func() error {
+		return func() error {
+			_ = c
+			_ = ctx
+			return nil
+		}
+	}
+	g.Go(makeWorker(context.Background()))
+	_ = g.Wait()
+}
+
 // ===== Factory returns a variable =====
 
 // [GOOD]: Higher-order returns variable - with ctx
@@ -401,6 +531,19 @@ func makeWorkerWaitGroup() func() {
 func makeWorkerWithCtxWaitGroup(ctx context.Context) func() {
 	return func() {
 		_ = ctx
+	}
+}
+
+func makeWorkerWithTwoCtxGoroutine(ctx1, ctx2 context.Context) func() {
+	return func() {
+		_, _ = ctx1, ctx2
+	}
+}
+
+func makeWorkerWithTwoCtxErrgroup(ctx1, ctx2 context.Context) func() error {
+	return func() error {
+		_, _ = ctx1, ctx2
+		return nil
 	}
 }
 

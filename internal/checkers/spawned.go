@@ -32,7 +32,9 @@ func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa
 
 // spawnedContextResolver judges a closure by whether it takes or captures a
 // context, or, when derivers is not empty, calls the deriver at its start. A
-// factory passes when it takes a context, or is given one.
+// factory passes when it takes a context, or is given one other than a fresh
+// context.Background() or TODO(). A named function given only a fresh context
+// fails, as it has no other way to get ctx.
 //
 //declscope:shared // goroutine.go and spawn.go check for a context alike
 func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa.FuncResolver {
@@ -41,9 +43,31 @@ func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa
 			return ssa.HasContextParam(fn, cctx.Carriers) || ssa.ClosureCapturesContext(fn, cctx.Carriers) ||
 				(!derivers.IsEmpty() && ssa.ClosureCallsDeriver(fn, derivers).FoundAtStart)
 		},
-		FactoryCall: func(call *gossa.CallCommon) bool { return ssa.ArgsInvolveContext(call, cctx.Carriers) },
-		Factory:     func(fn *gossa.Function) bool { return ssa.HasContextParam(fn, cctx.Carriers) },
+		Call: func(call *gossa.CallCommon) (passes, handled bool) {
+			return false, spawnedGivesNamedFuncOnlyFreshContext(cctx, call)
+		},
+		FactoryCall: func(call *gossa.CallCommon) bool {
+			return ssa.ArgsInvolveContext(call, cctx.Carriers) && !ssa.GivesOnlyFreshContext(call, cctx.Carriers)
+		},
+		Factory: func(fn *gossa.Function) bool { return ssa.HasContextParam(fn, cctx.Carriers) },
 	}
+}
+
+// spawnedGivesNamedFuncOnlyFreshContext reports whether call calls a named
+// function, not a method, and every context it gives it is a fresh
+// context.Background() or TODO(). A named function is not looked into, but
+// one given only a fresh context does not get ctx. A method is left alone, as
+// its receiver may hold a context, and so is a closure, which may capture
+// one.
+//
+//declscope:shared // goroutine.go judges a named function a go statement calls alike
+func spawnedGivesNamedFuncOnlyFreshContext(cctx *probe.Context, call *gossa.CallCommon) bool {
+	if call.IsInvoke() {
+		return false
+	}
+	fn, ok := call.Value.(*gossa.Function)
+	return ok && fn.Parent() == nil && fn.Synthetic == "" && fn.Signature.Recv() == nil &&
+		ssa.GivesOnlyFreshContext(call, cctx.Carriers)
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.
@@ -61,7 +85,8 @@ func spawnedCallArgs(cctx *probe.Context, call *ast.CallExpr) []gossa.Value {
 // the call gives before the function's parameters: 1 for a method
 // expression, as (*errgroup.Group).Go(g, fn), which takes the receiver
 // first, and 0 otherwise. A call through a function or method value, as
-// gofn := wg.Go, is found through SSA.
+// gofn := wg.Go, or through a method expression in a variable, as
+// gofn := (*errgroup.Group).Go, is found through SSA.
 //
 //declscope:shared // spawn.go and gotask.go find the API a call makes alike
 func spawnedCallee(cctx *probe.Context, call *ast.CallExpr) (*types.Func, int) {
@@ -77,5 +102,12 @@ func spawnedCallee(cctx *probe.Context, call *ast.CallExpr) (*types.Func, int) {
 	if instr == nil || instr.Common().IsInvoke() || instr.Common().StaticCallee() == nil {
 		return nil, 0
 	}
-	return ssa.ExtractCalledFunc(instr.Common()), 0
+	common := instr.Common()
+	fn := ssa.ExtractCalledFunc(common)
+	// A method value is a bound wrapper that holds the receiver. A method
+	// called any other way is given the receiver first.
+	if _, bound := common.Value.(*gossa.MakeClosure); !bound && fn != nil && fn.Signature().Recv() != nil {
+		return fn, 1
+	}
+	return fn, 0
 }
