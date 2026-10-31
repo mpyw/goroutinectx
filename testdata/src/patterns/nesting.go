@@ -631,43 +631,55 @@ func badCapturedTestingTMethodSpawner(ctx context.Context, t *testing.T) {
 	_ = g.Wait()
 }
 
-// ===== Method of a captured value of another package with an unexported context =====
+// ===== Method of a captured value of another package with an unexported context, module unknown =====
 
-// [BAD]: Method of a captured value of another package with an unexported context
+// [NOTCHECKED]: Method of a captured value of another package with an unexported context, module unknown
 //
-// Only that package can set the context, so it is not ctx (#191).
-func badCapturedHiddenCtxMethodGoroutine(ctx context.Context) {
+// This test runs in GOPATH mode, so the module is not known. The package is
+// not of the standard library and may be of the module, so the receiver
+// counts and it passes. testdata/receivermodule reports it in module mode
+// (#191).
+func notCheckedCapturedHiddenCtxMethodGoroutine(ctx context.Context) {
 	h := ctxholder.NewHidden()
-	go func() { h.Do() }() // want `goroutine does not propagate context "ctx"`
+	go func() { h.Do() }()
 }
 
-// [BAD]: Method of a captured value of another package with an unexported context
+// [NOTCHECKED]: Method of a captured value of another package with an unexported context, module unknown
 //
-// Only that package can set the context, so it is not ctx (#191).
-func badCapturedHiddenCtxMethodErrgroup(ctx context.Context) {
+// This test runs in GOPATH mode, so the module is not known. The package is
+// not of the standard library and may be of the module, so the receiver
+// counts and it passes. testdata/receivermodule reports it in module mode
+// (#191).
+func notCheckedCapturedHiddenCtxMethodErrgroup(ctx context.Context) {
 	g := new(errgroup.Group)
 	h := ctxholder.NewHidden()
-	g.Go(func() error { return h.Run() }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	g.Go(func() error { return h.Run() })
 	_ = g.Wait()
 }
 
-// [BAD]: Method of a captured value of another package with an unexported context
+// [NOTCHECKED]: Method of a captured value of another package with an unexported context, module unknown
 //
-// Only that package can set the context, so it is not ctx (#191).
-func badCapturedHiddenCtxMethodWaitGroup(ctx context.Context) {
+// This test runs in GOPATH mode, so the module is not known. The package is
+// not of the standard library and may be of the module, so the receiver
+// counts and it passes. testdata/receivermodule reports it in module mode
+// (#191).
+func notCheckedCapturedHiddenCtxMethodWaitGroup(ctx context.Context) {
 	var wg sync.WaitGroup
 	h := ctxholder.NewHidden()
-	wg.Go(func() { h.Do() }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Go(func() { h.Do() })
 	wg.Wait()
 }
 
-// [BAD]: Method of a captured value of another package with an unexported context
+// [NOTCHECKED]: Method of a captured value of another package with an unexported context, module unknown
 //
-// Only that package can set the context, so it is not ctx (#191).
-func badCapturedHiddenCtxMethodSpawner(ctx context.Context) {
+// This test runs in GOPATH mode, so the module is not known. The package is
+// not of the standard library and may be of the module, so the receiver
+// counts and it passes. testdata/receivermodule reports it in module mode
+// (#191).
+func notCheckedCapturedHiddenCtxMethodSpawner(ctx context.Context) {
 	g := new(errgroup.Group)
 	h := ctxholder.NewHidden()
-	runWithGroup(g, func() error { return h.Run() }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	runWithGroup(g, func() error { return h.Run() })
 	_ = g.Wait()
 }
 

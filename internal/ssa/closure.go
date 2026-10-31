@@ -26,7 +26,8 @@ import (
 //
 // module is the path of the analyzed package's module, or "" when the driver
 // does not give it. A field the analyzed code can set is exported, or is
-// declared in the analyzed package or in a package of module.
+// declared in the analyzed package or in a package of module. When module is
+// "", any field outside the standard library may be, so it counts.
 func ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier, module string) bool {
 	return closureCaptures(closure, carriers, module, make(map[*ssa.Function]bool))
 }
@@ -200,15 +201,25 @@ func (r *closureReader) holdsContext(t types.Type, seen map[types.Type]bool) boo
 
 // canSet reports whether the analyzed code can set the field f: it is
 // exported, or declared in the analyzed package or a package of its module.
+// When the module is not known, a field outside the standard library may be
+// of the module, so it counts, as a report there could be false.
 func (r *closureReader) canSet(f *types.Var) bool {
 	if f.Exported() || f.Pkg() == r.pkg {
 		return true
 	}
-	if r.module == "" || f.Pkg() == nil {
-		return false
-	}
+	// An unexported field always has a package.
 	path := f.Pkg().Path()
+	if r.module == "" {
+		return !closureIsStdPath(path)
+	}
 	return path == r.module || strings.HasPrefix(path, r.module+"/")
+}
+
+// closureIsStdPath reports whether path is of the standard library: its
+// first element has no dot, as "testing" and "net/http".
+func closureIsStdPath(path string) bool {
+	first, _, _ := strings.Cut(path, "/")
+	return !strings.Contains(first, ".")
 }
 
 // implementsContext reports whether t, past its pointers, implements

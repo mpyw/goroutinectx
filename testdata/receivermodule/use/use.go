@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"example.org/other"
+
 	"example.com/app/holder"
 )
 
@@ -70,4 +72,35 @@ func badStdTestingTMethodWaitGroup(ctx context.Context, t *testing.T) {
 // (#191).
 func badStdTestingTMethodSpawner(ctx context.Context, t *testing.T) {
 	spawn(func() { t.Log("x") }) // want `spawn\(\) func argument should use context "ctx"`
+}
+
+// ===== Method of a captured value of another module =====
+
+// [BAD]: Method of a captured value of another module
+//
+// Only the other module can set the unexported context, so it is not ctx
+// (#191).
+func badOtherModuleMethodGoroutine(ctx context.Context) {
+	h := other.NewHidden()
+	go func() { h.Do() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Method of a captured value of another module
+//
+// Only the other module can set the unexported context, so it is not ctx
+// (#191).
+func badOtherModuleMethodWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := other.NewHidden()
+	wg.Go(func() { h.Do() }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Method of a captured value of another module
+//
+// Only the other module can set the unexported context, so it is not ctx
+// (#191).
+func badOtherModuleMethodSpawner(ctx context.Context) {
+	h := other.NewHidden()
+	spawn(func() { h.Do() }) // want `spawn\(\) func argument should use context "ctx"`
 }
