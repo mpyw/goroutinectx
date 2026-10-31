@@ -10,8 +10,8 @@ import (
 
 // resolvedExhaustedWalk is a walk that has done all the work it may.
 func resolvedExhaustedWalk() resolvedWalk {
-	w := newResolvedWalk()
-	*w.steps = resolvedMaxSteps + 1
+	w := resolvedWalk{f: NewFlow()}
+	w.f.steps = resolvedMaxSteps + 1
 	return w
 }
 

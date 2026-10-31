@@ -14,11 +14,12 @@ import (
 )
 
 // FuncResolver judges the functions a func-typed SSA value can hold. It
-// follows the value back through Phi nodes, loads of local variables, type
-// changes and calls of factories to each function literal, and asks Closure
-// about it. A value it cannot follow passes, so that only what is resolved is
-// reported.
+// follows the value back to its sources with Flow, and through calls of
+// factories, to each function literal, and asks Closure about it. A value it
+// cannot follow passes, so that only what is resolved is reported.
 type FuncResolver struct {
+	// Flow follows the values.
+	Flow *Flow
 	// Closure judges one function literal.
 	Closure func(fn *ssa.Function) bool
 	// Call, when set, judges the result of a call before the factory rules
@@ -34,46 +35,50 @@ type FuncResolver struct {
 
 // Passes reports whether every function v can hold passes.
 func (r *FuncResolver) Passes(v ssa.Value) bool {
+	defer r.Flow.ask()()
 	return r.passes(v, make(map[ssa.Value]bool))
 }
 
 // ResultPasses reports whether calling v gives a function that passes, as
 // for a callback that makes tasks.
 func (r *FuncResolver) ResultPasses(v ssa.Value) bool {
+	defer r.Flow.ask()()
 	return r.resultPasses(v, 1, make(map[ssa.Value]bool))
 }
 
+// passes reports whether every source of v passes. seen are the values
+// judged so far in the question: one judged again passes, as its verdict is
+// already counted.
 func (r *FuncResolver) passes(v ssa.Value, seen map[ssa.Value]bool) bool {
 	if v == nil || seen[v] {
 		return true
 	}
 	seen[v] = true
-
-	switch v := v.(type) {
-	case *ssa.MakeClosure:
-		fn, _ := v.Fn.(*ssa.Function)
-		return r.closurePasses(fn)
-	case *ssa.Function:
-		return r.closurePasses(v)
-	case *ssa.Phi:
-		return !slices.ContainsFunc(v.Edges, func(e ssa.Value) bool { return !r.passes(e, seen) })
-	case *ssa.ChangeType:
-		return r.passes(v.X, seen)
-	case *ssa.UnOp, *ssa.Lookup:
-		stored, isLoad, ok := resolvedLoaded(v, newResolvedWalk())
-		return !isLoad || !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.passes(s, seen) })
-	case *ssa.Call:
-		return r.callPasses(v.Common(), seen)
-	}
-	return true
+	sources, _ := r.Flow.Sources(v)
+	return !slices.ContainsFunc(sources, func(s Source) bool {
+		if s.Value != v {
+			if seen[s.Value] {
+				return false
+			}
+			seen[s.Value] = true
+		}
+		return !r.sourcePasses(s, seen)
+	})
 }
 
-// closurePasses judges fn when it is a function literal.
-func (r *FuncResolver) closurePasses(fn *ssa.Function) bool {
-	if Classify(fn) != ClassifiedLiteral {
-		return true
+// sourcePasses judges one source: a function literal by Closure, and the
+// result of a call by the rules of callPasses. The result of a call with
+// several results, as fn, err := makeFn() gives, is not followed.
+func (r *FuncResolver) sourcePasses(s Source, seen map[ssa.Value]bool) bool {
+	switch s.Kind {
+	case SourceLiteral:
+		return r.Closure(s.Func())
+	case SourceCall:
+		if call, ok := s.Value.(*ssa.Call); ok {
+			return r.callPasses(call.Common(), seen)
+		}
 	}
-	return r.Closure(fn)
+	return true
 }
 
 // callPasses judges the result of call, the function a factory returns. A
@@ -100,40 +105,37 @@ func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool)
 	return r.resultPasses(call.Value, 1, seen)
 }
 
+// resolverMaxCalls bounds how many calls away a factory's result is
+// followed, so that a factory whose type returns itself, as
+// type stateFn func() stateFn, ends.
+const resolverMaxCalls = 16
+
 // resultPasses reports whether calling v depth times gives a function that
 // passes. Of a factory, any value it returns passing is enough. A result
-// more than resolvedMaxDepth calls away passes, so that a factory whose
-// type returns itself, as type stateFn func() stateFn, ends.
+// more than resolverMaxCalls calls away passes.
 func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]bool) bool {
 	if depth == 0 {
 		return r.passes(v, seen)
 	}
-	if depth > resolvedMaxDepth {
+	if depth > resolverMaxCalls {
 		return true
 	}
-	switch x := v.(type) {
-	case *ssa.MakeClosure:
-		fn, _ := x.Fn.(*ssa.Function)
-		return r.factoryFuncPasses(fn, depth, seen)
-	case *ssa.Function:
-		return r.factoryFuncPasses(x, depth, seen)
-	case *ssa.Call:
-		if r.FactoryCall != nil && r.FactoryCall(x.Common()) {
-			return true
+	sources, _ := r.Flow.Sources(v)
+	return !slices.ContainsFunc(sources, func(s Source) bool {
+		if fn := s.Func(); fn != nil {
+			return !r.factoryFuncPasses(fn, depth, seen)
 		}
-		if x.Common().IsInvoke() {
-			return true
+		call, ok := s.Value.(*ssa.Call)
+		switch {
+		case !ok:
+			return false
+		case r.FactoryCall != nil && r.FactoryCall(call.Common()):
+			return false
+		case call.Common().IsInvoke():
+			return false
 		}
-		return r.resultPasses(x.Common().Value, depth+1, seen)
-	case *ssa.Phi:
-		return !slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return !r.resultPasses(e, depth, seen) })
-	case *ssa.ChangeType:
-		return r.resultPasses(x.X, depth, seen)
-	case *ssa.UnOp, *ssa.Lookup:
-		stored, isLoad, ok := resolvedLoaded(x, newResolvedWalk())
-		return !isLoad || !ok || !slices.ContainsFunc(stored, func(s ssa.Value) bool { return !r.resultPasses(s, depth, seen) })
-	}
-	return true
+		return !r.resultPasses(call.Common().Value, depth+1, seen)
+	})
 }
 
 // factoryFuncPasses reports whether fn takes what it needs, or calling one
@@ -183,14 +185,27 @@ func ResolvedArgs(common *ssa.CallCommon, call *ast.CallExpr) []ssa.Value {
 	return append(slices.Clone(args[:fixed]), elems...)
 }
 
-// ResolvedValues gives each value v can be, through Phi nodes, type changes,
-// loads of local variables and of their parts, and map lookups. ok is false
-// when a load cannot be followed.
-func ResolvedValues(v ssa.Value) (values []ssa.Value, ok bool) {
-	return resolvedValues(v, newResolvedWalk())
+// resolvedSources gives each value v can be, in a new walk of f's question.
+//
+//declscope:shared // flow.go gives them as the sources of v
+func resolvedSources(f *Flow, v ssa.Value) ([]ssa.Value, bool) {
+	return resolvedValues(v, resolvedWalk{f: f})
 }
 
+// resolvedValues gives each value v can be, through Phi nodes, type
+// changes, loads of local variables and of their parts, and map lookups. ok
+// is false when a load cannot be followed. What it finds is remembered for
+// the pass, unless a bound cut it short.
 func resolvedValues(v ssa.Value, w resolvedWalk) (values []ssa.Value, ok bool) {
+	if r, found := w.f.sources[v]; found {
+		return r.values, r.ok
+	}
+	cuts := w.f.cuts
+	defer func() {
+		if w.f.cuts == cuts {
+			w.f.sources[v] = resolvedValuesResult{values: values, ok: ok}
+		}
+	}()
 	ok = true
 	seen := make(map[ssa.Value]bool)
 	var visit func(v ssa.Value)
@@ -199,7 +214,7 @@ func resolvedValues(v ssa.Value, w resolvedWalk) (values []ssa.Value, ok bool) {
 			return
 		}
 		seen[v] = true
-		if *w.steps++; w.exhausted() {
+		if w.f.steps++; w.exhausted() {
 			ok = false
 			return
 		}
@@ -252,7 +267,7 @@ func resolvedLoaded(v ssa.Value, w resolvedWalk) (values []ssa.Value, isLoad, ok
 // followed.
 //
 //declscope:shared // closure.go tells a captured fresh context from one that carries ctx
-func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
+func resolvedFreeVarValues(f *Flow, fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
 	if _, isPtr := fv.Type().Underlying().(*types.Pointer); !isPtr {
 		binding, ok := resolvedBinding(fv)
 		if !ok {
@@ -260,7 +275,7 @@ func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
 		}
 		return []ssa.Value{binding}, true
 	}
-	return resolvedStores(fv, nil)
+	return resolvedStoresAt(fv, nil, resolvedWalk{f: f})
 }
 
 // resolvedPartValues gives the values v can be when it is a field, or an
@@ -269,16 +284,16 @@ func resolvedFreeVarValues(fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
 // followed.
 //
 //declscope:shared // closure.go judges a context read from a part of a captured value
-func resolvedPartValues(v ssa.Value) (values []ssa.Value, ok bool) {
+func resolvedPartValues(f *Flow, v ssa.Value) (values []ssa.Value, ok bool) {
 	switch x := v.(type) {
 	case *ssa.Field:
-		return resolvedPart(x.X, []int{x.Field}, newResolvedWalk())
+		return resolvedPart(x.X, []int{x.Field}, resolvedWalk{f: f})
 	case *ssa.Index:
 		i, ok := resolvedConstIndex(x.Index)
 		if !ok {
 			return nil, false
 		}
-		return resolvedPart(x.X, []int{i}, newResolvedWalk())
+		return resolvedPart(x.X, []int{i}, resolvedWalk{f: f})
 	}
 	return []ssa.Value{v}, true
 }
@@ -287,8 +302,9 @@ func resolvedPartValues(v ssa.Value) (values []ssa.Value, ok bool) {
 // array, as a slice literal or the slice of a variadic call is, or of each
 // slice a function called to make it returns. ok is false for any other
 // slice.
-func ResolvedSliceElems(v ssa.Value) (elems []ssa.Value, ok bool) {
-	return resolvedSliceElemsAt(v, newResolvedWalk())
+func (f *Flow) ResolvedSliceElems(v ssa.Value) (elems []ssa.Value, ok bool) {
+	defer f.ask()()
+	return resolvedSliceElemsAt(v, resolvedWalk{f: f})
 }
 
 func resolvedSliceElemsAt(v ssa.Value, w resolvedWalk) ([]ssa.Value, bool) {
@@ -364,20 +380,15 @@ func resolvedSliceElems(slice ssa.Value, n int) []ssa.Value {
 	return elems
 }
 
-// resolvedStores gives the values stored at addr that a load at the
+// resolvedStoresAt gives the values stored at addr that a load at the
 // instruction at can read. For a local variable of at's function, only the
 // stores that reach at count. For a variable captured from an outer function,
 // the stores there that reach the closure's creation count, and every store
 // after it, since the closure may run any time after; with no at, every
 // store counts. ok is false when the variable may be written in a
-// way not followed: through a closure, or through its address.
-func resolvedStores(addr ssa.Value, at ssa.Instruction) (stored []ssa.Value, ok bool) {
-	return resolvedStoresAt(addr, at, newResolvedWalk())
-}
-
-// resolvedStoresAt is resolvedStores, depth steps into the parts of
-// variables. A struct field, or an element at a constant index, is followed
-// as a part of the variable it is in.
+// way not followed: through a closure, or through its address. A struct
+// field, or an element at a constant index, is followed as a part of the
+// variable it is in, w.depth steps in.
 func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, w resolvedWalk) (stored []ssa.Value, ok bool) {
 	switch a := addr.(type) {
 	case *ssa.Alloc:
@@ -595,47 +606,56 @@ func resolvedScanForward(from, origin ssa.Instruction, visit func(ssa.Instructio
 // through, so that a value that refers to itself, as p = p.next does, ends.
 const resolvedMaxDepth = 16
 
-// resolvedMaxSteps bounds how many parts, loads and lookups one resolution
-// follows in all. Depth alone does not bound the work: a variable copied from
-// another on each of many branches, a few levels deep, fans out at each level.
+// resolvedMaxSteps bounds how many values, parts, loads and lookups one
+// question to a [Flow] follows in all, with the questions it asks in turn.
+// Depth alone does not bound the work: a variable copied from another on
+// each of many branches, a few levels deep, fans out at each level.
 const resolvedMaxSteps = 4096
 
-// resolvedWalk is the state of one resolution: how deep it is, and, shared
-// by every step of it, the work done so far and the parts of stores already
-// resolved.
+// resolvedWalk is one path of a question: how deep it is, and the Flow
+// that counts the work of the question and remembers what it found.
 type resolvedWalk struct {
+	f     *Flow
 	depth int
-	steps *int
-	parts map[resolvedPartKey]resolvedPartResult
 }
 
 // resolvedPartKey is a store, and the path into the value it stores.
+//
+//declscope:shared // flow.go's Flow remembers the parts by it
 type resolvedPartKey struct {
+	//declscope:private
 	store *ssa.Store
-	path  string
+	//declscope:private
+	path string
 }
 
-// resolvedPartResult is what resolvedPart gave for a resolvedPartKey.
-type resolvedPartResult struct {
+// resolvedValuesResult is what a walk gave for a value or a part: the values
+// it can be, and whether they could all be followed.
+//
+//declscope:shared // flow.go's Flow remembers them
+type resolvedValuesResult struct {
+	//declscope:private
 	values []ssa.Value
-	ok     bool
-}
-
-func newResolvedWalk() resolvedWalk {
-	return resolvedWalk{steps: new(int), parts: make(map[resolvedPartKey]resolvedPartResult)}
+	//declscope:private
+	ok bool
 }
 
 // deeper is w one step further in, counting the step toward the bound.
 func (w resolvedWalk) deeper() resolvedWalk {
-	*w.steps++
+	w.f.steps++
 	w.depth++
 	return w
 }
 
-// exhausted reports whether w is too deep, or has done too much work, to go
-// on. A resolution that stops is not followed, so what it judges passes.
+// exhausted reports whether w is too deep, or the question has done too
+// much work, to go on. A resolution that stops is not followed, so what it
+// judges passes. What a stopped walk finds is not remembered.
 func (w resolvedWalk) exhausted() bool {
-	return w.depth > resolvedMaxDepth || *w.steps > resolvedMaxSteps
+	if w.depth > resolvedMaxDepth || w.f.steps > resolvedMaxSteps {
+		w.f.cuts++
+		return true
+	}
+	return false
 }
 
 // resolvedPartStores gives the values stored at the part of a variable addr
@@ -720,14 +740,18 @@ func resolvedAppendNew(values []ssa.Value, more ...ssa.Value) []ssa.Value {
 }
 
 // resolvedStoredPart is resolvedPart of the value st stores, remembered for
-// the rest of the walk: many loads may reach the same store.
+// the rest of the pass, unless a bound cut it short: many loads may reach
+// the same store.
 func resolvedStoredPart(st *ssa.Store, path []int, w resolvedWalk) ([]ssa.Value, bool) {
 	key := resolvedPartKey{store: st, path: fmt.Sprint(path)}
-	if r, ok := w.parts[key]; ok {
+	if r, ok := w.f.parts[key]; ok {
 		return r.values, r.ok
 	}
+	cuts := w.f.cuts
 	values, ok := resolvedPart(st.Val, path, w.deeper())
-	w.parts[key] = resolvedPartResult{values: values, ok: ok}
+	if w.f.cuts == cuts {
+		w.f.parts[key] = resolvedValuesResult{values: values, ok: ok}
+	}
 	return values, ok
 }
 

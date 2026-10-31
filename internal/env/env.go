@@ -26,6 +26,10 @@ type Env struct {
 	Derivers *deriver.Matcher
 	// Spawners are the functions marked as spawners, and -external-spawner.
 	Spawners *spawner.Map
+	// Flow follows SSA values back to where they come from, with one bound
+	// on the work of each question and what it found remembered for the
+	// pass.
+	Flow *flow.Flow
 }
 
 // New builds the Env of pass. carriers are -context-carriers.
@@ -42,5 +46,6 @@ func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, de
 		Kinds:    ctxkind.New(prog.Program, carriers, module),
 		Derivers: derivers,
 		Spawners: spawners,
+		Flow:     flow.NewFlow(),
 	}
 }

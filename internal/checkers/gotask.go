@@ -86,7 +86,7 @@ func (c *GotaskChecker) checkDoAsync(e *env.Env, call *ast.CallExpr, entry regis
 	args := flow.ResolvedArgs(common, call)
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
-	if args != nil && c.ctxIsDerived(args[recvArgs]) {
+	if args != nil && c.ctxIsDerived(e, args[recvArgs]) {
 		return nil
 	}
 
@@ -95,7 +95,7 @@ func (c *GotaskChecker) checkDoAsync(e *env.Env, call *ast.CallExpr, entry regis
 	if recvArgs == 1 && args != nil {
 		recv = args[0]
 	}
-	if recv != nil && c.taskDerives(e, recv) {
+	if _, taskDerives := c.resolver(e); recv != nil && taskDerives(recv) {
 		return nil
 	}
 
@@ -117,7 +117,7 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, call *ast.CallExpr, entry regi
 	isVariadicExpansion := call.Ellipsis.IsValid()
 
 	args := spawnedCallArgs(e, call)
-	r := c.resolver(e)
+	r, _ := c.resolver(e)
 	var diags []analysis.Diagnostic
 	for i := startIdx; i < len(call.Args); i++ {
 		var passes bool
@@ -154,7 +154,7 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, call *ast.CallExpr, entry regi
 // callbacks gives a task function that derives. A slice variable whose
 // elements are not traced, as a parameter, is reported.
 func (c *GotaskChecker) expandedArgDerives(e *env.Env, arg ast.Expr, v ssa.Value, r *flow.FuncResolver) bool {
-	if elems, ok := gotaskSliceElems(v); ok {
+	if elems, ok := gotaskSliceElems(e, v); ok {
 		return !slices.ContainsFunc(elems, func(e ssa.Value) bool { return !r.Passes(e) })
 	}
 	switch arg := ast.Unparen(arg).(type) {
@@ -183,9 +183,40 @@ func (c *GotaskChecker) expandedArgDerives(e *env.Env, arg ast.Expr, v ssa.Value
 // function it wraps. A task built by Parallel, ParallelSettled or Race
 // passes when every task it is given does, and one built by Then or Catch
 // when its task or its function does.
-func (c *GotaskChecker) resolver(e *env.Env) *flow.FuncResolver {
-	r := &flow.FuncResolver{
+//
+// taskDerives reports whether every task a value can be wraps a function
+// that calls the deriver, as the resolver judges it. A task traced to
+// nothing does not. DoAsync of a CancelableTask runs the Task it embeds.
+// Each task is judged once, and a task made from itself, as
+// t = t.Cancelable() in a loop, by what else it can be.
+func (c *GotaskChecker) resolver(e *env.Env) (r *flow.FuncResolver, taskDerives func(v ssa.Value) bool) {
+	r = &flow.FuncResolver{
+		Flow:    e.Flow,
 		Closure: func(fn *ssa.Function) bool { return flow.ClosureCallsDeriver(fn, c.derivers).FoundAtStart },
+	}
+	judged := make(map[ssa.Value]bool)
+	taskDerives = func(v ssa.Value) bool {
+		if v == nil {
+			return false
+		}
+		if derives, ok := judged[v]; ok {
+			return derives
+		}
+		judged[v] = true
+		sources, complete := e.Flow.Sources(v)
+		derives := complete && len(sources) > 0 && !slices.ContainsFunc(sources, func(s flow.Source) bool {
+			if f, ok := s.Value.(*ssa.Field); ok && gotaskIsTaskType(f.X.Type()) {
+				return !taskDerives(f.X)
+			}
+			call, ok := s.Value.(*ssa.Call)
+			if !ok {
+				return true
+			}
+			passes, handled := r.Call(call.Common())
+			return !handled || !passes
+		})
+		judged[v] = derives
+		return derives
 	}
 	r.Call = func(call *ssa.CallCommon) (bool, bool) {
 		if call.IsInvoke() {
@@ -200,15 +231,15 @@ func (c *GotaskChecker) resolver(e *env.Env) *flow.FuncResolver {
 		case gotaskIsConstructor(fn):
 			return len(call.Args) > 0 && r.Passes(call.Args[0]), true
 		case gotaskIsTaskMethod(fn):
-			return c.taskDerives(e, gotaskReceiver(call)), true
+			return taskDerives(gotaskReceiver(call)), true
 		case gotaskIsCombinator(fn, gotaskSpawningCombinators):
-			return gotaskSpawningDerives(call, r), true
+			return gotaskSpawningDerives(e, call, r), true
 		case gotaskIsCombinator(fn, gotaskSerialCombinators):
 			return gotaskSerialDerives(call, r), true
 		}
 		return false, false
 	}
-	return r
+	return r, taskDerives
 }
 
 // gotaskSpawningCombinators are the gotask functions that build a task
@@ -232,9 +263,9 @@ func gotaskIsCombinator(fn *types.Func, names []string) bool {
 // is given derives, as each runs in a goroutine of its own. The tasks come in
 // its variadic slice. A slice whose elements are not traced, as a parameter,
 // passes, as a task the resolver can't follow does.
-func gotaskSpawningDerives(call *ssa.CallCommon, r *flow.FuncResolver) bool {
+func gotaskSpawningDerives(e *env.Env, call *ssa.CallCommon, r *flow.FuncResolver) bool {
 	return !slices.ContainsFunc(call.Args, func(arg ssa.Value) bool {
-		elems, ok := gotaskSliceElems(arg)
+		elems, ok := gotaskSliceElems(e, arg)
 		return ok && slices.ContainsFunc(elems, func(e ssa.Value) bool { return !r.Passes(e) })
 	})
 }
@@ -246,28 +277,25 @@ func gotaskSerialDerives(call *ssa.CallCommon, r *flow.FuncResolver) bool {
 	return slices.ContainsFunc(call.Args, r.Passes)
 }
 
-// ctxIsDerived reports whether every value v can be is a call of the
+// ctxIsDerived reports whether every source of v is a call of the
 // deriver, or a context the context package's With functions, as
 // context.WithCancel, make from one.
-func (c *GotaskChecker) ctxIsDerived(v ssa.Value) bool {
-	return c.ctxIsDerivedFrom(v, make(map[ssa.Value]bool))
+func (c *GotaskChecker) ctxIsDerived(e *env.Env, v ssa.Value) bool {
+	return c.ctxIsDerivedFrom(e, v, make(map[ssa.Value]bool))
 }
 
-func (c *GotaskChecker) ctxIsDerivedFrom(v ssa.Value, seen map[ssa.Value]bool) bool {
+func (c *GotaskChecker) ctxIsDerivedFrom(e *env.Env, v ssa.Value, seen map[ssa.Value]bool) bool {
 	if seen[v] {
 		return false
 	}
 	seen[v] = true
-	values, ok := flow.ResolvedValues(v)
-	if !ok || len(values) == 0 {
+	sources, complete := e.Flow.Sources(v)
+	if !complete || len(sources) == 0 {
 		return false
 	}
-	return !slices.ContainsFunc(values, func(v ssa.Value) bool {
-		if ext, ok := v.(*ssa.Extract); ok {
-			v = ext.Tuple
-		}
-		call, ok := v.(*ssa.Call)
-		if !ok {
+	return !slices.ContainsFunc(sources, func(s flow.Source) bool {
+		call := s.Call()
+		if call == nil {
 			return true
 		}
 		fn := flow.ExtractCalledFunc(call.Common())
@@ -277,54 +305,29 @@ func (c *GotaskChecker) ctxIsDerivedFrom(v ssa.Value, seen map[ssa.Value]bool) b
 		case c.derivers.MatchesFunc(fn):
 			return false
 		case ctxkind.IsWithCall(fn) && len(call.Call.Args) > 0:
-			return !c.ctxIsDerivedFrom(call.Call.Args[0], seen)
+			return !c.ctxIsDerivedFrom(e, call.Call.Args[0], seen)
 		}
 		return true
 	})
 }
 
-// taskDerives reports whether every task v can be wraps a function that
-// calls the deriver. A task traced to nothing does not.
-func (c *GotaskChecker) taskDerives(e *env.Env, v ssa.Value) bool {
-	if v == nil {
-		return false
-	}
-	values, ok := flow.ResolvedValues(v)
-	if !ok || len(values) == 0 {
-		return false
-	}
-	r := c.resolver(e)
-	return !slices.ContainsFunc(values, func(v ssa.Value) bool {
-		// DoAsync of a CancelableTask runs the Task it embeds.
-		if f, ok := v.(*ssa.Field); ok && gotaskIsTaskType(f.X.Type()) {
-			return !c.taskDerives(e, f.X)
-		}
-		call, ok := v.(*ssa.Call)
-		if !ok {
-			return true
-		}
-		passes, handled := r.Call(call.Common())
-		return !handled || !passes
-	})
-}
-
 // gotaskSliceElems gives the elements of a slice of tasks or task functions,
-// as flow.ResolvedSliceElems does, and for gotask.TasksFrom, the functions it
-// is given.
-func gotaskSliceElems(v ssa.Value) ([]ssa.Value, bool) {
+// as [flow.Flow.ResolvedSliceElems] does, and for gotask.TasksFrom, the
+// functions it is given.
+func gotaskSliceElems(e *env.Env, v ssa.Value) ([]ssa.Value, bool) {
 	if call, ok := v.(*ssa.Call); ok {
 		fn := flow.ExtractCalledFunc(call.Common())
 		if fn != nil && (funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: "TasksFrom"}).Matches(fn) {
 			if len(call.Call.Args) != 1 {
 				return nil, false
 			}
-			return flow.ResolvedSliceElems(call.Call.Args[0])
+			return e.Flow.ResolvedSliceElems(call.Call.Args[0])
 		}
 	}
 	if v == nil {
 		return nil, false
 	}
-	return flow.ResolvedSliceElems(v)
+	return e.Flow.ResolvedSliceElems(v)
 }
 
 // gotaskIsConstructor reports whether fn is the task constructor.

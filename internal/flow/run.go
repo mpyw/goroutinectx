@@ -26,6 +26,8 @@ type RunOptions struct {
 	// returns, as any result of any of its returns, when the call's result
 	// is called, as factory()() does.
 	Returned bool
+	// Flow follows the called value back to the call, for Returned.
+	Flow *Flow
 }
 
 // Runs gives the Call, Defer and Go instructions fn runs, in instruction
@@ -99,9 +101,9 @@ func (r *runner) call(site RunCall) bool {
 	if !r.opts.Returned || site.Call.IsInvoke() {
 		return true
 	}
-	values, _ := ResolvedValues(site.Call.Value)
-	for _, v := range values {
-		inner, ok := v.(*ssa.Call)
+	sources, _ := r.opts.Flow.Sources(site.Call.Value)
+	for _, s := range sources {
+		inner, ok := s.Value.(*ssa.Call)
 		if !ok || inner.Call.StaticCallee() == nil {
 			continue
 		}
