@@ -654,3 +654,202 @@ func recoverWrapErr(f func() error) func() error {
 		return f()
 	}
 }
+
+// ===== Factory given a fresh context and a value that may hold ctx =====
+
+// ctxDeps holds a context for a worker.
+type ctxDeps struct{ ctx context.Context }
+
+// ctxSvc runs work with the context it holds.
+type ctxSvc struct{ ctx context.Context }
+
+func (s *ctxSvc) run() error {
+	_ = s.ctx
+	return nil
+}
+
+func (s *ctxSvc) runNoErr() {
+	_ = s.ctx
+}
+
+// [GOOD]: Named function given a fresh context and a value that holds ctx
+//
+// The struct the function is given holds ctx (#192).
+func goodNamedFuncFreshCtxAndDepsGoroutine(ctx context.Context) {
+	go runWithDeps(context.Background(), &ctxDeps{ctx: ctx})
+}
+
+// [GOOD]: Closure given a fresh context and a value that holds ctx
+//
+// The struct the closure is given holds ctx (#192).
+func goodClosureFreshCtxAndDepsGoroutine(ctx context.Context) {
+	go func(_ context.Context, d *ctxDeps) {
+		_ = d.ctx
+	}(context.Background(), &ctxDeps{ctx: ctx})
+}
+
+// [GOOD]: Factory given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodFactoryFreshCtxAndDepsGoroutine(ctx context.Context) {
+	go makeWorkerWithDeps(context.Background(), &ctxDeps{ctx: ctx})()
+}
+
+// [GOOD]: Factory given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodFactoryFreshCtxAndDepsErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeErrWorkerWithDeps(context.Background(), &ctxDeps{ctx: ctx}))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodFactoryFreshCtxAndDepsWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(makeWorkerWithDeps(context.TODO(), &ctxDeps{ctx: ctx}))
+	wg.Wait()
+}
+
+// [GOOD]: Factory given a fresh context and a value that holds ctx
+//
+// The struct the factory is given holds ctx (#192).
+func goodFactoryFreshCtxAndDepsSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeErrWorkerWithDeps(context.Background(), &ctxDeps{ctx: ctx}))
+	_ = g.Wait()
+}
+
+// [GOOD]: Decorator given a fresh context and a method value
+//
+// The bound receiver of the method value holds ctx, as for g.Go(s.run)
+// (#148, #192).
+func goodDecoratorFreshCtxAndMethodGoroutine(ctx context.Context) {
+	s := &ctxSvc{ctx: ctx}
+	go logPanic(context.Background(), s.runNoErr)()
+}
+
+// [GOOD]: Decorator given a fresh context and a method value
+//
+// The bound receiver of the method value holds ctx, as for g.Go(s.run)
+// (#148, #192).
+func goodDecoratorFreshCtxAndMethodErrgroup(ctx context.Context) {
+	s := &ctxSvc{ctx: ctx}
+	g := new(errgroup.Group)
+	g.Go(logPanicErr(context.Background(), s.run))
+	_ = g.Wait()
+}
+
+// [GOOD]: Decorator given a fresh context and a method value
+//
+// The bound receiver of the method value holds ctx, as for g.Go(s.run)
+// (#148, #192).
+func goodDecoratorFreshCtxAndMethodWaitGroup(ctx context.Context) {
+	s := &ctxSvc{ctx: ctx}
+	var wg sync.WaitGroup
+	wg.Go(logPanic(context.TODO(), s.runNoErr))
+	wg.Wait()
+}
+
+// [GOOD]: Decorator given a fresh context and a method value
+//
+// The bound receiver of the method value holds ctx, as for g.Go(s.run)
+// (#148, #192).
+func goodDecoratorFreshCtxAndMethodSpawner(ctx context.Context) {
+	s := &ctxSvc{ctx: ctx}
+	g := new(errgroup.Group)
+	runWithGroup(g, logPanicErr(context.Background(), s.run))
+	_ = g.Wait()
+}
+
+// [BAD]: Named function given a fresh context and a basic value
+//
+// A string holds no context, so the function gets only the fresh context.
+func badNamedFuncFreshCtxAndStringGoroutine(ctx context.Context) {
+	go runWithName(context.Background(), "worker") // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Factory given a fresh context and a basic value
+//
+// An int holds no context, so the factory gets only the fresh context.
+func badFactoryFreshCtxAndIntErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeErrWorkerWithID(context.Background(), 1)) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Decorator given a fresh context and a named function
+//
+// A named function captures nothing, so the decorator gets only the fresh
+// context.
+func badDecoratorFreshCtxAndNamedFuncWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(logPanic(context.TODO(), noCtxWork)) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Factory given a fresh context and values of basic types
+//
+// A slice of strings and a struct of ints hold no context.
+func badFactoryFreshCtxAndBasicPartsSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeErrWorkerWithParts(context.Background(), []string{"a"}, struct{ n, m int }{})) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+func runWithDeps(_ context.Context, d *ctxDeps) {
+	_ = d.ctx
+}
+
+func runWithName(ctx context.Context, name string) {
+	_, _ = ctx, name
+}
+
+func makeWorkerWithDeps(_ context.Context, d *ctxDeps) func() {
+	return func() {
+		_ = d.ctx
+	}
+}
+
+func makeErrWorkerWithDeps(_ context.Context, d *ctxDeps) func() error {
+	return func() error {
+		_ = d.ctx
+		return nil
+	}
+}
+
+func makeErrWorkerWithID(ctx context.Context, id int) func() error {
+	return func() error {
+		_, _ = ctx, id
+		return nil
+	}
+}
+
+func makeErrWorkerWithParts(ctx context.Context, names []string, p struct{ n, m int }) func() error {
+	return func() error {
+		_, _, _ = ctx, names, p
+		return nil
+	}
+}
+
+// logPanic runs f, logging a panic to logCtx.
+func logPanic(logCtx context.Context, f func()) func() {
+	return func() {
+		defer func() { _, _ = logCtx, recover() }()
+		f()
+	}
+}
+
+// logPanicErr runs f, logging a panic to logCtx.
+func logPanicErr(logCtx context.Context, f func() error) func() error {
+	return func() error {
+		defer func() { _, _ = logCtx, recover() }()
+		return f()
+	}
+}
+
+func noCtxWork() {
+	fmt.Println("no ctx")
+}

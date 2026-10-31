@@ -42,8 +42,10 @@ func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 			return false
 		}
 		// A context parameter counts only when the go statement gives it a
-		// context other than a fresh context.Background() or TODO().
+		// context other than a fresh context.Background() or TODO(), or
+		// gives another value that may hold a context.
 		args := g.Call.Args
+		onlyFresh := ssa.GivesOnlyFreshContext(&g.Call, cctx.Carriers)
 		r.Closure = func(fn *gossa.Function) bool {
 			if ssa.ClosureCapturesContext(fn, cctx.Carriers) {
 				return true
@@ -53,7 +55,7 @@ func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 					return false
 				}
 				i := slices.Index(fn.Params, p)
-				return i >= len(args) || !ssa.IsFreshContext(args[i])
+				return i >= len(args) || !onlyFresh || !ssa.IsFreshContext(args[i])
 			})
 		}
 	}

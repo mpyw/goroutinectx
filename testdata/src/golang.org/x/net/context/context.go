@@ -7,3 +7,5 @@ import "context"
 type Context = context.Context
 
 func Background() Context { return context.Background() }
+
+func TODO() Context { return context.TODO() }
