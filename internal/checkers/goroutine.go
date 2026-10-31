@@ -47,7 +47,7 @@ func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 		args := g.Call.Args
 		onlyFresh := ssa.GivesOnlyFreshContext(&g.Call, cctx.Carriers)
 		r.Closure = func(fn *gossa.Function) bool {
-			if ssa.ClosureCapturesContext(fn, cctx.Carriers) {
+			if ssa.ClosureCapturesContext(fn, cctx.Carriers, cctx.Module()) {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *gossa.Parameter) bool {

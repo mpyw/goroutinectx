@@ -40,7 +40,7 @@ func spawnedFuncPasses(cctx *probe.Context, expr ast.Expr, v gossa.Value, r *ssa
 func spawnedContextResolver(cctx *probe.Context, derivers *deriver.Matcher) *ssa.FuncResolver {
 	return &ssa.FuncResolver{
 		Closure: func(fn *gossa.Function) bool {
-			return ssa.HasContextParam(fn, cctx.Carriers) || ssa.ClosureCapturesContext(fn, cctx.Carriers) ||
+			return ssa.HasContextParam(fn, cctx.Carriers) || ssa.ClosureCapturesContext(fn, cctx.Carriers, cctx.Module()) ||
 				(!derivers.IsEmpty() && ssa.ClosureCallsDeriver(fn, derivers).FoundAtStart)
 		},
 		Call: func(call *gossa.CallCommon) (passes, handled bool) {

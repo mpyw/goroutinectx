@@ -43,7 +43,7 @@
 // Plain functions check an SSA function for context propagation:
 //
 //	// Check if closure captures context
-//	captures := ssa.ClosureCapturesContext(ssaFn, carriers)
+//	captures := ssa.ClosureCapturesContext(ssaFn, carriers, module)
 //
 //	// Check if closure calls deriver function
 //	result := ssa.ClosureCallsDeriver(ssaFn, deriveMatcher)
@@ -63,7 +63,7 @@
 // function literal it can hold, and judges each one:
 //
 //	r := &ssa.FuncResolver{
-//	    Closure: func(fn *ssa.Function) bool { return ssa.ClosureCapturesContext(fn, carriers) },
+//	    Closure: func(fn *ssa.Function) bool { return ssa.ClosureCapturesContext(fn, carriers, module) },
 //	}
 //	ok := r.Passes(goInstr.Call.Value)
 //

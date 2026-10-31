@@ -4,9 +4,13 @@ package patterns
 
 import (
 	"context"
+	"net/http"
 	"sync"
+	"testing"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/example/ctxholder"
 )
 
 // ===== Go call inside an inner function =====
@@ -584,6 +588,209 @@ func notCheckedCapturedStructFreshCtxMethodSpawner(ctx context.Context) {
 	g := new(errgroup.Group)
 	s := &ctxService{ctx: context.Background()}
 	runWithGroup(g, func() error { s.run(); return nil })
+	_ = g.Wait()
+}
+
+// ===== Method of a captured *testing.T =====
+
+// [BAD]: Method of a captured *testing.T
+//
+// t holds the test's own context in an unexported field, not ctx, so a
+// method of t does not count (#191).
+func badCapturedTestingTMethodGoroutine(ctx context.Context, t *testing.T) {
+	go func() { t.Log("x") }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Method of a captured *testing.T
+//
+// t holds the test's own context in an unexported field, not ctx, so a
+// method of t does not count (#191).
+func badCapturedTestingTMethodErrgroup(ctx context.Context, t *testing.T) {
+	g := new(errgroup.Group)
+	g.Go(func() error { t.Log("x"); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Method of a captured *testing.T
+//
+// t holds the test's own context in an unexported field, not ctx, so a
+// method of t does not count (#191).
+func badCapturedTestingTMethodWaitGroup(ctx context.Context, t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Go(func() { t.Log("x") }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Method of a captured *testing.T
+//
+// t holds the test's own context in an unexported field, not ctx, so a
+// method of t does not count (#191).
+func badCapturedTestingTMethodSpawner(ctx context.Context, t *testing.T) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { t.Log("x"); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Method of a captured value of another package with an unexported context =====
+
+// [BAD]: Method of a captured value of another package with an unexported context
+//
+// Only that package can set the context, so it is not ctx (#191).
+func badCapturedHiddenCtxMethodGoroutine(ctx context.Context) {
+	h := ctxholder.NewHidden()
+	go func() { h.Do() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Method of a captured value of another package with an unexported context
+//
+// Only that package can set the context, so it is not ctx (#191).
+func badCapturedHiddenCtxMethodErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := ctxholder.NewHidden()
+	g.Go(func() error { return h.Run() }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Method of a captured value of another package with an unexported context
+//
+// Only that package can set the context, so it is not ctx (#191).
+func badCapturedHiddenCtxMethodWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := ctxholder.NewHidden()
+	wg.Go(func() { h.Do() }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Method of a captured value of another package with an unexported context
+//
+// Only that package can set the context, so it is not ctx (#191).
+func badCapturedHiddenCtxMethodSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := ctxholder.NewHidden()
+	runWithGroup(g, func() error { return h.Run() }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Method of a captured value of another package with an exported context =====
+
+// [GOOD]: Method of a captured value of another package with an exported context
+//
+// The caller can set the context, as it does here.
+func goodCapturedOpenCtxMethodGoroutine(ctx context.Context) {
+	o := &ctxholder.Open{Ctx: ctx}
+	go func() { _ = o.Run() }()
+}
+
+// [GOOD]: Method of a captured value of another package with an exported context
+//
+// The caller can set the context, as it does here.
+func goodCapturedOpenCtxMethodErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	o := &ctxholder.Open{Ctx: ctx}
+	g.Go(func() error { return o.Run() })
+	_ = g.Wait()
+}
+
+// [GOOD]: Method of a captured value of another package with an exported context
+//
+// The caller can set the context, as it does here.
+func goodCapturedOpenCtxMethodWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	o := &ctxholder.Open{Ctx: ctx}
+	wg.Go(func() { _ = o.Run() })
+	wg.Wait()
+}
+
+// [GOOD]: Method of a captured value of another package with an exported context
+//
+// The caller can set the context, as it does here.
+func goodCapturedOpenCtxMethodSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	o := &ctxholder.Open{Ctx: ctx}
+	runWithGroup(g, func() error { return o.Run() })
+	_ = g.Wait()
+}
+
+// ===== Context from a method of a captured value =====
+
+// [GOOD]: Context from a method of a captured value
+//
+// A method that returns a context, as req.Context() does, is a context read
+// from the value.
+func goodCapturedRequestContextGoroutine(ctx context.Context, req *http.Request) {
+	go func() { use(req.Context()) }()
+}
+
+// [GOOD]: Context from a method of a captured value
+//
+// A method that returns a context, as req.Context() does, is a context read
+// from the value.
+func goodCapturedRequestContextErrgroup(ctx context.Context, req *http.Request) {
+	g := new(errgroup.Group)
+	g.Go(func() error { return req.Context().Err() })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a method of a captured value
+//
+// A method that returns a context, as req.Context() does, is a context read
+// from the value.
+func goodCapturedRequestContextWaitGroup(ctx context.Context, req *http.Request) {
+	var wg sync.WaitGroup
+	wg.Go(func() { use(req.Context()) })
+	wg.Wait()
+}
+
+// [GOOD]: Context from a method of a captured value
+//
+// A method that returns a context, as req.Context() does, is a context read
+// from the value.
+func goodCapturedRequestContextSpawner(ctx context.Context, req *http.Request) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { return req.Context().Err() })
+	_ = g.Wait()
+}
+
+// ===== Method spawned directly on a value with an unexported context =====
+
+// [NOTCHECKED]: Method spawned directly on a value with an unexported context
+//
+// A method spawned directly is not judged by its receiver, so it passes,
+// whatever the receiver holds.
+func notCheckedDirectHiddenCtxMethodGoroutine(ctx context.Context, t *testing.T) {
+	go t.Log("x")
+}
+
+// [NOTCHECKED]: Method spawned directly on a value with an unexported context
+//
+// A method spawned directly is not judged by its receiver, so it passes,
+// whatever the receiver holds.
+func notCheckedDirectHiddenCtxMethodErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := ctxholder.NewHidden()
+	g.Go(h.Run)
+	_ = g.Wait()
+}
+
+// [NOTCHECKED]: Method spawned directly on a value with an unexported context
+//
+// A method spawned directly is not judged by its receiver, so it passes,
+// whatever the receiver holds.
+func notCheckedDirectHiddenCtxMethodWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	h := ctxholder.NewHidden()
+	wg.Go(h.Do)
+	wg.Wait()
+}
+
+// [NOTCHECKED]: Method spawned directly on a value with an unexported context
+//
+// A method spawned directly is not judged by its receiver, so it passes,
+// whatever the receiver holds.
+func notCheckedDirectHiddenCtxMethodSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	h := ctxholder.NewHidden()
+	runWithGroup(g, h.Run)
 	_ = g.Wait()
 }
 
