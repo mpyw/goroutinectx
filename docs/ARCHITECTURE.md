@@ -252,7 +252,7 @@ func UsesContext(pass *analysis.Pass, body *ast.BlockStmt, contextVar *types.Var
 - Uses type identity, not name matching (handles shadowing correctly)
 - Checks ALL context parameters, not just the first one
 - Context usage in nested closures counts: a closure captures what its inner closures capture
-- A context read from a field or an element of a captured value counts, unless it is only ever fresh; a captured value that implements `context.Context`, or a method called on a captured value that holds a context, counts too
+- A context read from a field or an element of a captured value counts, unless it is only ever fresh; a captured value that implements `context.Context`, or a method called on a captured value that returns a context or holds one the analyzed module can set (an exported field, or a field of a type in the module), counts too
 
 ### Higher-Order Function Support
 

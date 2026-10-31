@@ -36,6 +36,14 @@ func TestPatternsDerive(t *testing.T) {
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "patternsderive")
 }
 
+// TestReceiverModule checks, in module mode, that a method of a captured
+// value counts when its context field is unexported but of the analyzed
+// module, and not when it is of another module (#191).
+func TestReceiverModule(t *testing.T) {
+	dir := filepath.Join(analysistest.TestData(), "receivermodule")
+	analysistest.Run(t, dir, goroutinectx.Analyzer, "./use")
+}
+
 func TestGoroutine(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutine")

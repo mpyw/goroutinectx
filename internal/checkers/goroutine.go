@@ -45,7 +45,7 @@ func (c *Goroutine) propagates(cctx *probe.Context, stmt *ast.GoStmt) bool {
 		// context other than a fresh context.Background() or TODO().
 		args := g.Call.Args
 		r.Closure = func(fn *gossa.Function) bool {
-			if ssa.ClosureCapturesContext(fn, cctx.Carriers) {
+			if ssa.ClosureCapturesContext(fn, cctx.Carriers, cctx.Module()) {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *gossa.Parameter) bool {

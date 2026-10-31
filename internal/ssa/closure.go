@@ -4,6 +4,7 @@ import (
 	"go/token"
 	"go/types"
 	"slices"
+	"strings"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -18,20 +19,31 @@ import (
 // context.Background() or TODO() does not count. A value whose type
 // implements context.Context counts as a context. A context the closure
 // reads from a field or an element of a variable it captures counts, unless
-// it is fresh, and so does a method called on a captured value that holds a
-// context, as a method spawned directly is left alone. A captured closure
-// that captures a context counts too.
-func ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier) bool {
-	return closureCaptures(closure, carriers, make(map[*ssa.Function]bool))
+// it is fresh. So does a method called on a captured value that returns a
+// context, and a method called on a captured value that holds a context the
+// analyzed code can have put there, as a method spawned directly is left
+// alone. A captured closure that captures a context counts too.
+//
+// module is the path of the analyzed package's module, or "" when the driver
+// does not give it. A field the analyzed code can set is exported, or is
+// declared in the analyzed package or in a package of module.
+func ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier, module string) bool {
+	return closureCaptures(closure, carriers, module, make(map[*ssa.Function]bool))
 }
 
-func closureCaptures(closure *ssa.Function, carriers []carrier.Carrier, seen map[*ssa.Function]bool) bool {
+func closureCaptures(closure *ssa.Function, carriers []carrier.Carrier, module string, seen map[*ssa.Function]bool) bool {
 	if closure == nil || seen[closure] {
 		return false
 	}
 	seen[closure] = true
 
-	r := &closureReader{carriers: carriers, iface: closureContextInterface(closure.Prog), seen: make(map[ssa.Value]bool)}
+	r := &closureReader{
+		carriers: carriers,
+		iface:    closureContextInterface(closure.Prog),
+		pkg:      closurePackage(closure),
+		module:   module,
+		seen:     make(map[ssa.Value]bool),
+	}
 	return slices.ContainsFunc(closure.FreeVars, func(fv *ssa.FreeVar) bool {
 		switch {
 		case carrier.IsCarrierType(fv.Type(), carriers):
@@ -41,7 +53,7 @@ func closureCaptures(closure *ssa.Function, carriers []carrier.Carrier, seen map
 		case r.implementsContext(fv.Type()):
 			return true
 		}
-		return r.reads(fv) || closureHoldsCapturing(fv, carriers, seen)
+		return r.reads(fv) || closureHoldsCapturing(fv, carriers, module, seen)
 	})
 }
 
@@ -52,13 +64,16 @@ type closureReader struct {
 	// iface is context.Context, or nil when the program has no context
 	// package, so that nothing implements it.
 	iface *types.Interface
-	seen  map[ssa.Value]bool
+	// pkg is the analyzed package, and module the path of its module, or "".
+	pkg    *types.Package
+	module string
+	seen   map[ssa.Value]bool
 }
 
 // reads reports whether a context or a carrier is read from v, through the
 // fields and elements of what it holds and the local variables it is copied
-// to, or a method is called on a value that holds one. A context that is
-// only ever fresh does not count.
+// to, or a method is called on a value that returns or holds one. A context
+// that is only ever fresh does not count.
 func (r *closureReader) reads(v ssa.Value) bool {
 	if r.seen[v] {
 		return false
@@ -68,7 +83,7 @@ func (r *closureReader) reads(v ssa.Value) bool {
 		var part ssa.Value
 		switch x := ref.(type) {
 		case ssa.CallInstruction:
-			if r.callsHolderMethod(x.Common(), v) {
+			if r.callsContextMethod(x.Common(), v) || r.callsHolderMethod(x.Common(), v) {
 				return true
 			}
 			continue
@@ -123,9 +138,32 @@ func (r *closureReader) carries(part ssa.Value) bool {
 	return !ok || len(values) == 0 || slices.ContainsFunc(values, func(v ssa.Value) bool { return !IsFreshContext(v) })
 }
 
+// callsContextMethod reports whether call is a method called on v, an
+// interface method included, that returns a context or a carrier, as
+// req.Context() does.
+func (r *closureReader) callsContextMethod(call *ssa.CallCommon, v ssa.Value) bool {
+	switch {
+	case call.IsInvoke():
+		if call.Value != v {
+			return false
+		}
+	case call.Signature().Recv() == nil || len(call.Args) == 0 || call.Args[0] != v:
+		return false
+	}
+	results := call.Signature().Results()
+	for i := range results.Len() {
+		t := results.At(i).Type()
+		if typeutil.IsContextType(t) || carrier.IsCarrierType(t, r.carriers) || r.implementsContext(t) {
+			return true
+		}
+	}
+	return false
+}
+
 // callsHolderMethod reports whether call is a method called on v, and v
-// holds a context or a carrier. Whether the method reads it is not looked
-// into, as for a method spawned directly.
+// holds a context or a carrier that the analyzed code can have put there.
+// Whether the method reads it is not looked into, as for a method spawned
+// directly.
 func (r *closureReader) callsHolderMethod(call *ssa.CallCommon, v ssa.Value) bool {
 	if call.IsInvoke() || call.Signature().Recv() == nil || len(call.Args) == 0 || call.Args[0] != v {
 		return false
@@ -135,7 +173,9 @@ func (r *closureReader) callsHolderMethod(call *ssa.CallCommon, v ssa.Value) boo
 
 // holdsContext reports whether a value of type t has a context or a carrier
 // in a field, or in a field of a struct it holds by value. A struct it
-// points to is not looked into.
+// points to is not looked into. Only a field the analyzed code can set
+// counts, so the unexported context of a *testing.T or an *http.Request
+// does not (#191).
 func (r *closureReader) holdsContext(t types.Type, seen map[types.Type]bool) bool {
 	if seen[t] {
 		return false
@@ -146,6 +186,9 @@ func (r *closureReader) holdsContext(t types.Type, seen map[types.Type]bool) boo
 		return false
 	}
 	for f := range st.Fields() {
+		if !r.canSet(f) {
+			continue
+		}
 		ft := f.Type()
 		if typeutil.IsContextType(ft) || carrier.IsCarrierType(ft, r.carriers) || r.implementsContext(ft) ||
 			r.holdsContext(ft, seen) {
@@ -153,6 +196,19 @@ func (r *closureReader) holdsContext(t types.Type, seen map[types.Type]bool) boo
 		}
 	}
 	return false
+}
+
+// canSet reports whether the analyzed code can set the field f: it is
+// exported, or declared in the analyzed package or a package of its module.
+func (r *closureReader) canSet(f *types.Var) bool {
+	if f.Exported() || f.Pkg() == r.pkg {
+		return true
+	}
+	if r.module == "" || f.Pkg() == nil {
+		return false
+	}
+	path := f.Pkg().Path()
+	return path == r.module || strings.HasPrefix(path, r.module+"/")
 }
 
 // implementsContext reports whether t, past its pointers, implements
@@ -163,6 +219,15 @@ func (r *closureReader) implementsContext(t types.Type) bool {
 	}
 	t = typeutil.UnwrapPointer(t)
 	return types.Implements(t, r.iface) || types.Implements(types.NewPointer(t), r.iface)
+}
+
+// closurePackage gives the package of closure, or nil when SSA has none, as
+// for a wrapper.
+func closurePackage(closure *ssa.Function) *types.Package {
+	if closure.Pkg == nil {
+		return nil
+	}
+	return closure.Pkg.Pkg
 }
 
 // closureContextInterface gives the context.Context interface, or nil when
@@ -182,7 +247,7 @@ func closureContextInterface(prog *ssa.Program) *types.Interface {
 
 // closureHoldsCapturing reports whether the func variable fv captures holds
 // a closure that captures a context.
-func closureHoldsCapturing(fv *ssa.FreeVar, carriers []carrier.Carrier, seen map[*ssa.Function]bool) bool {
+func closureHoldsCapturing(fv *ssa.FreeVar, carriers []carrier.Carrier, module string, seen map[*ssa.Function]bool) bool {
 	if _, isFunc := typeutil.UnwrapPointer(fv.Type()).Underlying().(*types.Signature); !isFunc {
 		return false
 	}
@@ -193,7 +258,7 @@ func closureHoldsCapturing(fv *ssa.FreeVar, carriers []carrier.Carrier, seen map
 			return false
 		}
 		fn, _ := mc.Fn.(*ssa.Function)
-		return closureCaptures(fn, carriers, seen)
+		return closureCaptures(fn, carriers, module, seen)
 	})
 }
 

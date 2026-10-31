@@ -85,6 +85,7 @@ goroutinectx/
 │       ├── goroutinederivemixed/  # Mixed AND/OR tests
 │       ├── gotask/            # gotask checker tests
 │       └── carrier/           # Context carrier tests
+│   └── receivermodule/        # A module, for which receivers count (#191)
 ├── docs/                      # Documentation
 ├── .github/workflows/         # CI configuration
 ├── .golangci.yaml             # golangci-lint configuration
@@ -146,7 +147,11 @@ Four checkers handle goroutine context propagation:
 
 **How a spawned value is resolved.** The checkers find the `ssa.Go` or `ssa.Call` of the AST node, and take the SSA value of the spawned function or callback argument. `ssa.FuncResolver` follows it back through Phi nodes, loads of local variables and calls of factories to each function literal, and runs the same SSA check an inline literal gets. So a variable, a `var` declaration, a branch and a factory are all checked like the literal itself, and only the value that reaches the call counts: a later assignment does not. A struct field, an element at a constant index and a map value at a constant key are followed the same way, as parts of the variable they are in, so a store to the field after the struct literal counts and one replaced before the spawn does not (#116). A struct made with `&T{}` is followed through the variable that holds its address, as long as no closure writes it. A value it cannot follow passes: a parameter, an interface method, a variable a closure writes, a variable whose address is passed on.
 
-**What a closure counts as a context.** `ssa.ClosureCapturesContext` reads the closure's free variables. A captured context counts unless every value it can hold is a fresh `context.Background()` or `TODO()`. A context read from a field or an element of a captured value is judged the same way, with the part resolved as above (#182). A captured value whose type implements `context.Context` counts as a context, and so does a method called on a captured value that has a context in a field (#184). The method is not looked into, so a receiver that holds only a fresh context passes, as a method spawned directly with `go s.run()` or `g.Go(s.run)` does.
+**What a closure counts as a context.** `ssa.ClosureCapturesContext` reads the closure's free variables. A captured context counts unless every value it can hold is a fresh `context.Background()` or `TODO()`. A context read from a field or an element of a captured value is judged the same way, with the part resolved as above (#182). A captured value whose type implements `context.Context` counts as a context, and so does a method called on a captured value that returns a context, as `req.Context()` does. A method called on a captured value that has a context in a field counts too (#184). The method is not looked into, so a receiver that holds only a fresh context passes, as a method spawned directly with `go s.run()` or `g.Go(s.run)` does.
+
+**Only a context field the analyzed code can set counts for a receiver** (#191). That is a field that is exported, or that is declared in the analyzed package or in another package of its module (`pass.Module`, by import path prefix). Counting every field made `go func() { t.Log("x") }()` pass, as `*testing.T`, `*http.Request` and `*exec.Cmd` hold a context of their own in an unexported field, which is not `ctx`. When the driver does not give the module, only the analyzed package counts as its own. `testdata/receivermodule` runs in module mode to test this.
+
+**A method spawned directly is still not judged by its receiver.** `go t.Log("x")` and `g.Go(h.Run)` pass whatever the receiver holds, as before #184. The fixtures mark this `[NOTCHECKED]`. Judging them by the same rule would be consistent, but it would report every method spawned directly on a receiver without a settable context, as `go w.loop()` on a type with no context field, which is a change of its own.
 
 **spawner Directive:**
 ```go
