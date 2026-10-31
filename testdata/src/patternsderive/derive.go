@@ -4,6 +4,7 @@ package patternsderive
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/my-example-app/telemetry/apm"
@@ -301,4 +302,95 @@ func badDecoratorMissingDeriver(ctx context.Context) {
 	go recoverDerive(func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
 		_ = ctx
 	})()
+}
+
+// ===== A range-over-func loop body that calls the deriver =====
+
+// [GOOD]: Deriver called in a range-over-func loop body.
+//
+// The loop body runs in the goroutine, as the body of a slice loop does (#196).
+func goodRangeFuncCallsDeriverGoroutine(ctx context.Context, xs []int) {
+	go func() {
+		for x := range slices.Values(xs) {
+			_ = apm.NewGoroutineContext(ctx)
+			_ = x
+		}
+	}()
+}
+
+// [GOOD]: Callback calls deriver in a range-over-func loop body
+func goodRangeFuncCallsDeriverErrgroup(ctx context.Context, xs []int) {
+	var g errgroup.Group
+	g.Go(func() error {
+		for x := range slices.Values(xs) {
+			_ = apm.NewGoroutineContext(context.Background())
+			_ = x
+		}
+		return nil
+	})
+}
+
+// [GOOD]: Callback calls deriver in a range-over-func loop body
+func goodRangeFuncCallsDeriverWaitGroup(ctx context.Context, xs []int) {
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for x := range slices.Values(xs) {
+			_ = apm.NewGoroutineContext(context.Background())
+			_ = x
+		}
+	})
+}
+
+// [GOOD]: Callback calls deriver in a range-over-func loop body
+func goodRangeFuncCallsDeriverSpawner(ctx context.Context, xs []int) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error {
+		for x := range slices.Values(xs) {
+			_ = apm.NewGoroutineContext(context.Background())
+			_ = x
+		}
+		return nil
+	})
+}
+
+// [BAD]: Range-over-func loop body without deriver.
+func badRangeFuncNoDeriverGoroutine(ctx context.Context, xs []int) {
+	go func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		for x := range slices.Values(xs) {
+			_ = ctx
+			_ = x
+		}
+	}()
+}
+
+// [BAD]: Callback with a range-over-func loop body that neither captures ctx nor calls deriver
+func badRangeFuncNoDeriverErrgroup(ctx context.Context, xs []int) {
+	var g errgroup.Group
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx" or call goroutine deriver`
+		for x := range slices.Values(xs) {
+			_ = x
+		}
+		return nil
+	})
+}
+
+// [BAD]: Callback with a range-over-func loop body that neither captures ctx nor calls deriver
+func badRangeFuncNoDeriverWaitGroup(ctx context.Context, xs []int) {
+	var wg sync.WaitGroup
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx" or call goroutine deriver`
+		for x := range slices.Values(xs) {
+			_ = x
+		}
+	})
+}
+
+// [BAD]: Callback with a range-over-func loop body that neither captures ctx nor calls deriver
+func badRangeFuncNoDeriverSpawner(ctx context.Context, xs []int) {
+	g := new(errgroup.Group)
+	runWithGroup(g, func() error { // want `runWithGroup\(\) func argument should use context "ctx" or call goroutine deriver`
+		for x := range slices.Values(xs) {
+			_ = x
+		}
+		return nil
+	})
 }

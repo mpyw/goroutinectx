@@ -16,7 +16,8 @@ type WalkedCall struct {
 }
 
 // CallWalker walks the Call, Defer and Go instructions of a function. It goes
-// into each immediately invoked function literal, and with Goroutines into
+// into each immediately invoked function literal, into the body of each
+// range-over-func loop, and with Goroutines into
 // each function literal a go statement runs. A walker walks each function once as deferred
 // and once as not, however many times it is asked to, so a function both
 // deferred and called directly is seen called directly too.
@@ -55,7 +56,8 @@ func (w *CallWalker) walk(fn *ssa.Function, inDefer bool, visit func(WalkedCall)
 			switch v := instr.(type) {
 			case *ssa.Call:
 				if !visit(WalkedCall{Call: &v.Call, inDefer: inDefer}) ||
-					!w.walk(calleeToWalk(&v.Call), inDefer, visit) {
+					!w.walk(calleeToWalk(&v.Call), inDefer, visit) ||
+					!w.walk(yieldToWalk(&v.Call), inDefer, visit) {
 					return false
 				}
 
@@ -97,5 +99,22 @@ func calleeToWalk(call *ssa.CallCommon) *ssa.Function {
 		}
 	}
 
+	return nil
+}
+
+// yieldToWalk returns the body of a range-over-func loop when the call is the
+// iterator call that runs it. SSA builds the body as a synthetic yield
+// closure and passes it to the iterator, which calls it in the same
+// goroutine.
+func yieldToWalk(call *ssa.CallCommon) *ssa.Function {
+	for _, arg := range call.Args {
+		fn, ok := arg.(*ssa.Function)
+		if mc, isClosure := arg.(*ssa.MakeClosure); isClosure {
+			fn, ok = mc.Fn.(*ssa.Function)
+		}
+		if ok && fn.Synthetic == "range-over-func yield" {
+			return fn
+		}
+	}
 	return nil
 }

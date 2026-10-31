@@ -330,6 +330,27 @@ func handler(ctx context.Context) {
 }
 ```
 
+A task built by a combinator is judged by what it is given. It passes only when every task and function it is given calls the deriver:
+
+| Combinator | Judged by |
+|------------|-----------|
+| [`gotask.Parallel`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Parallel), [`gotask.ParallelSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#ParallelSettled), [`gotask.Race`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Race) | Each task. Each one runs in a goroutine of its own |
+| [`gotask.Then`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Then), [`gotask.Catch`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Catch) | The task and the function. The function gets the context the task was given, not the one the task derives |
+
+```go
+func handler(ctx context.Context) {
+    bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+        return gotask.ResultOk(1)
+    })
+
+    // Bad: Parallel runs bad without the deriver
+    _ = gotask.DoAll(ctx, gotask.Parallel(bad))
+}
+```
+
+> [!NOTE]
+> A combinator given a slice of tasks whose elements can't be traced, as a slice parameter (`gotask.Parallel(tasks...)`), is not reported.
+
 **Note**: This checker only activates when `-goroutine-deriver` is set.
 
 ## Directives

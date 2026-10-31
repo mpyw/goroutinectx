@@ -4,6 +4,7 @@ package spawnerlabel
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"golang.org/x/sync/errgroup"
 
@@ -24,6 +25,17 @@ func evilDeepNesting() { // want `function "evilDeepNesting" should have //gorou
 				})
 			}
 		}
+	}
+	_ = g.Wait()
+}
+
+// [BAD]: Spawn in a range-over-func loop body
+func evilRangeFuncSpawn(xs []int) { // want `function "evilRangeFuncSpawn" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	for range slices.Values(xs) {
+		g.Go(func() error {
+			return nil
+		})
 	}
 	_ = g.Wait()
 }

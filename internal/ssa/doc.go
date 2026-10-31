@@ -74,7 +74,8 @@
 // # Walking Calls
 //
 // [CallWalker] walks the Call, Defer and Go instructions of a function, going
-// into IIFEs, and with Goroutines set into the literal a go statement runs.
+// into IIFEs and range-over-func loop bodies, and with Goroutines set into
+// the literal a go statement runs.
 // The deriver check and the spawnerlabel checker both walk calls with it.
 //
 // # Closure Free Variables
@@ -115,6 +116,6 @@
 // The package exports helper functions for SSA analysis:
 //
 //   - [ExtractCalledFunc]: Get types.Func from CallCommon
-//   - [CallWalker]: Walk calls, going into immediately-invoked function expressions
+//   - [CallWalker]: Walk calls, going into immediately-invoked function expressions and range-over-func loop bodies
 //   - [CallHasFuncArgs]: Check if call has function-typed arguments
 package ssa
