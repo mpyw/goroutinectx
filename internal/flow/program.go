@@ -1,4 +1,4 @@
-package ssa
+package flow
 
 import (
 	"go/ast"
@@ -109,24 +109,6 @@ func (p *Program) innermostFuncAt(n ast.Node) *ssa.Function {
 			return fn
 		}
 		fn = fn.AnonFuncs[i]
-	}
-	return nil
-}
-
-// FindFuncDecl finds the SSA function for a given FuncDecl AST node.
-func (p *Program) FindFuncDecl(decl *ast.FuncDecl) *ssa.Function {
-	if p == nil || decl == nil {
-		return nil
-	}
-
-	for _, fn := range p.SrcFuncs {
-		syntax := fn.Syntax()
-		if syntax == nil {
-			continue
-		}
-		if fnDecl, ok := syntax.(*ast.FuncDecl); ok && fnDecl.Pos() == decl.Pos() {
-			return fn
-		}
 	}
 	return nil
 }

@@ -6,11 +6,11 @@ import (
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
-	gossa "golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/deriver"
-	"github.com/mpyw/goroutinectx/internal/probe"
+	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/registry"
 )
 
@@ -43,8 +43,8 @@ func (c *SpawnCallbackChecker) Name() checker.Name {
 }
 
 // CheckCall checks the call expression.
-func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
-	fn, recvArgs := spawnedCallee(cctx, call)
+func (c *SpawnCallbackChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic {
+	fn, recvArgs := spawnedCallee(e, call)
 	if fn == nil {
 		return nil
 	}
@@ -53,24 +53,22 @@ func (c *SpawnCallbackChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr
 	if !ok {
 		return nil
 	}
-	return c.checkSingleArg(cctx, call, entry, entry.CallbackArgIdx+recvArgs)
+	return c.checkSingleArg(e, ctxName, call, entry, entry.CallbackArgIdx+recvArgs)
 }
 
 // checkSingleArg checks the callback, call's argument at idx.
-func (c *SpawnCallbackChecker) checkSingleArg(cctx *probe.Context, call *ast.CallExpr, entry registry.Entry, idx int) []analysis.Diagnostic {
+func (c *SpawnCallbackChecker) checkSingleArg(e *env.Env, ctxName string, call *ast.CallExpr, entry registry.Entry, idx int) []analysis.Diagnostic {
 	if idx >= len(call.Args) {
 		return nil
 	}
 
-	var v gossa.Value
-	if args := spawnedCallArgs(cctx, call); args != nil {
+	var v ssa.Value
+	if args := spawnedCallArgs(e, call); args != nil {
 		v = args[idx]
 	}
-	if spawnedFuncPasses(cctx, call.Args[idx], v, spawnedContextResolver(cctx, c.derivers)) {
+	if spawnedFuncPasses(e, call.Args[idx], v, spawnedContextResolver(e, c.derivers)) {
 		return nil
 	}
-
-	ctxName := cctx.CtxNames[0]
 
 	// Format error message based on whether deriver is configured
 	msg := fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName)
@@ -112,14 +110,12 @@ func (*SpawnerChecker) Name() checker.Name {
 
 // CheckCall checks the call expression. It reports each failing argument at
 // its own position.
-func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []analysis.Diagnostic {
+func (c *SpawnerChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic {
 	// Get the function being called
-	fn, _ := spawnedCallee(cctx, call)
+	fn, _ := spawnedCallee(e, call)
 	if fn == nil || !c.spawners.IsSpawner(fn) {
 		return nil
 	}
-
-	ctxName := cctx.CtxNames[0]
 
 	// Format error message based on whether deriver is configured
 	msgFormat := "%s() func argument should use context %q"
@@ -128,18 +124,18 @@ func (c *SpawnerChecker) CheckCall(cctx *probe.Context, call *ast.CallExpr) []an
 	}
 
 	// Report each failing func argument at its position.
-	args := spawnedCallArgs(cctx, call)
-	r := spawnedContextResolver(cctx, c.derivers)
+	args := spawnedCallArgs(e, call)
+	r := spawnedContextResolver(e, c.derivers)
 	var diags []analysis.Diagnostic
 	for i, arg := range call.Args {
-		if !spawnIsFuncArg(cctx.Pass, arg) {
+		if !spawnIsFuncArg(e.Pass, arg) {
 			continue
 		}
-		var v gossa.Value
+		var v ssa.Value
 		if args != nil {
 			v = args[i]
 		}
-		if !spawnedFuncPasses(cctx, arg, v, r) {
+		if !spawnedFuncPasses(e, arg, v, r) {
 			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
 		}
 	}

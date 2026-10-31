@@ -16,6 +16,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
+	"github.com/mpyw/goroutinectx/internal/env"
 )
 
 // TestRunNeedsItsRequires checks that Run stops with an error, and does not
@@ -92,8 +93,8 @@ func TestBuildCheckers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := &runner{enabled: make(ignore.EnabledCheckers)}
-			packageCheckers := r.buildCheckers(tt.cfg, checkerdef.Deps{Derivers: tt.derivers})
+			r := &runner{env: &env.Env{Derivers: tt.derivers}, enabled: make(ignore.EnabledCheckers)}
+			packageCheckers := r.buildCheckers(tt.cfg)
 			var built []checker.Name
 			for _, c := range r.goStmtCheckers {
 				built = append(built, c.Name())

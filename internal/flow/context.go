@@ -1,6 +1,7 @@
-package ssa
+package flow
 
 import (
+	"go/ast"
 	"go/types"
 	"slices"
 
@@ -11,11 +12,37 @@ import (
 )
 
 // HasContextParam reports whether fn takes a context.Context or one of
-// carriers.
+// carriers. It reads the SSA parameters, so unlike [ContextParamNames] it
+// counts a blank parameter, as func(_ context.Context) has, and the receiver
+// of a method.
 func HasContextParam(fn *ssa.Function, carriers []carrier.Carrier) bool {
 	return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
 		return typeutil.IsContextType(p.Type()) || carrier.IsCarrierType(p.Type(), carriers)
 	})
+}
+
+// ContextParamNames gives the names of the parameters of fnType that are a
+// context.Context or one of carriers, in order. It reads the syntax, so
+// unlike [HasContextParam] it leaves out a blank parameter, which cannot be
+// used, and a receiver, which is not in fnType. The runner checks the nodes
+// of a function only when this gives a name, and reports the first.
+func ContextParamNames(info *types.Info, fnType *ast.FuncType, carriers []carrier.Carrier) []string {
+	if fnType == nil || fnType.Params == nil {
+		return nil
+	}
+	var names []string
+	for _, field := range fnType.Params.List {
+		typ := info.TypeOf(field.Type)
+		if typ == nil || (!typeutil.IsContextType(typ) && !carrier.IsCarrierType(typ, carriers)) {
+			continue
+		}
+		for _, name := range field.Names {
+			if name.Name != "_" {
+				names = append(names, name.Name)
+			}
+		}
+	}
+	return names
 }
 
 // IsFreshContext reports whether every value v can be is a call of

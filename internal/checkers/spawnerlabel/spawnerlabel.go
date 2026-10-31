@@ -10,18 +10,18 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
+	"github.com/mpyw/goroutinectx/internal/flow"
 	"github.com/mpyw/goroutinectx/internal/registry"
-	internalssa "github.com/mpyw/goroutinectx/internal/ssa"
 )
 
 // Checker validates that functions are properly labeled with //goroutinectx:spawner.
 type Checker struct {
 	spawners *spawner.Map
-	ssaProg  *internalssa.Program
+	ssaProg  *flow.Program
 }
 
 // New creates a new spawnerlabel checker.
-func New(spawners *spawner.Map, ssaProg *internalssa.Program) *Checker {
+func New(spawners *spawner.Map, ssaProg *flow.Program) *Checker {
 	return &Checker{spawners: spawners, ssaProg: ssaProg}
 }
 
@@ -170,15 +170,15 @@ func (c *Checker) getFuncObject(pass *analysis.Pass, fnDecl *ast.FuncDecl) *type
 // goroutines it starts, and the closures a call returns when that result is
 // called. A closure only made, and never run here, does not count.
 func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
-	ssaFn := c.ssaProg.FindFuncDecl(fnDecl)
+	ssaFn := ssaFuncOfDecl(c.ssaProg, fnDecl)
 	if ssaFn == nil {
 		return nil
 	}
 
 	var info *spawnCallInfo
-	w := &internalssa.CallWalker{Goroutines: true}
-	var visit func(internalssa.WalkedCall) bool
-	visit = func(site internalssa.WalkedCall) bool {
+	w := &flow.CallWalker{Goroutines: true}
+	var visit func(flow.WalkedCall) bool
+	visit = func(site flow.WalkedCall) bool {
 		info = c.spawnCallInfoOf(site.Call)
 		if info != nil {
 			return false
@@ -187,7 +187,7 @@ func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 			return true
 		}
 		// Calling what a function returns runs the closures it returns.
-		values, _ := internalssa.ResolvedValues(site.Call.Value)
+		values, _ := flow.ResolvedValues(site.Call.Value)
 		for _, v := range values {
 			inner, ok := v.(*ssa.Call)
 			if !ok || inner.Call.StaticCallee() == nil {
@@ -209,7 +209,7 @@ func (c *Checker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnCallInfo {
 // spawnCallInfoOf reports the API a call spawns through, or nil.
 func (c *Checker) spawnCallInfoOf(call *ssa.CallCommon) *spawnCallInfo {
 	// Get the called function
-	calledFn := internalssa.ExtractCalledFunc(call)
+	calledFn := flow.ExtractCalledFunc(call)
 	if calledFn == nil {
 		return nil
 	}
@@ -218,13 +218,13 @@ func (c *Checker) spawnCallInfoOf(call *ssa.CallCommon) *spawnCallInfo {
 	if entry, ok := registry.Match(calledFn); ok {
 		// For spawnerlabel, we need func arguments. Task APIs (e.g.,
 		// DoAsync) always spawn.
-		if internalssa.CallHasFuncArgs(call, entry.CallbackArgIdx) || entry.AlwaysSpawns {
+		if callHasFuncArgs(call, entry.CallbackArgIdx) || entry.AlwaysSpawns {
 			return &spawnCallInfo{methodName: entry.Spec.FullName()}
 		}
 	}
 
 	// Check if calling a spawner-marked function
-	if c.spawners.IsSpawner(calledFn) && internalssa.CallHasFuncArgs(call, 0) {
+	if c.spawners.IsSpawner(calledFn) && callHasFuncArgs(call, 0) {
 		return &spawnCallInfo{methodName: calledFn.Name()}
 	}
 
@@ -256,4 +256,44 @@ func returnedClosures(fn *ssa.Function) []*ssa.Function {
 		}
 	}
 	return closures
+}
+
+// ssaFuncOfDecl finds the SSA function of decl in p, or nil.
+func ssaFuncOfDecl(p *flow.Program, decl *ast.FuncDecl) *ssa.Function {
+	if p == nil || decl == nil {
+		return nil
+	}
+
+	for _, fn := range p.SrcFuncs {
+		syntax := fn.Syntax()
+		if syntax == nil {
+			continue
+		}
+		if fnDecl, ok := syntax.(*ast.FuncDecl); ok && fnDecl.Pos() == decl.Pos() {
+			return fn
+		}
+	}
+	return nil
+}
+
+// callHasFuncArgs reports whether call has an argument of a func type, or
+// of a slice of one, at startIdx or after.
+func callHasFuncArgs(call *ssa.CallCommon, startIdx int) bool {
+	args := call.Args
+	if startIdx < 0 || startIdx >= len(args) {
+		return false
+	}
+
+	for i := startIdx; i < len(args); i++ {
+		underlying := args[i].Type().Underlying()
+		if _, isFunc := underlying.(*types.Signature); isFunc {
+			return true
+		}
+		if slice, ok := underlying.(*types.Slice); ok {
+			if _, isFunc := slice.Elem().Underlying().(*types.Signature); isFunc {
+				return true
+			}
+		}
+	}
+	return false
 }

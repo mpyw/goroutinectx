@@ -4,9 +4,10 @@
 //
 // # Execution Flow
 //
-//  1. [Run] builds the ignore maps, the spawners, the deriver matcher and the
-//     checkers from the [Config]
-//  2. scope.Build finds the functions with context parameters
+//  1. [Run] builds the ignore maps, the spawners and the deriver matcher from
+//     the [Config], and from them one env.Env for the pass, which builds the
+//     checkers
+//  2. flow.ContextParamNames finds the functions with context parameters
 //  3. The inspector walks the AST. For each go statement and call inside such
 //     a function, the go statement or call checkers run
 //  4. Each checker returns its diagnostics. The runner reports each one that

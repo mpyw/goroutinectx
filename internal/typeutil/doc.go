@@ -49,4 +49,11 @@
 //	if typeutil.IsContextType(typ) || carrier.IsCarrierType(typ, carriers) {
 //	    // typ is context.Context or a configured carrier
 //	}
+//
+// # Package Paths
+//
+// A function or a type given in a flag names its package by import path.
+// [CheckPkgPath] rejects a bare name that is not a standard library package,
+// for funcspec and carrier alike, and [PkgPathMatches] matches a path,
+// allowing a major version suffix such as /v2.
 package typeutil

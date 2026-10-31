@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -61,7 +60,7 @@ func Parse(parts []string) ([]Carrier, error) {
 			return nil, fmt.Errorf("-context-carriers: %q: want pkg/path.Type", part)
 		}
 		c := Carrier{PkgPath: part[:lastDot], TypeName: part[lastDot+1:]}
-		if err := funcspec.CheckPkgPath(part, c.PkgPath); err != nil {
+		if err := typeutil.CheckPkgPath(part, c.PkgPath); err != nil {
 			return nil, fmt.Errorf("-context-carriers: %w", err)
 		}
 		carriers = append(carriers, c)

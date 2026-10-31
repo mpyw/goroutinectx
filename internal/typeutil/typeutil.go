@@ -1,7 +1,10 @@
 package typeutil
 
 import (
+	"fmt"
+	"go/build"
 	"go/types"
+	"slices"
 	"strings"
 )
 
@@ -98,4 +101,34 @@ func PkgPathMatches(pkgPath, targetPkg string) bool {
 	}
 	rest, ok := strings.CutPrefix(pkgPath, targetPkg+"/v")
 	return ok && rest != "" && strings.Trim(rest, "0123456789") == ""
+}
+
+// CheckPkgPath rejects pkgPath, the package of the name s, when it is a bare
+// name that is not a standard library package. Such a name never matches,
+// since a package is matched by its full import path.
+func CheckPkgPath(s, pkgPath string) error {
+	if !strings.Contains(pkgPath, "/") && !isStdPackage(pkgPath) {
+		return fmt.Errorf("%q: %q is not an import path; write the full path of the package, as github.com/org/%s",
+			s, pkgPath, s)
+	}
+	return nil
+}
+
+// stdTopLevel lists the standard library packages whose path has no slash.
+var stdTopLevel = []string{
+	"bufio", "bytes", "cmp", "context", "crypto", "embed", "encoding", "errors", "expvar", "flag", "fmt",
+	"hash", "html", "image", "io", "iter", "log", "maps", "math", "mime", "net", "os", "path", "plugin",
+	"reflect", "regexp", "runtime", "slices", "sort", "strconv", "strings", "structs", "sync", "syscall",
+	"testing", "time", "unicode", "unique", "unsafe", "uuid", "weak",
+}
+
+// isStdPackage reports whether path, which has no slash, is a standard
+// library package: one listed, or one GOROOT holds, for a package newer than
+// the list.
+func isStdPackage(path string) bool {
+	if slices.Contains(stdTopLevel, path) {
+		return true
+	}
+	pkg, err := build.Default.Import(path, "", build.FindOnly)
+	return err == nil && pkg.Goroot
 }
