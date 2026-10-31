@@ -389,7 +389,7 @@ func gotaskReceiver(common *ssa.CallCommon) ssa.Value {
 		return nil
 	}
 	if mc, ok := common.Value.(*ssa.MakeClosure); ok {
-		if fn, ok := mc.Fn.(*ssa.Function); ok && fn.Synthetic != "" && len(mc.Bindings) == 1 {
+		if fn, ok := mc.Fn.(*ssa.Function); ok && flow.Classify(fn) == flow.ClassifiedBound && len(mc.Bindings) == 1 {
 			return mc.Bindings[0]
 		}
 		return nil
