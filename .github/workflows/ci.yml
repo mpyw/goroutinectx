@@ -43,6 +43,37 @@ jobs:
           use_oidc: true
         continue-on-error: true
 
+  golden:
+    name: Golden
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # goroot.txt holds the reports for the Go version in its first line.
+      - name: Read the Go version of the golden files
+        id: golden
+        run: echo "go-version=$(head -1 cmd/goroutinectx/testdata/golden/goroot.txt | cut -d' ' -f2 | sed 's/^go//')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ steps.golden.outputs.go-version }}
+          cache: false
+
+      - name: Cache the golden modules
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/golden
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: golden-${{ steps.golden.outputs.go-version }}-${{ hashFiles('cmd/goroutinectx/golden_test.go', 'go.sum') }}
+
+      - name: Run the golden check
+        run: GOROUTINECTX_GOLDEN=1 go test -v -count=1 -timeout=20m -run TestGolden ./cmd/goroutinectx
+
   declscope:
     name: declscope
     runs-on: ubuntu-latest

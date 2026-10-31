@@ -51,7 +51,8 @@ Directive matching and file filters use unadjusted positions (`fset.PositionFor(
 goroutinectx/
 ├── analyzer.go                # Main analyzer: flags resolved into run.Config
 ├── plugin/                    # golangci-lint module plugin: settings resolved into run.Config
-├── analyzer_test.go           # Integration tests using analysistest
+├── analyzer_test.go           # Integration tests using analysistest, one table of settings
+├── cmd/goroutinectx/          # The command, its end-to-end tests, and the golden check
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
@@ -268,7 +269,7 @@ func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
 
 3. Add its variant of each case in `testdata/src/patterns/` that it can express, and its own cases in `testdata/src/<name>/` (see [Where a Test Case Goes](#where-a-test-case-goes))
 
-4. Add test case in `analyzer_test.go`
+4. Add a case to the table of `TestAnalyzer` in `analyzer_test.go`
 
 ## Testing Strategy
 
@@ -280,6 +281,25 @@ func (c *MyChecker) CheckGoStmt(cctx *probe.Context, stmt *ast.GoStmt) []analysi
   - `basic.go` - Simple good/bad cases
   - `advanced.go` - Complex patterns (defer, loops, channels)
   - `evil.go` - Adversarial patterns (nesting, IIFE, limitations)
+
+- `TestAnalyzer` is one table: each case builds its analyzer with `goroutinectx.New(cfg)` and runs in parallel. Do not set the flags of the global `goroutinectx.Analyzer` in a test; a test of the flags themselves builds its own with `AnalyzerWithFlags` (`export_test.go`)
+
+### Golden Check
+
+`TestGolden` in `cmd/goroutinectx/golden_test.go` runs the analyzer over `$GOROOT/src` and a few real modules at pinned commits, and compares the sorted reports with `cmd/goroutinectx/testdata/golden/<name>.txt`. Each report is `relative/path.go:line:col: message`, with `GOOS=linux GOARCH=amd64 CGO_ENABLED=0`, so the files are the same on every machine.
+
+| Command | What it does |
+|---------|--------------|
+| `GOROUTINECTX_GOLDEN=1 go test -count=1 -run TestGolden ./cmd/goroutinectx` | Checks the reports |
+| `GOROUTINECTX_GOLDEN=update go test -count=1 -run TestGolden ./cmd/goroutinectx` | Rewrites the golden files |
+
+- It is skipped when `GOROUTINECTX_GOLDEN` is not set. `./test_all.sh` and the `Golden` CI job set it
+- The first run clones the modules into `.cache/golden/` (gitignored) and downloads their dependencies. Later runs take about 75 seconds on a laptop
+- `goroot.txt` depends on the Go version in its first line. With another toolchain that case is skipped with a message. CI reads the version from that line
+- To add a module, or move one to a newer commit, edit `goldenModules` and update
+
+> [!IMPORTANT]
+> A refactor must keep the golden diff empty. A change that changes reports on purpose updates the golden files in the same commit, and says why in its message.
 
 ### Where a Test Case Goes
 

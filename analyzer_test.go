@@ -13,334 +13,132 @@ import (
 	"github.com/mpyw/goroutinectx"
 )
 
-// TestPatterns checks the cases that every checker shares, side by side: the
-// goroutine, errgroup, waitgroup and spawner variants of each.
-func TestPatterns(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "patterns")
-}
-
-// TestPatternsDerive is TestPatterns with -goroutine-deriver set.
-func TestPatternsDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "patternsderive")
-}
-
-// TestReceiverModule checks, in module mode, that a method of a captured
-// value counts when its context field is unexported but of the analyzed
-// module, and not when it is of another module (#191).
-func TestReceiverModule(t *testing.T) {
-	dir := filepath.Join(analysistest.TestData(), "receivermodule")
-	analysistest.Run(t, dir, goroutinectx.Analyzer, "./use")
-}
-
-func TestGoroutine(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutine")
-}
-
-func TestErrgroup(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "errgroup")
-}
-
-// TestResolve checks closures given through variables, resolved through SSA
-// (#82, #83), and context parameters given a fresh context (#84).
-func TestResolve(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "resolve")
-}
-
-// TestResolveDerive is TestResolve with -goroutine-deriver set.
-func TestResolveDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "resolvederive")
-}
-
-func TestWaitgroup(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "waitgroup")
-}
-
-// TestIgnoreForms checks how //goroutinectx:ignore is read (#65).
-func TestIgnoreForms(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "ignoreforms")
-}
-
-func TestConc(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "conc")
-}
-
-func TestGoroutineDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutinederive")
-}
-
-func TestGoroutineDeriveAnd(t *testing.T) {
-	testdata := analysistest.TestData()
-	// AND: all must be called (Transaction.NewGoroutine + NewContext)
-	deriveFunc := "github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+" +
+// The deriver and carrier settings that the fixtures are written for.
+const (
+	apmDeriver      = "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
+	newrelicDeriver = "github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+" +
 		"github.com/newrelic/go-agent/v3/newrelic.NewContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
+	echoCarrier = "github.com/labstack/echo/v4.Context"
+)
+
+// TestAnalyzer runs each fixture package with the settings it is written
+// for. Each case builds its own analyzer with New, so the cases share no
+// settings and run in parallel.
+func TestAnalyzer(t *testing.T) {
+	t.Parallel()
+	label := map[string]bool{"spawnerlabel": true}
+	tests := []struct {
+		name string
+		cfg  goroutinectx.Config
+		// dir is the testdata directory, analysistest.TestData() when empty.
+		dir  string
+		pkgs []string
+	}{
+		// The cases that every checker shares, side by side: the goroutine,
+		// errgroup, waitgroup and spawner variants of each.
+		{name: "patterns", pkgs: []string{"patterns"}},
+		{name: "patternsderive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"patternsderive"}},
+		// In module mode, a method of a captured value counts when its
+		// context field is unexported but of the analyzed module, and not
+		// when it is of another module (#191).
+		{name: "receivermodule", dir: "receivermodule", pkgs: []string{"./use"}},
+		{name: "goroutine", pkgs: []string{"goroutine"}},
+		{name: "errgroup", pkgs: []string{"errgroup"}},
+		// Closures given through variables, resolved through SSA (#82, #83),
+		// and context parameters given a fresh context (#84).
+		{name: "resolve", pkgs: []string{"resolve"}},
+		{name: "resolvederive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"resolvederive"}},
+		{name: "waitgroup", pkgs: []string{"waitgroup"}},
+		// How //goroutinectx:ignore is read (#65).
+		{name: "ignoreforms", pkgs: []string{"ignoreforms"}},
+		{name: "conc", pkgs: []string{"conc"}},
+		{name: "goroutinederive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"goroutinederive"}},
+		// AND: all must be called (Transaction.NewGoroutine + NewContext).
+		{name: "goroutinederiveand", cfg: goroutinectx.Config{GoroutineDeriver: newrelicDeriver}, pkgs: []string{"goroutinederiveand"}},
+		// Mixed: (Transaction.NewGoroutine AND NewContext) OR
+		// apm.NewGoroutineContext.
+		{name: "goroutinederivemixed", cfg: goroutinectx.Config{GoroutineDeriver: newrelicDeriver + "," + apmDeriver}, pkgs: []string{"goroutinederivemixed"}},
+		{name: "carrier", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier}}, pkgs: []string{"carrier"}},
+		{name: "carrierderive", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier}, GoroutineDeriver: apmDeriver}, pkgs: []string{"carrierderive"}},
+		{name: "spawner", pkgs: []string{"spawner"}},
+		// Spawner directives across packages (#89) and on any doc comment
+		// line (#85).
+		{name: "spawnerfact", pkgs: []string{"spawnerfact"}},
+		// -spawnerlabel with the directive on any doc comment line (#85).
+		{name: "spawnerlabeldoc", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"spawnerlabeldoc"}},
+		// Calls of generic functions and of methods of generic types (#86),
+		// and generic methods (Go 1.27).
+		{name: "generics", pkgs: []string{"generics"}},
+		// generics for gotask, with a deriver.
+		{name: "genericsderive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"genericsderive"}},
+		// -spawnerlabel with generic spawners (#86).
+		{name: "genericslabel", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"genericslabel"}},
+		{name: "directive", pkgs: []string{"directive"}},
+		{name: "externalspawner", cfg: goroutinectx.Config{ExternalSpawner: []string{
+			"github.com/example/workerpool.Pool.Submit",
+			"github.com/example/workerpool.Run",
+		}}, pkgs: []string{"externalspawner"}},
+		{name: "spawnerlabel", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"spawnerlabel"}},
+		{name: "gotask", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"gotask"}},
+		// Generated files are skipped.
+		{name: "filefilter", pkgs: []string{"filefilter"}},
+		// //line directives do not move ignore and spawner directives.
+		{name: "linedirective", pkgs: []string{"linedirective"}},
+		// Generated files with //line directives are still skipped.
+		{name: "linedirectivegen", pkgs: []string{"linedirectivegen"}},
+		{name: "linedirectivelabel", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"linedirectivelabel"}},
 	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutinederiveand")
-}
-
-func TestGoroutineDeriveMixed(t *testing.T) {
-	testdata := analysistest.TestData()
-	// Mixed: (Transaction.NewGoroutine AND NewContext) OR apm.NewGoroutineContext
-	deriveFunc := "github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+" +
-		"github.com/newrelic/go-agent/v3/newrelic.NewContext," +
-		"github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := analysistest.TestData()
+			if tt.dir != "" {
+				dir = filepath.Join(dir, tt.dir)
+			}
+			a, err := goroutinectx.New(tt.cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			analysistest.Run(t, dir, a, tt.pkgs...)
+		})
 	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutinederivemixed")
 }
 
-func TestContextCarriers(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	carriers := "github.com/labstack/echo/v4.Context"
-	if err := goroutinectx.Analyzer.Flags.Set("context-carriers", carriers); err != nil {
-		t.Fatal(err)
+// TestFlags checks that the flags of the analyzer reach its run: the
+// carrierderive fixture passes only with both -context-carriers and
+// -goroutine-deriver set.
+func TestFlags(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
+	for name, value := range map[string]string{
+		"context-carriers":  echoCarrier,
+		"goroutine-deriver": apmDeriver,
+		"external-spawner":  "github.com/example/workerpool.Run",
+		"spawnerlabel":      "false",
+	} {
+		if err := a.Flags.Set(name, value); err != nil {
+			t.Fatal(err)
+		}
 	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("context-carriers", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "carrier")
-}
-
-func TestCarrierDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	carriers := "github.com/labstack/echo/v4.Context"
-	if err := goroutinectx.Analyzer.Flags.Set("context-carriers", carriers); err != nil {
-		t.Fatal(err)
-	}
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("context-carriers", "")
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "carrierderive")
-}
-
-func TestSpawner(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawner")
-}
-
-// TestSpawnerFact checks spawner directives across packages (#89) and on
-// any doc comment line (#85).
-func TestSpawnerFact(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerfact")
-}
-
-// TestSpawnerlabelDoc checks -spawnerlabel with the directive on any doc
-// comment line (#85).
-func TestSpawnerlabelDoc(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerlabeldoc")
-}
-
-// TestGenerics checks calls of generic functions and of methods of generic
-// types (#86), and generic methods (Go 1.27).
-func TestGenerics(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "generics")
-}
-
-// TestGenericsDerive is TestGenerics for gotask, with -goroutine-deriver set.
-func TestGenericsDerive(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "genericsderive")
-}
-
-// TestGenericsLabel checks -spawnerlabel with generic spawners (#86).
-func TestGenericsLabel(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "genericslabel")
+	analysistest.Run(t, analysistest.TestData(), a, "carrierderive")
 }
 
 // TestFlagRejectsShortName checks that a function or a carrier with no
 // import path is rejected when the flag is set (#90, #122).
 func TestFlagRejectsShortName(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
 	for _, flag := range []string{"goroutine-deriver", "external-spawner", "context-carriers"} {
-		if err := goroutinectx.Analyzer.Flags.Set(flag, "apm.NewGoroutineContext"); err == nil {
+		if err := a.Flags.Set(flag, "apm.NewGoroutineContext"); err == nil {
 			t.Errorf("-%s=apm.NewGoroutineContext was accepted", flag)
 		}
-		if got := goroutinectx.Analyzer.Flags.Lookup(flag).Value.String(); got != "" {
+		if got := a.Flags.Lookup(flag).Value.String(); got != "" {
 			t.Errorf("-%s holds %q after a rejected value", flag, got)
 		}
 	}
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "context.WithoutCancel"); err != nil {
+	if err := a.Flags.Set("goroutine-deriver", "context.WithoutCancel"); err != nil {
 		t.Errorf("a standard library function was rejected: %v", err)
 	}
-	_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-}
-
-func TestDirective(t *testing.T) {
-	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "directive")
-}
-
-func TestExternalSpawner(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	// Set external spawner flag for workerpool package
-	externalSpawners := "github.com/example/workerpool.Pool.Submit," +
-		"github.com/example/workerpool.Run"
-	if err := goroutinectx.Analyzer.Flags.Set("external-spawner", externalSpawners); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("external-spawner", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "externalspawner")
-}
-
-func TestSpawnerlabel(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "spawnerlabel")
-}
-
-func TestGotask(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	deriveFunc := "github.com/my-example-app/telemetry/apm.NewGoroutineContext"
-	if err := goroutinectx.Analyzer.Flags.Set("goroutine-deriver", deriveFunc); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("goroutine-deriver", "")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "gotask")
-}
-
-func TestFileFilter(t *testing.T) {
-	testdata := analysistest.TestData()
-	// Tests that generated files are skipped
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "filefilter")
-}
-
-func TestLineDirective(t *testing.T) {
-	testdata := analysistest.TestData()
-	// Tests that //line directives do not move ignore and spawner directives
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirective")
-}
-
-func TestLineDirectiveGenerated(t *testing.T) {
-	testdata := analysistest.TestData()
-	// Tests that generated files with //line directives are still skipped
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirectivegen")
-}
-
-func TestLineDirectiveSpawnerlabel(t *testing.T) {
-	testdata := analysistest.TestData()
-
-	if err := goroutinectx.Analyzer.Flags.Set("spawnerlabel", "true"); err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		_ = goroutinectx.Analyzer.Flags.Set("spawnerlabel", "false")
-	}()
-
-	analysistest.Run(t, testdata, goroutinectx.Analyzer, "linedirectivelabel")
 }
 
 // TestResolveFanOutIsBounded checks that resolving a struct field copied
@@ -371,6 +169,7 @@ func TestResolveFanOutIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Parallel()
 	start := time.Now()
 	analysistest.Run(t, dir, goroutinectx.Analyzer, "fanout")
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
@@ -381,10 +180,11 @@ func TestResolveFanOutIsBounded(t *testing.T) {
 // TestFlagsPrintDefaults checks that the flags print their defaults, which
 // asks each flag value for the text of its zero value.
 func TestFlagsPrintDefaults(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
 	var buf strings.Builder
-	goroutinectx.Analyzer.Flags.SetOutput(&buf)
-	defer goroutinectx.Analyzer.Flags.SetOutput(nil)
-	goroutinectx.Analyzer.Flags.PrintDefaults()
+	a.Flags.SetOutput(&buf)
+	a.Flags.PrintDefaults()
 	for _, name := range []string{"goroutine-deriver", "external-spawner", "context-carriers"} {
 		if !strings.Contains(buf.String(), "-"+name) {
 			t.Errorf("defaults do not list -%s:\n%s", name, buf.String())

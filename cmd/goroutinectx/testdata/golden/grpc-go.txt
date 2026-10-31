@@ -1,0 +1,11 @@
+# github.com/grpc/grpc-go@bc90736a6fadc41582f9a23fb955bb66088f1bb8 linux/amd64
+balancer/grpclb/grpclb_remote_balancer.go:372:2: goroutine does not propagate context "ctx"
+balancer/grpclb/grpclb_test.go:106:2: goroutine does not propagate context "ctx"
+credentials/tls.go:125:2: goroutine does not propagate context "ctx"
+credentials/xds/xds.go:134:2: goroutine does not propagate context "ctx"
+experimental/credentials/tls.go:69:2: goroutine does not propagate context "ctx"
+internal/transport/handler_server.go:436:2: goroutine does not propagate context "ctx"
+internal/transport/http2_client.go:490:2: goroutine does not propagate context "connectCtx"
+internal/transport/transport_test.go:3800:3: goroutine does not propagate context "ctx"
+internal/transport/transport_test.go:3822:3: goroutine does not propagate context "ctx"
+server.go:1110:3: goroutine does not propagate context "ctx"
