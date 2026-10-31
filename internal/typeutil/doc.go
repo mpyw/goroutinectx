@@ -19,6 +19,7 @@
 //	IsContextType(*contextContext)  // true
 //	IsContextType(Ctx)              // true, for type Ctx = context.Context
 //	IsContextType(C)                // true, for [C context.Context]
+//	IsContextType(MyCtx)            // true, for type MyCtx interface{ context.Context }
 //
 // # Implementation Details
 //
@@ -26,8 +27,8 @@
 //  1. Unwrapping pointer types and aliases ([UnwrapPointer])
 //  2. Checking if the type is a named type
 //  3. Comparing package path and type name
-//  4. Failing that, checking the constraint of a type parameter, and the
-//     types its interface literal embeds ([ConstraintEmbeds])
+//  4. Failing that, checking the types an interface embeds, named or not,
+//     and the constraint of a type parameter ([Embeds])
 //
 // Example internal flow:
 //

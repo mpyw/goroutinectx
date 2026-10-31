@@ -172,3 +172,45 @@ func goodGoroutineTypeParamCarrier[C echo.Context](c C) {
 		_ = c
 	}()
 }
+
+// ===== CARRIER THROUGH AN INTERFACE THAT EMBEDS IT =====
+
+// myEcho is a named interface that embeds the carrier echo.Context.
+type myEcho interface{ echo.Context }
+
+// [BAD]: Goroutine ignores a named interface carrier
+//
+// A parameter of a named interface that embeds the carrier is a carrier
+// (#194).
+func badGoroutineNamedIfaceCarrier(c myEcho) {
+	go func() { // want `goroutine does not propagate context "c"`
+	}()
+}
+
+// [BAD]: Goroutine ignores a named interface carrier type parameter
+//
+// A type parameter constrained by a named interface that embeds the carrier
+// is a carrier (#194).
+func badGoroutineNamedIfaceTypeParamCarrier[C myEcho](c C) {
+	go func() { // want `goroutine does not propagate context "c"`
+	}()
+}
+
+// [GOOD]: Goroutine uses a named interface carrier
+//
+// The closure captures the carrier of a named interface.
+func goodGoroutineNamedIfaceCarrier(c myEcho) {
+	go func() {
+		_ = c
+	}()
+}
+
+// [GOOD]: Goroutine takes a named interface carrier
+//
+// The goroutine's own parameter of a named interface that embeds the
+// carrier is given c.
+func goodGoroutinePassesNamedIfaceCarrier(c echo.Context) {
+	go func(c myEcho) {
+		_ = c
+	}(c)
+}

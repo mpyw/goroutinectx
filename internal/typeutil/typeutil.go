@@ -8,10 +8,11 @@ import (
 const contextPkgPath = "context"
 
 // IsContextType checks if the type is context.Context, through pointers
-// and aliases. A type parameter whose constraint is, or embeds,
-// context.Context is one too (see [ConstraintEmbeds]).
+// and aliases. An interface that embeds context.Context, named or not, and
+// a type parameter whose constraint is or embeds it are one too (see
+// [Embeds]).
 func IsContextType(t types.Type) bool {
-	return isContextNamed(t) || ConstraintEmbeds(t, isContextNamed)
+	return Embeds(t, isContextNamed)
 }
 
 func isContextNamed(t types.Type) bool {
@@ -28,26 +29,31 @@ func isContextNamed(t types.Type) bool {
 	return obj.Pkg().Path() == contextPkgPath && obj.Name() == "Context"
 }
 
-// ConstraintEmbeds reports whether t, through pointers and aliases, is a
-// type parameter whose constraint match accepts, or whose constraint is an
-// interface literal that embeds such a type, as interface{ context.Context }
-// does. A named interface that embeds one is not looked into, the same as a
-// parameter of that type.
-func ConstraintEmbeds(t types.Type, match func(types.Type) bool) bool {
-	tp, ok := UnwrapPointer(t).(*types.TypeParam)
-	return ok && constraintEmbeds(tp.Constraint(), match)
+// Embeds reports whether t, through pointers and aliases, is a type match
+// accepts, or an interface that embeds one, as type MyCtx interface{
+// context.Context } does. A type parameter is judged by its constraint.
+//
+// Only an embedded type counts. An interface that declares the same
+// methods itself is not looked into, and neither is a struct that embeds
+// one: it is not an interface.
+func Embeds(t types.Type, match func(types.Type) bool) bool {
+	t = UnwrapPointer(t)
+	if tp, ok := t.(*types.TypeParam); ok {
+		t = tp.Constraint()
+	}
+	return embeds(t, match)
 }
 
-func constraintEmbeds(c types.Type, match func(types.Type) bool) bool {
-	if match(c) {
+func embeds(t types.Type, match func(types.Type) bool) bool {
+	if match(t) {
 		return true
 	}
-	iface, ok := types.Unalias(c).(*types.Interface)
+	iface, ok := t.Underlying().(*types.Interface)
 	if !ok {
 		return false
 	}
 	for i := range iface.NumEmbeddeds() {
-		if constraintEmbeds(iface.EmbeddedType(i), match) {
+		if embeds(iface.EmbeddedType(i), match) {
 			return true
 		}
 	}

@@ -18,10 +18,10 @@ type Carrier struct {
 }
 
 // Matches checks if the given type matches this carrier, through pointers
-// and aliases. A type parameter whose constraint is, or embeds, the carrier
-// matches too.
+// and aliases. An interface that embeds the carrier, named or not, and a
+// type parameter whose constraint is or embeds it match too.
 func (c Carrier) Matches(t types.Type) bool {
-	return c.matchesNamed(t) || typeutil.ConstraintEmbeds(t, c.matchesNamed)
+	return typeutil.Embeds(t, c.matchesNamed)
 }
 
 func (c Carrier) matchesNamed(t types.Type) bool {
