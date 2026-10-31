@@ -7,7 +7,7 @@ import (
 // returnedResults is which results of a return returns gives.
 type returnedResults int
 
-//declscope:shared // resolve.go follows the first result, run.go every result
+//declscope:shared // flow.go gives the first result, run.go every result
 const (
 	// returnedFirst gives the first result of each return. A factory is
 	// followed this way, as func() (func(), error) gives the function first.
@@ -21,7 +21,7 @@ const (
 // returns gives the values fn returns, in block order: the results of each
 // Return instruction that results picks.
 //
-//declscope:shared // resolve.go follows factories, run.go returned closures
+//declscope:shared // flow.go gives what a factory returns, run.go returned closures
 func returns(fn *ssa.Function, results returnedResults) []ssa.Value {
 	var returned []ssa.Value
 	for _, block := range fn.Blocks {

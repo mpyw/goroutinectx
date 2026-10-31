@@ -43,7 +43,8 @@ func (r *FuncResolver) Passes(v ssa.Value) bool {
 // for a callback that makes tasks.
 func (r *FuncResolver) ResultPasses(v ssa.Value) bool {
 	defer r.Flow.ask()()
-	return r.resultPasses(v, 1, make(map[ssa.Value]bool))
+	sources, _ := r.Flow.Sources(v)
+	return r.resultPasses(sources, 1, make(map[ssa.Value]bool))
 }
 
 // passes reports whether every source of v passes. seen are the values
@@ -53,8 +54,14 @@ func (r *FuncResolver) passes(v ssa.Value, seen map[ssa.Value]bool) bool {
 	if v == nil || seen[v] {
 		return true
 	}
-	seen[v] = true
 	sources, _ := r.Flow.Sources(v)
+	return r.sourcesPass(v, sources, seen)
+}
+
+// sourcesPass reports whether every one of sources, those of v, passes, v
+// being judged for the first time.
+func (r *FuncResolver) sourcesPass(v ssa.Value, sources []Source, seen map[ssa.Value]bool) bool {
+	seen[v] = true
 	return !slices.ContainsFunc(sources, func(s Source) bool {
 		if s.Value != v {
 			if seen[s.Value] {
@@ -102,7 +109,8 @@ func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool)
 	}) {
 		return true
 	}
-	return r.resultPasses(call.Value, 1, seen)
+	callees, _ := r.Flow.Sources(call.Value)
+	return r.resultPasses(callees, 1, seen)
 }
 
 // resolverMaxCalls bounds how many calls away a factory's result is
@@ -110,17 +118,14 @@ func (r *FuncResolver) callPasses(call *ssa.CallCommon, seen map[ssa.Value]bool)
 // type stateFn func() stateFn, ends.
 const resolverMaxCalls = 16
 
-// resultPasses reports whether calling v depth times gives a function that
-// passes. Of a factory, any value it returns passing is enough. A result
-// more than resolverMaxCalls calls away passes.
-func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]bool) bool {
-	if depth == 0 {
-		return r.passes(v, seen)
-	}
+// resultPasses reports whether calling a value of sources depth times, depth
+// being at least 1, gives a function that passes. Of a factory, any value it
+// returns passing is enough. A result more than resolverMaxCalls calls away
+// passes.
+func (r *FuncResolver) resultPasses(sources []Source, depth int, seen map[ssa.Value]bool) bool {
 	if depth > resolverMaxCalls {
 		return true
 	}
-	sources, _ := r.Flow.Sources(v)
 	return !slices.ContainsFunc(sources, func(s Source) bool {
 		if fn := s.Func(); fn != nil {
 			return !r.factoryFuncPasses(fn, depth, seen)
@@ -134,7 +139,8 @@ func (r *FuncResolver) resultPasses(v ssa.Value, depth int, seen map[ssa.Value]b
 		case call.Common().IsInvoke():
 			return false
 		}
-		return !r.resultPasses(call.Common().Value, depth+1, seen)
+		callees, _ := r.Flow.Sources(call.Common().Value)
+		return !r.resultPasses(callees, depth+1, seen)
 	})
 }
 
@@ -152,8 +158,13 @@ func (r *FuncResolver) factoryFuncPasses(fn *ssa.Function, depth int, seen map[s
 	if r.Factory != nil && r.Factory(fn) {
 		return true
 	}
-	returned := returns(fn, returnedFirst)
-	return len(returned) == 0 || slices.ContainsFunc(returned, func(v ssa.Value) bool { return r.resultPasses(v, depth-1, seen) })
+	returned := r.Flow.Returns(fn)
+	return len(returned) == 0 || slices.ContainsFunc(returned, func(ret Return) bool {
+		if depth == 1 {
+			return seen[ret.Value] || r.sourcesPass(ret.Value, ret.Sources, seen)
+		}
+		return r.resultPasses(ret.Sources, depth-1, seen)
+	})
 }
 
 // ResolvedArgs gives the SSA value of each argument of call, in the order of
@@ -261,47 +272,42 @@ func resolvedLoaded(v ssa.Value, w resolvedWalk) (values []ssa.Value, isLoad, ok
 	return nil, false, false
 }
 
-// resolvedFreeVarValues gives each value the variable a closure captures as
-// fv can hold: the value it was made with, or for a variable captured by
-// reference, every value stored to it. ok is false when they cannot all be
-// followed.
+// resolvedCaptured gives the values v reads when it reads a variable a
+// closure captures: for a free variable, the value the closure was made
+// with, or for a variable captured by reference, every value stored to it;
+// for a field, or an element at a constant index, of a value, that part of
+// each value the value can be. Any other v is given as it is. ok is false
+// when they cannot all be followed.
 //
-//declscope:shared // closure.go tells a captured fresh context from one that carries ctx
-func resolvedFreeVarValues(f *Flow, fv *ssa.FreeVar) (values []ssa.Value, ok bool) {
-	if _, isPtr := fv.Type().Underlying().(*types.Pointer); !isPtr {
-		binding, ok := resolvedBinding(fv)
+//declscope:shared // flow.go gives their sources as those of a captured variable
+func resolvedCaptured(f *Flow, v ssa.Value) (values []ssa.Value, ok bool) {
+	w := resolvedWalk{f: f}
+	switch x := v.(type) {
+	case *ssa.FreeVar:
+		if _, isPtr := x.Type().Underlying().(*types.Pointer); isPtr {
+			return resolvedStoresAt(x, nil, w)
+		}
+		binding, ok := resolvedBinding(x)
 		if !ok {
 			return nil, false
 		}
 		return []ssa.Value{binding}, true
-	}
-	return resolvedStoresAt(fv, nil, resolvedWalk{f: f})
-}
-
-// resolvedPartValues gives the values v can be when it is a field, or an
-// element at a constant index, of a value: that part of each value the value
-// can be. Any other v is given as it is. ok is false when the part cannot be
-// followed.
-//
-//declscope:shared // closure.go judges a context read from a part of a captured value
-func resolvedPartValues(f *Flow, v ssa.Value) (values []ssa.Value, ok bool) {
-	switch x := v.(type) {
 	case *ssa.Field:
-		return resolvedPart(x.X, []int{x.Field}, resolvedWalk{f: f})
+		return resolvedPart(x.X, []int{x.Field}, w)
 	case *ssa.Index:
 		i, ok := resolvedConstIndex(x.Index)
 		if !ok {
 			return nil, false
 		}
-		return resolvedPart(x.X, []int{i}, resolvedWalk{f: f})
+		return resolvedPart(x.X, []int{i}, w)
 	}
 	return []ssa.Value{v}, true
 }
 
 // ResolvedSliceElems gives the elements of a slice made from a whole local
 // array, as a slice literal or the slice of a variadic call is, or of each
-// slice a function called to make it returns. ok is false for any other
-// slice.
+// slice a function called to make it returns, as [Flow.Returns] gives them.
+// ok is false for any other slice.
 func (f *Flow) ResolvedSliceElems(v ssa.Value) (elems []ssa.Value, ok bool) {
 	defer f.ask()()
 	return resolvedSliceElemsAt(v, resolvedWalk{f: f})
@@ -329,8 +335,8 @@ func resolvedSliceElemsAt(v ssa.Value, w resolvedWalk) ([]ssa.Value, bool) {
 			return nil, false
 		}
 		var elems []ssa.Value
-		for _, ret := range returns(fn, returnedFirst) {
-			e, ok := resolvedSliceElemsAt(ret, w.deeper())
+		for _, ret := range w.f.Returns(fn) {
+			e, ok := resolvedSliceElemsAt(ret.Value, w.deeper())
 			if !ok {
 				return nil, false
 			}

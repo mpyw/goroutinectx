@@ -44,7 +44,7 @@ func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, 
 		case k&ctxkind.Carrier != 0:
 			return true
 		case k&ctxkind.Context != 0:
-			return !closureFreeVarIsFresh(f, fv)
+			return !closureIsFresh(f, fv)
 		case k&ctxkind.Implements != 0:
 			return true
 		}
@@ -126,8 +126,7 @@ func (r *closureReader) carries(part ssa.Value) bool {
 			return !ok || load.Op != token.MUL
 		})
 	}
-	values, ok := resolvedPartValues(r.flow, part)
-	return !ok || len(values) == 0 || slices.ContainsFunc(values, func(v ssa.Value) bool { return !r.flow.IsFreshContext(v) })
+	return !closureIsFresh(r.flow, part)
 }
 
 // callsContextMethod reports whether call is a method called on v, an
@@ -178,9 +177,9 @@ func closureHoldsCapturing(f *Flow, fv *ssa.FreeVar, kinds *ctxkind.Classifier, 
 	if _, isFunc := typeutil.UnwrapPointer(fv.Type()).Underlying().(*types.Signature); !isFunc {
 		return false
 	}
-	values, ok := resolvedFreeVarValues(f, fv)
-	return ok && slices.ContainsFunc(values, func(v ssa.Value) bool {
-		mc, ok := v.(*ssa.MakeClosure)
+	sources, ok := f.CapturedSources(fv)
+	return ok && slices.ContainsFunc(sources, func(s Source) bool {
+		mc, ok := s.Value.(*ssa.MakeClosure)
 		if !ok {
 			return false
 		}
@@ -189,11 +188,11 @@ func closureHoldsCapturing(f *Flow, fv *ssa.FreeVar, kinds *ctxkind.Classifier, 
 	})
 }
 
-// closureFreeVarIsFresh reports whether every value fv can hold is a fresh
-// context, as [Flow.IsFreshContext] judges it.
-func closureFreeVarIsFresh(f *Flow, fv *ssa.FreeVar) bool {
-	values, ok := resolvedFreeVarValues(f, fv)
-	return ok && len(values) > 0 && !slices.ContainsFunc(values, func(v ssa.Value) bool { return !f.IsFreshContext(v) })
+// closureIsFresh reports whether every value the captured v can read is a
+// fresh context, as [Flow.IsFreshContext] judges it.
+func closureIsFresh(f *Flow, v ssa.Value) bool {
+	sources, ok := f.CapturedSources(v)
+	return ok && len(sources) > 0 && !slices.ContainsFunc(sources, func(s Source) bool { return !f.IsFreshContext(s.Value) })
 }
 
 // ClosureDerivation is where a closure calls the deriver.

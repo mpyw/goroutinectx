@@ -63,7 +63,14 @@
 // [SourceKind], and whether the list is complete. Every check below that
 // follows a value folds over it.
 //
-// A question to a Flow, as Sources or [FuncResolver.Passes], has one bound
+// Sources never looks through a call, so that [Flow.IsFreshContext] does
+// not. Two other questions read what it does not, each for the checks that
+// need it. [Flow.CapturedSources] reads a variable a closure captures, or a
+// part of a captured value, by every value stored to it, for the closure
+// checks. [Flow.Returns] gives what a function returns with the sources of
+// each, for the checks that follow a factory.
+//
+// A question to a Flow, as any of these or [FuncResolver.Passes], has one bound
 // on its work, which the questions it asks in turn share, so nested checks
 // do not multiply it. What a question finds is remembered for the pass,
 // unless a bound cut it short.
@@ -73,8 +80,9 @@
 // [Program.GoAt] and [Program.CallAt] find the instruction of an AST go
 // statement or call, and [ResolvedArgs] lines its SSA arguments up with the
 // AST ones. [FuncResolver] then folds over the sources of a func-typed
-// value, and follows calls of factories through what they return, to each
-// function literal it can hold, and judges each one:
+// value, and over what the factories it calls return, as Returns gives it,
+// to each function literal it can hold, and judges each one. Of a factory,
+// one value it returns passing is enough:
 //
 //	r := &flow.FuncResolver{
 //	    Flow:    e.Flow,
@@ -106,8 +114,8 @@
 // # Returned Values
 //
 // One scanner reads the returns of a function, in two ways. A factory is
-// followed through the first result of each return only, while spawnerlabel
-// takes a closure returned as any result. The two are kept apart so that
+// followed through the first result of each return only, as [Flow.Returns]
+// gives it, while spawnerlabel takes a closure returned as any result. The two are kept apart so that
 // neither report changes.
 //
 // # Fresh Contexts

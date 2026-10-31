@@ -146,3 +146,127 @@ func TestSourceCall(t *testing.T) {
 		t.Errorf("found %d calls, want 2", calls)
 	}
 }
+
+// capturedSrc has a closure in use read a variable it captures, parts
+// reads a field and elements of values, and makers returns a function.
+const capturedSrc = `package p
+
+type T struct{ f func() }
+
+func a() {}
+func b() {}
+
+func makers(n int) func() {
+	if n > 0 {
+		return a
+	}
+	return b
+}
+
+func use(n int) {
+	v := a
+	if n > 0 {
+		v = b
+	}
+	func() { v() }()
+	v = nil
+}
+
+func parts(n int) {
+	T{f: b}.f()
+	[2]func(){a, b}[1]()
+	[2]func(){a, b}[n]()
+}
+`
+
+// capturedPkg builds capturedSrc.
+func capturedPkg(t *testing.T) *ssa.Package {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "p.go", capturedSrc, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, _, err := ssautil.BuildPackage(&types.Config{}, fset, types.NewPackage("p", "p"), []*ast.File{f}, ssa.SanityCheckFunctions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pkg
+}
+
+// capturedCallees gives the value each call in fn calls, in order.
+func capturedCallees(fn *ssa.Function) []ssa.Value {
+	var callees []ssa.Value
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if call, ok := instr.(*ssa.Call); ok {
+				callees = append(callees, call.Call.Value)
+			}
+		}
+	}
+	return callees
+}
+
+// TestFlowCapturedSources checks that CapturedSources reads a variable a
+// closure captures by every value stored to it, a field or an element at a
+// constant index by that part, and an element at any other index not at all.
+func TestFlowCapturedSources(t *testing.T) {
+	t.Parallel()
+
+	pkg := capturedPkg(t)
+	closure := pkg.Func("use").AnonFuncs[0]
+	loaded := capturedCallees(closure)
+	parts := capturedCallees(pkg.Func("parts"))
+	if len(loaded) != 1 || len(parts) != 3 {
+		t.Fatalf("found %d and %d calls, want 1 and 3", len(loaded), len(parts))
+	}
+	f := NewFlow()
+	b := pkg.Func("b")
+	tests := []struct {
+		name     string
+		v        ssa.Value
+		want     []ssa.Value
+		complete bool
+	}{
+		// Every store counts, the one after the closure is made too.
+		{"variable", closure.FreeVars[0], []ssa.Value{pkg.Func("a"), b, nil}, true},
+		{"loaded", loaded[0], []ssa.Value{loaded[0]}, true},
+		{"field", parts[0], []ssa.Value{b}, true},
+		{"element", parts[1], []ssa.Value{b}, true},
+		{"element at a variable index", parts[2], nil, false},
+	}
+	for _, tt := range tests {
+		sources, complete := f.CapturedSources(tt.v)
+		got := make([]ssa.Value, len(sources))
+		for i, s := range sources {
+			got[i] = s.Value
+			if c, ok := s.Value.(*ssa.Const); ok && c.IsNil() {
+				got[i] = nil
+			}
+		}
+		if !slices.Equal(got, tt.want) || complete != tt.complete {
+			t.Errorf("%s: CapturedSources = %v, %v, want %v, %v", tt.name, got, complete, tt.want, tt.complete)
+		}
+	}
+}
+
+// TestFlowReturns checks that Returns gives each value a function returns,
+// with its sources, and nothing for a function with no body.
+func TestFlowReturns(t *testing.T) {
+	t.Parallel()
+
+	pkg := capturedPkg(t)
+	f := NewFlow()
+	returned := f.Returns(pkg.Func("makers"))
+	if len(returned) != 2 {
+		t.Fatalf("Returns gave %d values, want 2", len(returned))
+	}
+	for _, ret := range returned {
+		if len(ret.Sources) != 1 || ret.Sources[0].Kind != SourceFunc || ret.Sources[0].Value != ret.Value {
+			t.Errorf("Returns gave %v with sources %v, want the function itself", ret.Value, ret.Sources)
+		}
+	}
+	if got := f.Returns(&ssa.Function{}); len(got) != 0 {
+		t.Errorf("Returns of a function with no body gave %v", got)
+	}
+}

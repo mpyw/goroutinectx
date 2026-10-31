@@ -197,18 +197,26 @@ Follows values through the package's SSA form: the instruction of a go statement
 | Deriver check (`ClosureCallsDeriver`) | No | No |
 | spawnerlabel | Yes | Yes |
 
-The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only. spawnerlabel takes a closure returned as any result.
+The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only, as `Flow.Returns` gives it. spawnerlabel takes a closure returned as any result.
 
-`Flow` is the one engine that follows values, built once per pass and held by `env.Env`. `Flow.Sources(v)` gives the values `v` can come from, each with its kind (function literal, named function, method, call result, parameter, global, unknown), and whether the list is complete. It goes through Phi nodes, type changes, loads of local variables and of their parts, and map lookups at constant keys. Every check that follows a value is a fold over `Sources`:
+`Flow` is the one engine that follows values, built once per pass and held by `env.Env`. `Flow.Sources(v)` gives the values `v` can come from, each with its kind (function literal, named function, method, call result, parameter, global, unknown), and whether the list is complete. It goes through Phi nodes, type changes, loads of local variables and of their parts, and map lookups at constant keys. It never looks through a call. Two other questions read what it does not:
+
+| Question | Gives | For |
+|----------|-------|-----|
+| `Flow.CapturedSources(v)` | What a variable a closure captures, or a part of a captured value, can hold: every value stored to it, as the closure may run after any store | The closure checks |
+| `Flow.Returns(fn)` | Each value `fn` returns as its first result, with its sources | `FuncResolver`, `ResolvedSliceElems` |
+
+Every check that follows a value is a fold over these:
 
 | Check | Fold |
 |-------|------|
-| `FuncResolver.Passes` | Every source passes: a literal by `Closure`, a call by the factory rules, which follow the factory's returns through `Sources` again |
+| `FuncResolver.Passes` | Every source passes: a literal by `Closure`, a call by the factory rules. Of a factory, one of the values `Returns` gives passing is enough |
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
-| `Flow.ClosureCapturesContext` | A captured context counts unless `IsFreshContext` of each value it can hold |
+| `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured func variable counts when one of them is a closure that captures a context |
+| `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
 | gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives |
 
-**One bound per question.** A question to `Flow` (`Sources`, `IsFreshContext`, `ClosureCapturesContext`, `FuncResolver.Passes`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a resolver judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
+**One bound per question.** A question to `Flow` (`Sources`, `CapturedSources`, `Returns`, `IsFreshContext`, `ClosureCapturesContext`, `FuncResolver.Passes`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a resolver judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
 
 It also tells whether a call gives only a fresh context (`GivesOnlyFreshContext`).
 
@@ -337,7 +345,7 @@ r := &flow.FuncResolver{Flow: e.Flow, Closure: func(fn *ssa.Function) bool { ...
 ok := r.Passes(value)
 ```
 
-It takes the sources of the value from `Flow.Sources`, which goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, and map lookups at constant keys, and follows calls of factories itself. Only the stores that reach the spawn count. A value it cannot follow passes.
+It takes the sources of the value from `Flow.Sources`, which goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, and map lookups at constant keys, and follows calls of factories through what `Flow.Returns` gives. Only the stores that reach the spawn count. A value it cannot follow passes.
 
 ### Deriver Matching
 
