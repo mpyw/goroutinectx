@@ -5,12 +5,12 @@ import (
 	"go/ast"
 	"go/types"
 	"slices"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/flow"
@@ -276,20 +276,11 @@ func (c *GotaskChecker) ctxIsDerivedFrom(v ssa.Value, seen map[ssa.Value]bool) b
 			return true
 		case c.derivers.MatchesFunc(fn):
 			return false
-		case gotaskIsContextWith(fn) && len(call.Call.Args) > 0:
+		case ctxkind.IsWithCall(fn) && len(call.Call.Args) > 0:
 			return !c.ctxIsDerivedFrom(call.Call.Args[0], seen)
 		}
 		return true
 	})
-}
-
-// gotaskIsContextWith reports whether fn is a function of the context
-// package that makes a context from the one it is given first, as
-// context.WithCancel and context.WithValue do.
-func gotaskIsContextWith(fn *types.Func) bool {
-	sig, ok := fn.Type().(*types.Signature)
-	return ok && fn.Pkg() != nil && fn.Pkg().Path() == "context" && strings.HasPrefix(fn.Name(), "With") &&
-		sig.Recv() == nil && sig.Params().Len() > 0 && typeutil.IsContextType(sig.Params().At(0).Type())
 }
 
 // taskDerives reports whether every task v can be wraps a function that

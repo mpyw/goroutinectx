@@ -8,30 +8,6 @@ import (
 	"strings"
 )
 
-const contextPkgPath = "context"
-
-// IsContextType checks if the type is context.Context, through pointers
-// and aliases. An interface that embeds context.Context, named or not, and
-// a type parameter whose constraint is or embeds it are one too (see
-// [Embeds]).
-func IsContextType(t types.Type) bool {
-	return Embeds(t, isContextNamed)
-}
-
-func isContextNamed(t types.Type) bool {
-	named, ok := UnwrapPointer(t).(*types.Named)
-	if !ok {
-		return false
-	}
-
-	obj := named.Obj()
-	if obj == nil || obj.Pkg() == nil {
-		return false
-	}
-
-	return obj.Pkg().Path() == contextPkgPath && obj.Name() == "Context"
-}
-
 // Embeds reports whether t, through pointers and aliases, is a type match
 // accepts, or an interface that embeds one, as type MyCtx interface{
 // context.Context } does. A type parameter is judged by its constraint.

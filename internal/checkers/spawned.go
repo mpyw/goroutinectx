@@ -6,6 +6,7 @@ import (
 
 	"golang.org/x/tools/go/ssa"
 
+	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/flow"
@@ -40,16 +41,16 @@ func spawnedFuncPasses(e *env.Env, expr ast.Expr, v ssa.Value, r *flow.FuncResol
 func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncResolver {
 	return &flow.FuncResolver{
 		Closure: func(fn *ssa.Function) bool {
-			return flow.HasContextParam(fn, e.Carriers) || flow.ClosureCapturesContext(fn, e.Carriers, e.Module) ||
+			return e.Kinds.HasParam(fn, ctxkind.Param) || flow.ClosureCapturesContext(fn, e.Kinds) ||
 				(!derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, derivers).FoundAtStart)
 		},
 		Call: func(call *ssa.CallCommon) (passes, handled bool) {
 			return false, spawnedGivesNamedFuncOnlyFreshContext(e, call)
 		},
 		FactoryCall: func(call *ssa.CallCommon) bool {
-			return flow.ArgsInvolveContext(call, e.Carriers) && !flow.GivesOnlyFreshContext(call, e.Carriers)
+			return e.Kinds.Involves(ctxkind.Param, call.Args...) && !flow.GivesOnlyFreshContext(call, e.Kinds)
 		},
-		Factory: func(fn *ssa.Function) bool { return flow.HasContextParam(fn, e.Carriers) },
+		Factory: func(fn *ssa.Function) bool { return e.Kinds.HasParam(fn, ctxkind.Param) },
 	}
 }
 
@@ -67,7 +68,7 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 		return false
 	}
 	fn, ok := call.Value.(*ssa.Function)
-	return ok && flow.Classify(fn) == flow.ClassifiedNamed && flow.GivesOnlyFreshContext(call, e.Carriers)
+	return ok && flow.Classify(fn) == flow.ClassifiedNamed && flow.GivesOnlyFreshContext(call, e.Kinds)
 }
 
 // spawnedCallArgs gives the SSA value of each argument of call, or nil.

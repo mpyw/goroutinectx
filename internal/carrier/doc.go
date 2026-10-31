@@ -60,8 +60,11 @@
 // Use [IsCarrierType] to check if a type matches any carrier:
 //
 //	if carrier.IsCarrierType(typ, carriers) {
-//	    // typ is context.Context or a carrier type
+//	    // typ is one of the carriers
 //	}
+//
+// The checkers do not call it themselves: ctxkind.Classifier holds the
+// carriers of a pass and tells a carrier as one kind of context.
 //
 // # Version Suffix Handling
 //

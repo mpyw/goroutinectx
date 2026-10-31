@@ -18,6 +18,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/carrier"
 	"github.com/mpyw/goroutinectx/internal/checker"
 	"github.com/mpyw/goroutinectx/internal/checkerdef"
+	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
@@ -299,8 +300,9 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 }
 
 // runFuncContexts maps each function declaration and literal that has a
-// context parameter, as [flow.ContextParamNames] finds one, to the name of
-// the first.
+// context parameter, as [ctxkind.Classifier.ParamNames] finds one with
+// [ctxkind.Param], to the name of the first. A blank parameter and a
+// receiver are left out.
 func runFuncContexts(e *env.Env, insp *inspector.Inspector) map[ast.Node]string {
 	ctxNames := make(map[ast.Node]string)
 	insp.Preorder([]ast.Node{(*ast.FuncDecl)(nil), (*ast.FuncLit)(nil)}, func(n ast.Node) {
@@ -311,7 +313,7 @@ func runFuncContexts(e *env.Env, insp *inspector.Inspector) map[ast.Node]string 
 		case *ast.FuncLit:
 			fnType = fn.Type
 		}
-		if names := flow.ContextParamNames(e.Pass.TypesInfo, fnType, e.Carriers); len(names) > 0 {
+		if names := e.Kinds.ParamNames(e.Pass.TypesInfo, fnType, ctxkind.Param); len(names) > 0 {
 			ctxNames[n] = names[0]
 		}
 	})

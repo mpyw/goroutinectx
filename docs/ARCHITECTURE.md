@@ -74,16 +74,17 @@ goroutinectx/
 │   │   ├── gotask.go          # gotask library checker
 │   │   └── spawnerlabel/      # spawnerlabel checker
 │   ├── carrier/               # Context carrier types (-context-carriers)
+│   ├── ctxkind/               # Classifier: what counts as a context, built once per pass
 │   ├── deriver/               # Matcher for OR/AND deriver matching
 │   ├── directive/             # Directive parsing
 │   │   ├── ignore/            # //goroutinectx:ignore
 │   │   └── spawner/           # //goroutinectx:spawner
 │   ├── env/                   # Env: what the checkers read about the pass, built once per pass
-│   ├── flow/                  # SSA program, context parameters, closure checks,
+│   ├── flow/                  # SSA program, fresh contexts, closure checks,
 │   │                          # value resolution, call walker
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
 │   ├── registry/              # The one table of supported spawning APIs
-│   └── typeutil/              # Context types, package paths
+│   └── typeutil/              # Pointers, embedded interfaces, package paths
 ├── testdata/
 │   └── src/                   # Test fixtures for analysistest
 │       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
@@ -114,7 +115,7 @@ goroutinectx/
 Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, and a toggle for each checker of `checkerdef.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`, and from them one `env.Env` for the pass
 2. Builds each checker that is on from the `env.Env`
-3. Maps each function with a context parameter to the name of the first (`flow.ContextParamNames`)
+3. Maps each function with a context parameter to the name of the first (`Kinds.ParamNames`)
 4. Uses `inspector.WithStack` to traverse the AST, and for each go statement and call finds the nearest enclosing function with a context
 5. Dispatches to the go statement or call checkers, with the `env.Env` and that context's name
 6. Reports each returned diagnostic unless an ignore for that checker sits at its line
@@ -150,12 +151,39 @@ What the checkers read about the pass, built once per pass by `run.Run`:
 type Env struct {
     Pass     *analysis.Pass
     SSA      *flow.Program
-    Carriers []carrier.Carrier
-    Derivers *deriver.Matcher // nil when -goroutine-deriver is not set
+    Kinds    *ctxkind.Classifier // what counts as a context: carriers, module
+    Derivers *deriver.Matcher    // nil when -goroutine-deriver is not set
     Spawners *spawner.Map
-    Module   string           // "" when the driver does not give it
 }
 ```
+
+### internal/ctxkind/
+
+Tells what counts as a context, with the carriers, the `context.Context` interface and the module of one pass. `Kind` is a set, since a type can be several at once:
+
+| Kind | A type of this kind is |
+|------|------------------------|
+| `Context` | `context.Context`, an interface that embeds it, or a type parameter constrained by one |
+| `Carrier` | A type of `-context-carriers` |
+| `Implements` | A type that implements `context.Context`, as a struct that embeds one does |
+| `Holds` | A struct with a field of one of these kinds that the analyzed code can set (#191) |
+
+Each caller names the set it counts. The sets do not agree yet (#210 step 2):
+
+| Threshold | Kinds | Used by |
+|-----------|-------|---------|
+| `Param` | `Context`, `Carrier` | `HasParam`, `ParamNames`, `Involves`, `MayHold`; the goroutine checker's test of a closure's parameters |
+| `Captured` | `Context`, `Carrier`, `Implements` | `flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields |
+| `Context` | `Context` | `flow.GivesOnlyFreshContext`, for the fresh argument; `IsWithCall`, for the first parameter |
+
+It also holds both tests for a context parameter. They differ on purpose:
+
+| Method | Reads | Blank parameter (`_ context.Context`) | Receiver | Used by |
+|--------|-------|---------------------------------------|----------|---------|
+| `HasParam` | SSA parameters | Counts | Counts | The checkers, for spawned closures and factories |
+| `ParamNames` | Syntax of a declaration or literal | Left out | Left out | The runner, to find the enclosing context and its name |
+
+`IsFreshCall` tells `Background` and `TODO` of `context` and `golang.org/x/net/context`. `IsWithCall` tells the `With*` functions of `context`, which the gotask checker follows back to a deriver.
 
 ### internal/flow/
 
@@ -170,12 +198,7 @@ Follows values through the package's SSA form: the instruction of a go statement
 
 The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only. spawnerlabel takes a closure returned as any result.
 
-It also holds both tests for a context parameter. They differ on purpose:
-
-| Function | Reads | Blank parameter (`_ context.Context`) | Receiver | Used by |
-|----------|-------|---------------------------------------|----------|---------|
-| `HasContextParam` | SSA parameters | Counts | Counts | The checkers, for spawned closures and factories |
-| `ContextParamNames` | Syntax of a declaration or literal | Left out | Left out | The runner, to find the enclosing context and its name |
+It also tells whether a value is only ever a fresh context (`IsFreshContext`), and whether a call gives only one (`GivesOnlyFreshContext`).
 
 ### internal/directive/
 
@@ -284,7 +307,7 @@ insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 The goroutine checker detects whether a goroutine's function captures a context, from its SSA free variables:
 
 ```go
-func ClosureCapturesContext(closure *ssa.Function, carriers []carrier.Carrier, module string) bool // in internal/flow
+func ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool // in internal/flow
 ```
 
 **Key behaviors:**
