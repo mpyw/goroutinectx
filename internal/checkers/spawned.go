@@ -39,12 +39,25 @@ func spawnedFuncPasses(e *env.Env, expr ast.Expr, v ssa.Value, r *flow.FuncResol
 //
 //declscope:shared // goroutine.go and spawn.go check for a context alike
 func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncResolver {
-	return &flow.FuncResolver{
+	captured := spawnedCapturedResolver(e, derivers)
+	spawned := *captured
+	spawned.Closure = func(fn *ssa.Function) bool {
+		return e.Kinds.HasParam(fn, ctxkind.Param) || captured.Closure(fn)
+	}
+	return &spawned
+}
+
+// spawnedCapturedResolver judges a func value a closure captures and runs,
+// by the rules of [spawnedContextResolver], as if it were spawned directly
+// (#228). A closure that takes a context does not pass for that alone, as
+// the closure that runs it gives it its arguments, and they count only when
+// that closure captures them. Its Closure judges a closure by what it
+// captures, and the func values it runs by this resolver again.
+//
+//declscope:shared // goroutine.go judges the closure a go statement runs alike
+func spawnedCapturedResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncResolver {
+	r := &flow.FuncResolver{
 		Flow: e.Flow,
-		Closure: func(fn *ssa.Function) bool {
-			return e.Kinds.HasParam(fn, ctxkind.Param) || e.Flow.ClosureCapturesContext(fn, e.Kinds) ||
-				(!derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, derivers).FoundAtStart)
-		},
 		Call: func(call *ssa.CallCommon) (passes, handled bool) {
 			return false, spawnedGivesNamedFuncOnlyFreshContext(e, call)
 		},
@@ -53,6 +66,11 @@ func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncRes
 		},
 		Factory: func(fn *ssa.Function) bool { return e.Kinds.HasParam(fn, ctxkind.Param) },
 	}
+	r.Closure = func(fn *ssa.Function) bool {
+		return e.Flow.ClosureCapturesContext(fn, e.Kinds, r) ||
+			(!derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, derivers).FoundAtStart)
+	}
+	return r
 }
 
 // spawnedGivesNamedFuncOnlyFreshContext reports whether call calls a named

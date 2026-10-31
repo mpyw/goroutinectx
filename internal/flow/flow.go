@@ -28,13 +28,24 @@ type Flow struct {
 	// open is the number of questions in progress. The bound starts again
 	// when one is asked while none is.
 	open int
+	// closures are the closures being judged by ClosureCapturesContext, up
+	// the stack: a closure reached again through a func value it captures
+	// adds nothing.
+	closures map[*ssa.Function]bool //declscope:shared // closure.go judges a closure once on the stack
+	// called are the factories whose results a resolver follows from a call
+	// that gives them no func that passes, up the stack. A func parameter of
+	// one holds what the call gives, so it does not pass for being a
+	// parameter.
+	called map[*ssa.Function]int //declscope:shared // resolve.go follows the factories a call calls
 }
 
 // NewFlow gives the Flow of one pass.
 func NewFlow() *Flow {
 	return &Flow{
-		sources: make(map[ssa.Value]resolvedValuesResult),
-		parts:   make(map[resolvedPartKey]resolvedValuesResult),
+		sources:  make(map[ssa.Value]resolvedValuesResult),
+		parts:    make(map[resolvedPartKey]resolvedValuesResult),
+		closures: make(map[*ssa.Function]bool),
+		called:   make(map[*ssa.Function]int),
 	}
 }
 

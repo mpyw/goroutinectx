@@ -213,6 +213,29 @@ A context made with [`context.Background`](https://pkg.go.dev/context#Background
 
 A context the goroutine reads from a field or an element of a value it captures counts. So does a value whose type implements `context.Context`, such as a struct that embeds one. A method called on a captured value counts too when it returns a context, as `req.Context()` does. A call that takes a captured value that holds a context your code can have put there counts too, whether the value is the receiver, as in `s.run()`, or an argument, as in `handle(s)`. The callee is not looked into, the same as for `go s.run()` and `go handle(s)`. A context field counts when it is exported, or when it is declared in your package or another package of your module. When the driver does not tell which module, a field of any package outside the standard library counts. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported.
 
+A func value the goroutine calls is judged as if it were spawned directly, when the goroutine gets it from a variable it captures. A func that can't be traced passes, in both cases. Examples are a parameter, a field of a parameter, a slice element read in a loop, and a result of a call that returns several values. A func returned by a factory that is given the context passes too:
+
+```go
+func handler(ctx context.Context, f func()) {
+    // Good: f can't be traced, the same as for go f()
+    go func() {
+        f()
+    }()
+
+    // Good: serve is given ctx, the same as for go run()
+    run, _ := serve(ctx)
+    go func() {
+        _ = run()
+    }()
+
+    // Bad: work is followed to a closure that does not use ctx
+    work := func() { doSomething() }
+    go func() {
+        work()
+    }()
+}
+```
+
 ### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 
 Detects [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) and [`errgroup.Group.TryGo`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.TryGo) closures that don't use context:

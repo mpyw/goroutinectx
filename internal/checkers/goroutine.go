@@ -45,8 +45,9 @@ func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
 		// gives another value that may hold a context.
 		args := g.Call.Args
 		onlyFresh := e.Flow.GivesOnlyFreshContext(&g.Call, e.Kinds)
+		captured := spawnedCapturedResolver(e, nil)
 		r.Closure = func(fn *ssa.Function) bool {
-			if e.Flow.ClosureCapturesContext(fn, e.Kinds) {
+			if captured.Closure(fn) {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
