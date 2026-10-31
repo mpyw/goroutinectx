@@ -190,7 +190,7 @@ type Matcher struct {
 func (m *Matcher) MatchesFunc(fn *types.Func) bool
 ```
 
-`ssa.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `ssa.CallWalker`, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
+`ssa.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `ssa.CallWalker`, which also goes into the body of a range-over-func loop (the synthetic `range-over-func yield` closure SSA passes to the iterator), keeping whether it is deferred, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
 
 **Parsing Logic:**
 - `pkg.Func1,pkg.Func2` → OR: either Func1 or Func2
@@ -206,12 +206,14 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 | `gotask.Do*` functions | Task arguments (2nd+) must call deriver in their body |
 | `Task.DoAsync` | Context argument (1st) must be derived |
 | `CancelableTask.DoAsync` | The `Task.DoAsync` it embeds, judged the same way |
+| A combinator: `Parallel`, `ParallelSettled`, `Race`, `Then`, `Catch` | Every task and function it is given must call the deriver. The resolver handles it in `Call`, so it does not fall to the factory rules, which pass a callee without a body |
 
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 
 **Known Limitations:**
 - A slice expanded with `...` is judged by its elements when they can be traced: a slice literal, in a variable or not, `gotask.TasksFrom(...)`, or the slices a function returns. A slice variable whose elements can't be traced, as a parameter, is reported
 - A task from an interface method can't be traced, so it is reported
+- A combinator given a slice of tasks whose elements can't be traced, as a slice parameter, passes
 
 ## Development Commands
 

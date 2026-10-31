@@ -2,6 +2,7 @@ package goroutinederive
 
 import (
 	"context"
+	"slices"
 
 	"github.com/my-example-app/telemetry/apm"
 )
@@ -299,4 +300,28 @@ func badReturnedFromExternal(ctx context.Context) {
 
 func getExternalFunc() func() {
 	return func() {}
+}
+
+// [BAD]: Deriver in a range-over-func loop body of a deferred IIFE.
+//
+// The loop body is walked as deferred, as the IIFE it is in is.
+func badDeriverInDeferredRangeFunc(ctx context.Context, xs []int) {
+	go func() { // want "goroutine calls github.com/my-example-app/telemetry/apm.NewGoroutineContext in defer, but it should be called at goroutine start"
+		defer func() {
+			for range slices.Values(xs) {
+				_ = apm.NewGoroutineContext(ctx)
+			}
+		}()
+	}()
+}
+
+// [GOOD]: Deriver in a nested range-over-func loop body.
+func goodDeriverInNestedRangeFunc(ctx context.Context, xss [][]int) {
+	go func() {
+		for xs := range slices.Values(xss) {
+			for range slices.Values(xs) {
+				_ = apm.NewGoroutineContext(ctx)
+			}
+		}
+	}()
 }

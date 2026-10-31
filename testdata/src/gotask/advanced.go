@@ -3,6 +3,7 @@ package gotask
 
 import (
 	"context"
+	"slices"
 
 	"github.com/my-example-app/telemetry/apm"
 	"github.com/samber/lo"
@@ -300,4 +301,171 @@ func badDoAsyncNonDeriverVariable(ctx context.Context) {
 	nonDerivedCtx := context.Background()
 	errChan := make(chan error, 1)
 	task.DoAsync(nonDerivedCtx, errChan) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// ===== Combinators =====
+
+func derivingTask() gotask.Task[gotask.Result[int]] {
+	return gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(1)
+	})
+}
+
+// [BAD]: Parallel given a task without deriver
+//
+// Parallel runs each task in a goroutine of its own (#197).
+func badParallelNoDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	_ = gotask.DoAll(ctx, gotask.Parallel(bad)) // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+}
+
+// [BAD]: Parallel given one task without deriver among several
+func badParallelPartialDeriver(ctx context.Context) {
+	good := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(1)
+	})
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(2)
+	})
+	_ = gotask.DoAll(ctx, gotask.Parallel(good, bad)) // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+}
+
+// [GOOD]: Parallel given tasks that all call deriver
+func goodParallelWithDeriver(ctx context.Context) {
+	good := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(1)
+	})
+	_ = gotask.DoAll(ctx, gotask.Parallel(good, good))
+}
+
+// [BAD]: Parallel given a slice literal holding a task without deriver
+func badParallelExpandedSlice(ctx context.Context) {
+	tasks := []gotask.Task[gotask.Result[int]]{
+		gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+			return gotask.ResultOk(1)
+		}),
+	}
+	_ = gotask.DoAll(ctx, gotask.Parallel(tasks...)) // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+}
+
+// [LIMITATION]: Parallel given a slice parameter
+//
+// The elements of a slice parameter are not traced, so the task passes.
+func limitationParallelSliceParam(ctx context.Context, tasks []gotask.Task[gotask.Result[int]]) {
+	_ = gotask.DoAll(ctx, gotask.Parallel(tasks...))
+}
+
+// [BAD]: ParallelSettled given a task without deriver
+func badParallelSettledNoDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) int { return 1 })
+	_ = gotask.DoAllSettled(ctx, gotask.ParallelSettled(bad)) // want `gotask\.DoAllSettled\(\) 2nd argument should call goroutine deriver`
+}
+
+// [BAD]: Race given a task without deriver
+func badRaceNoDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) int { return 1 })
+	_ = gotask.DoRace(ctx, gotask.Race(bad)) // want `gotask\.DoRace\(\) 2nd argument should call goroutine deriver`
+}
+
+// [GOOD]: Race given a task that calls deriver
+func goodRaceWithDeriver(ctx context.Context) {
+	good := gotask.NewTask(func(ctx context.Context) int {
+		_ = apm.NewGoroutineContext(ctx)
+		return 1
+	})
+	_ = gotask.DoRace(ctx, gotask.Race(good))
+}
+
+// [BAD]: Then given a task without deriver
+func badThenTaskNoDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	_ = gotask.DoAll(ctx, gotask.Then(bad, func(ctx context.Context, v int) gotask.Result[int] { // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(v)
+	}))
+}
+
+// [BAD]: Then given a func without deriver
+//
+// The func gets the context the task was given, not one the task derives.
+func badThenFuncNoDeriver(ctx context.Context) {
+	_ = gotask.DoAll(ctx, gotask.Then(derivingTask(), func(ctx context.Context, v int) gotask.Result[int] { // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+		return gotask.ResultOk(v)
+	}))
+}
+
+// [GOOD]: Then given a task and a func that both call deriver
+func goodThenWithDeriver(ctx context.Context) {
+	_ = gotask.DoAll(ctx, gotask.Then(derivingTask(), func(ctx context.Context, v int) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(v)
+	}))
+}
+
+// [BAD]: Catch given a task without deriver
+func badCatchNoDeriver(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	_ = gotask.DoRace(ctx, gotask.Catch(bad, func(ctx context.Context, err error) int { // want `gotask\.DoRace\(\) 2nd argument should call goroutine deriver`
+		_ = apm.NewGoroutineContext(ctx)
+		return 0
+	}))
+}
+
+// [GOOD]: Catch given a task and a func that both call deriver
+func goodCatchWithDeriver(ctx context.Context) {
+	_ = gotask.DoRace(ctx, gotask.Catch(derivingTask(), func(ctx context.Context, err error) int {
+		_ = apm.NewGoroutineContext(ctx)
+		return 0
+	}))
+}
+
+// [BAD]: Nested combinators with an inner task without deriver
+func badNestedCombinators(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	inner := gotask.Then(bad, func(ctx context.Context, v int) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(v)
+	})
+	_ = gotask.DoAll(ctx, gotask.Parallel(derivingTask(), inner)) // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+}
+
+// [BAD]: DoAsync of a combinator given a task without deriver
+func badCombinatorDoAsync(ctx context.Context) {
+	bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	})
+	ch := make(chan gotask.Result[[]int], 1)
+	gotask.Parallel(bad).DoAsync(ctx, ch) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [GOOD]: DoAsync of a combinator given tasks that call deriver
+func goodCombinatorDoAsync(ctx context.Context) {
+	ch := make(chan gotask.Result[[]int], 1)
+	gotask.Parallel(derivingTask()).DoAsync(ctx, ch)
+}
+
+// ===== Range-over-func loops =====
+
+// [GOOD]: Deriver called in a range-over-func loop body
+//
+// The loop body runs in the task, as the body of a slice loop does (#196).
+func goodRangeFuncCallsDeriver(ctx context.Context, xs []int) {
+	_ = gotask.DoAllFnsSettled(ctx, func(ctx context.Context) error {
+		for x := range slices.Values(xs) {
+			_ = apm.NewGoroutineContext(ctx)
+			_ = x
+		}
+		return nil
+	})
 }

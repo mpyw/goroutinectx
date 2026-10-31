@@ -180,7 +180,8 @@ func (c *GotaskChecker) expandedArgDerives(cctx *probe.Context, arg ast.Expr, v 
 
 // resolver judges a task function by whether it calls the deriver at its
 // start. A task built by NewTask, or by a method of a task, is judged by the
-// function it wraps.
+// function it wraps. A task built by a combinator, as Parallel or Then, is
+// judged by the tasks and functions it is given.
 func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
 	r := &ssa.FuncResolver{
 		Closure: func(fn *gossa.Function) bool { return ssa.ClosureCallsDeriver(fn, c.derivers).FoundAtStart },
@@ -199,10 +200,39 @@ func (c *GotaskChecker) resolver(cctx *probe.Context) *ssa.FuncResolver {
 			return len(call.Args) > 0 && r.Passes(call.Args[0]), true
 		case gotaskIsTaskMethod(fn):
 			return c.taskDerives(cctx, ssa.ResolvedReceiver(call)), true
+		case gotaskIsCombinator(fn):
+			return gotaskCombinatorDerives(call, r), true
 		}
 		return false, false
 	}
 	return r
+}
+
+// gotaskCombinators are the gotask functions that build a task from the
+// tasks and functions they are given. Parallel, ParallelSettled and Race run
+// each task in a goroutine of its own. Then and Catch run the task, then pass
+// the context it was given, not one the task derives, to the function.
+var gotaskCombinators = []string{"Parallel", "ParallelSettled", "Race", "Then", "Catch"}
+
+// gotaskIsCombinator reports whether fn is one of gotaskCombinators.
+func gotaskIsCombinator(fn *types.Func) bool {
+	return slices.ContainsFunc(gotaskCombinators, func(name string) bool {
+		return funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: name}.Matches(fn)
+	})
+}
+
+// gotaskCombinatorDerives reports whether every task and function a
+// combinator call is given derives. The tasks of a variadic combinator are
+// judged one by one. A slice of tasks whose elements are not traced, as a
+// parameter, passes, as a task the resolver can't follow does.
+func gotaskCombinatorDerives(call *gossa.CallCommon, r *ssa.FuncResolver) bool {
+	return !slices.ContainsFunc(call.Args, func(arg gossa.Value) bool {
+		if _, isSlice := arg.Type().Underlying().(*types.Slice); isSlice {
+			elems, ok := gotaskSliceElems(arg)
+			return ok && slices.ContainsFunc(elems, func(e gossa.Value) bool { return !r.Passes(e) })
+		}
+		return !r.Passes(arg)
+	})
 }
 
 // ctxIsDerived reports whether every value v can be is a call of the

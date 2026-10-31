@@ -103,3 +103,82 @@ func DoRace[T any](ctx context.Context, tasks ...Task[T]) T {
 func DoRaceFns[T any](ctx context.Context, fns ...func(context.Context) T) T {
 	return DoRace(ctx, TasksFrom(fns...)...)
 }
+
+// ResultOk creates a result with a value.
+func ResultOk[T any](ok T) Result[T] {
+	return Result[T]{Value: ok}
+}
+
+// ResultErr creates a result with an error.
+func ResultErr[T any](err error) Result[T] {
+	return Result[T]{Err: err}
+}
+
+// Parallel creates a task that runs each task in a goroutine of its own.
+func Parallel[T any](tasks ...Task[Result[T]]) Task[Result[[]T]] {
+	return NewTask(func(ctx context.Context) Result[[]T] {
+		ch := make(chan Result[T])
+		for _, task := range tasks {
+			task.DoAsync(ctx, ch)
+		}
+		values := make([]T, 0, len(tasks))
+		for range tasks {
+			r := <-ch
+			if r.Err != nil {
+				return ResultErr[[]T](r.Err)
+			}
+			values = append(values, r.Value)
+		}
+		return ResultOk(values)
+	})
+}
+
+// ParallelSettled creates a task that runs each task in a goroutine of its
+// own, and gives every value.
+func ParallelSettled[T any](tasks ...Task[T]) Task[[]T] {
+	return NewTask(func(ctx context.Context) []T {
+		ch := make(chan T)
+		for _, task := range tasks {
+			task.DoAsync(ctx, ch)
+		}
+		values := make([]T, 0, len(tasks))
+		for range tasks {
+			values = append(values, <-ch)
+		}
+		return values
+	})
+}
+
+// Race creates a task that runs each task in a goroutine of its own, and
+// gives the first value.
+func Race[T any](tasks ...Task[T]) Task[T] {
+	return NewTask(func(ctx context.Context) T {
+		ch := make(chan T)
+		for _, task := range tasks {
+			task.DoAsync(ctx, ch)
+		}
+		return <-ch
+	})
+}
+
+// Then creates a task that runs task, then fn with its value.
+func Then[T, U any](task Task[Result[T]], fn func(context.Context, T) Result[U]) Task[Result[U]] {
+	return NewTask(func(ctx context.Context) Result[U] {
+		r := task.Do(ctx)
+		if r.Err != nil {
+			return ResultErr[U](r.Err)
+		}
+		return fn(ctx, r.Value)
+	})
+}
+
+// Catch creates a task that runs task, then onError if it fails.
+func Catch[T any](task Task[Result[T]], onError func(context.Context, error) T) Task[T] {
+	return NewTask(func(ctx context.Context) T {
+		r := task.Do(ctx)
+		if r.Err != nil {
+			return onError(ctx, r.Err)
+		}
+		return r.Value
+	})
+}
