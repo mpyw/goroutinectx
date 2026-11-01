@@ -134,7 +134,8 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, s *site.Site, entry registry.E
 // expandedArgDerives judges the slice of a variadic expansion, arg. The elements of a slice literal, of gotask.TasksFrom, or of the
 // slices a function returns are judged one by one. Otherwise a slice made by
 // a call, as lo.Map makes one, passes when calling one of the call's
-// callbacks gives a task function that derives. A slice variable whose
+// callbacks gives a task function that derives, whether the call is written
+// in place or held in a variable. A slice variable whose
 // elements are not traced, as a parameter, is reported. A slice SSA has no
 // value for passes, as nothing is known of it. A slice a closure captures is
 // judged by the slices stored to it, and passes when they are not traced.
@@ -151,25 +152,24 @@ func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *
 		// of what the closure reads (#263).
 		return true
 	}
-	switch arg := ast.Unparen(spawned.Expr).(type) {
-	case *ast.Ident:
-		obj, ok := e.Pass.TypesInfo.ObjectOf(arg).(*types.Var)
-		if !ok {
-			return true
-		}
-		_, isSlice := obj.Type().Underlying().(*types.Slice)
-		return !isSlice
-	case *ast.CallExpr:
-		call, ok := v.(*ssa.Call)
-		if !ok {
-			return true
-		}
+	if call, ok := v.(*ssa.Call); ok {
+		// The SSA value is judged, not the form written, so a slice a
+		// variable holds is judged as the call that made it (#270).
 		return slices.ContainsFunc(call.Call.Args, func(arg ssa.Value) bool {
 			_, isFunc := arg.Type().Underlying().(*types.Signature)
 			return isFunc && flow.JudgeResult(e.Flow, p, arg).Passes()
 		})
 	}
-	return true
+	ident, ok := ast.Unparen(spawned.Expr).(*ast.Ident)
+	if !ok {
+		return true
+	}
+	obj, ok := e.Pass.TypesInfo.ObjectOf(ident).(*types.Var)
+	if !ok {
+		return true
+	}
+	_, isSlice := obj.Type().Underlying().(*types.Slice)
+	return !isSlice
 }
 
 // policy gives the policy of the task functions of one call.
