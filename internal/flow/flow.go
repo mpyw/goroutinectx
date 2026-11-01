@@ -29,9 +29,17 @@ type Flow struct {
 	// when one is asked while none is.
 	open int
 	// closures are the closures being judged by ClosureCapturesContext, up
-	// the stack: a closure reached again through a func value it captures
-	// adds nothing.
-	closures map[*ssa.Function]bool //declscope:shared // closure.go judges a closure once on the stack
+	// the stack, each by its depth on it, from 1: a closure reached again
+	// through a func value it captures adds nothing.
+	closures map[*ssa.Function]int //declscope:shared // closure.go judges a closure once on the stack
+	// closureLow is the lowest depth in closures that a closure being
+	// judged was cut at, as it was on the stack or judged before, or
+	// closureUnheld when none was. A verdict that depends on no closure
+	// below its own is remembered in captures.
+	closureLow int //declscope:shared // closure.go tracks what a verdict depends on
+	// captures remembers the verdicts of ClosureCapturesContext, by the
+	// closure and what it is judged with (#239).
+	captures map[closureVerdictKey]bool //declscope:shared // closure.go remembers its verdicts
 	// called are the factories whose results a resolver follows from a call
 	// that gives them no func that passes, up the stack. A func parameter of
 	// one holds what the call gives, so it does not pass for being a
@@ -44,7 +52,8 @@ func NewFlow() *Flow {
 	return &Flow{
 		sources:  make(map[ssa.Value]resolvedValuesResult),
 		parts:    make(map[resolvedPartKey]resolvedValuesResult),
-		closures: make(map[*ssa.Function]bool),
+		closures: make(map[*ssa.Function]int),
+		captures: make(map[closureVerdictKey]bool),
 		called:   make(map[*ssa.Function]int),
 	}
 }
