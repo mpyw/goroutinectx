@@ -1583,7 +1583,7 @@ go func() {
 A send outside a `select` cannot block when all of these hold:
 
 - It is the goroutine's only send outside a `select`.
-- The channel is made with `make(chan T, n)` for a constant `n` of at least 1.
+- The channel is made with `make(chan T, n)` for a constant `n` of at least 1, on every path. A `var ch chan T` that is not set on some path holds a nil channel, and a send on it blocks for ever.
 - There are at most `n` sends on the channel in all, none in a loop. Every goroutine and every closure counts.
 
 A closure that sends, or starts a sender, must run once. A `go` statement, a direct or deferred call, and a `Go` of `errgroup`, `sync.WaitGroup` or conc run it once. A closure in a variable that another closure captures runs once when that closure runs once and loads the variable once, as `func() { go send() }()` does. Closures joined by a Phi that each load it once count as one, as only one of them runs. A closure started, called or loaded at several places runs once when at most one of those places can run, as in the two branches of an `if`, also when they are in closures called in place. Any other call, such as a spawner, may run it more than once.
@@ -1683,6 +1683,22 @@ func handler(
 
 </td>
 <td>❌️ <b>Reported.</b> The same for a channel that cannot be followed, as a parameter</td>
+</tr>
+<tr>
+<td>
+
+```go
+var errCh chan error
+if c {
+	errCh = make(chan error, 1)
+}
+go func() {
+	errCh <- g.Wait()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> When <code>c</code> is false, <code>errCh</code> is nil, and a send on a nil channel blocks for ever</td>
 </tr>
 <tr>
 <td>

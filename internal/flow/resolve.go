@@ -384,13 +384,18 @@ func resolvedReachingStores(a *ssa.Alloc, at ssa.Instruction) []ssa.Value {
 // resolvedScanBack visits the instructions before at, on every path to it,
 // the latest first. visit returns true to stop the path there. A path also
 // stops at origin, the instruction that makes the variable or map scanned
-// for: what comes before it belongs to an earlier one, as in a loop.
-func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bool) {
+// for: what comes before it belongs to an earlier one, as in a loop. open
+// reports whether some path reaches origin without visit stopping it.
+func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bool) (open bool) {
 	visited := make(map[*ssa.BasicBlock]bool)
 	var scan func(b *ssa.BasicBlock, end int)
 	scan = func(b *ssa.BasicBlock, end int) {
 		for i := end - 1; i >= 0; i-- {
-			if b.Instrs[i] == origin || visit(b.Instrs[i]) {
+			if b.Instrs[i] == origin {
+				open = true
+				return
+			}
+			if visit(b.Instrs[i]) {
 				return
 			}
 		}
@@ -403,6 +408,77 @@ func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bo
 	}
 	block := at.Block()
 	scan(block, slices.Index(block.Instrs, at))
+	return open
+}
+
+// resolvedMayBeUnset reports whether v may be the zero value of a local
+// variable that no store has set: a load of it, through Phi nodes, type
+// changes and the loads of the values stored to it, that some path from
+// where the variable is made reaches with no store (#364). SSA makes
+// var ch chan T as a variable with no store, so the nil channel it holds is
+// none of the values [resolvedValues] gives. A load in a closure sees the
+// variable as it was where the closure is made, or where it is run at once,
+// as [resolvedScanFromClosure] tells. It reports true when it cannot tell,
+// and false for a part of a variable, which is left to [resolvedPartStores],
+// or a load that cannot be followed, which leaves the sources incomplete.
+//
+//declscope:shared // waiter.go asks it of a channel a waiter sends on
+func resolvedMayBeUnset(f *Flow, v ssa.Value) bool {
+	w := resolvedWalk{f: f}
+	seen := make(map[ssa.Value]bool)
+	var unset func(v ssa.Value) bool
+	unset = func(v ssa.Value) bool {
+		if v == nil || seen[v] {
+			return false
+		}
+		seen[v] = true
+		if w.f.steps++; w.exhausted() {
+			return true
+		}
+		switch x := v.(type) {
+		case *ssa.Phi:
+			return slices.ContainsFunc(x.Edges, unset)
+		case *ssa.ChangeType:
+			return unset(x.X)
+		case *ssa.UnOp:
+			if x.Op != token.MUL {
+				return false
+			}
+			// A load not followed leaves the sources of v incomplete, which
+			// is told on its own.
+			stored, ok := resolvedStoresAt(x.X, x, w)
+			return ok && (resolvedUnsetAt(x.X, x) || slices.ContainsFunc(stored, unset))
+		}
+		return false
+	}
+	return unset(v)
+}
+
+// resolvedUnsetAt reports whether a load at the instruction at, of the
+// local variable addr or a free variable bound to one, may find it unset,
+// as [resolvedMayBeUnset] tells.
+func resolvedUnsetAt(addr ssa.Value, at ssa.Instruction) bool {
+	for {
+		fv, ok := addr.(*ssa.FreeVar)
+		if !ok {
+			break
+		}
+		// The stores were followed, so the binding is found.
+		addr, _ = resolvedBinding(fv)
+	}
+	a, ok := addr.(*ssa.Alloc)
+	if !ok {
+		return false
+	}
+	stops := func(instr ssa.Instruction) bool {
+		st, ok := instr.(*ssa.Store)
+		return ok && st.Addr == a
+	}
+	if at.Parent() == a.Parent() {
+		return resolvedScanBack(at, a, stops)
+	}
+	from, ok := resolvedClosureScanStart(at, a)
+	return !ok || resolvedScanBack(from, a, stops)
 }
 
 // resolvedScanFromClosure visits the instructions of origin's function that
@@ -415,30 +491,43 @@ func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bo
 // is in returns: at once, or deferred. It reports false when it cannot
 // tell: for no at, or when the closure is not made exactly once.
 func resolvedScanFromClosure(at, origin ssa.Instruction, visit func(ssa.Instruction) bool) bool {
-	if at == nil {
+	from, ok := resolvedClosureScanStart(at, origin)
+	if !ok {
 		return false
+	}
+	resolvedScanBack(from, origin, visit)
+	if made, isMade := from.(*ssa.MakeClosure); isMade {
+		resolvedScanForward(made, origin, func(instr ssa.Instruction) { visit(instr) })
+	}
+	return true
+}
+
+// resolvedClosureScanStart gives the instruction of origin's function that
+// [resolvedScanFromClosure] scans back from for a load at at: the call that
+// runs the closure at once, or else the instruction that makes it, after
+// which every instruction counts too. ok is false when it cannot tell.
+func resolvedClosureScanStart(at, origin ssa.Instruction) (from ssa.Instruction, ok bool) {
+	if at == nil {
+		return nil, false
 	}
 	outer := origin.Parent()
 	fn := at.Parent()
 	inRun := true
 	for fn.Parent() != outer {
 		if fn.Parent() == nil {
-			return false
+			return nil, false
 		}
 		inRun = inRun && resolvedRunOf(resolvedMadeOnce(fn)) != nil
 		fn = fn.Parent()
 	}
 	made := resolvedMadeOnce(fn)
 	if made == nil {
-		return false
+		return nil, false
 	}
 	if run, atOnce := resolvedRunOf(made).(*ssa.Call); inRun && atOnce {
-		resolvedScanBack(run, origin, visit)
-		return true
+		return run, true
 	}
-	resolvedScanBack(made, origin, visit)
-	resolvedScanForward(made, origin, func(instr ssa.Instruction) { visit(instr) })
-	return true
+	return made, true
 }
 
 // resolvedMadeOnce gives the one instruction of fn's parent that makes the

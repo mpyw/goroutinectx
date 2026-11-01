@@ -2,6 +2,7 @@ package flow
 
 import (
 	"go/constant"
+	"go/token"
 	"go/types"
 	"slices"
 	"testing"
@@ -38,6 +39,31 @@ func TestResolvedWalkStopsWhenExhausted(t *testing.T) {
 	}
 	if _, ok := resolvedSliceElemsAt(key, resolvedExhaustedWalk()); ok {
 		t.Error("resolvedSliceElemsAt followed a slice past the bound")
+	}
+}
+
+// TestResolvedMayBeUnsetValues checks the values resolvedMayBeUnset gives no
+// load of a variable: it follows a Phi once for each value and a type
+// change, stops at any other value, and cannot tell past the bound.
+func TestResolvedMayBeUnsetValues(t *testing.T) {
+	t.Parallel()
+
+	key := ssa.NewConst(constant.MakeString("a"), types.Typ[types.String])
+	for _, v := range []ssa.Value{
+		key,
+		&ssa.Phi{Edges: []ssa.Value{key, key}},
+		&ssa.ChangeType{X: key},
+		&ssa.UnOp{Op: token.ARROW, X: key},
+	} {
+		if resolvedMayBeUnset(NewFlow(), v) {
+			t.Errorf("resolvedMayBeUnset(%T) = true, want false", v)
+		}
+	}
+	if !resolvedMayBeUnset(resolvedExhaustedWalk().f, key) {
+		t.Error("resolvedMayBeUnset told a value past the bound")
+	}
+	if resolvedUnsetAt(&ssa.FieldAddr{}, nil) {
+		t.Error("resolvedUnsetAt took a part of a variable as unset")
 	}
 }
 
