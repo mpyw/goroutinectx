@@ -357,6 +357,112 @@ func badWaitParamSendGoroutine(ctx context.Context, cmd *exec.Cmd, errc chan err
 	}()
 }
 
+// ===== A channel variable unset on some path =====
+
+// [BAD]: The channel variable is set on one branch only
+//
+// When c is false, errc is nil, and a send on it blocks for ever (#364).
+func badMaybeNilChanGoroutine(ctx context.Context, cmd *exec.Cmd, c bool) error {
+	var errc chan error
+	if c {
+		errc = make(chan error, 1)
+	}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- cmd.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: The channel variable is set on one branch only, sent on in a literal called in place
+//
+// The literal reads the variable the goroutine captures, which may be nil
+// (#364).
+func badMaybeNilChanInPlaceGoroutine(ctx context.Context, cmd *exec.Cmd, c bool) {
+	var errc chan error
+	if c {
+		errc = make(chan error, 1)
+	}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() {
+			errc <- cmd.Wait()
+		}()
+	}()
+	<-ctx.Done()
+}
+
+// [BAD]: The channel is copied from a variable set on one branch only
+//
+// The copy holds nil when the variable does (#364).
+func badMaybeNilChanCopiedGoroutine(ctx context.Context, cmd *exec.Cmd, c bool) {
+	var errc chan error
+	if c {
+		errc = make(chan error, 1)
+	}
+	copied := errc
+	go func() { // want `goroutine does not propagate context "ctx"`
+		copied <- cmd.Wait()
+	}()
+	func() { _ = errc }()
+	<-ctx.Done()
+}
+
+// [GOOD]: The channel variable is set on both branches
+//
+// Each path makes a buffered channel.
+func goodChanSetOnBothBranchesGoroutine(ctx context.Context, cmd *exec.Cmd, c bool) error {
+	var errc chan error
+	if c {
+		errc = make(chan error, 1)
+	} else {
+		errc = make(chan error, 2)
+	}
+	go func() {
+		errc <- cmd.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: The channel variable is set after its declaration
+//
+// The store reaches the goroutine on every path.
+func goodChanSetAfterVarGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	var errc chan error
+	errc = make(chan error, 1)
+	go func() {
+		errc <- cmd.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: The channel variable is set before a literal called in place starts the sender
+//
+// The literal runs at once, after the store.
+func goodChanSetBeforeInPlaceGoroutine(ctx context.Context, cmd *exec.Cmd) {
+	var errc chan error
+	errc = make(chan error, 1)
+	func() {
+		go func() {
+			errc <- cmd.Wait()
+		}()
+	}()
+	<-ctx.Done()
+}
+
 // ===== Senders that share a buffer =====
 
 // [GOOD]: Two senders, a buffer of two

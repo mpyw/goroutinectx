@@ -220,8 +220,9 @@ func waiterIsClose(call *ssa.CallCommon) bool {
 // variable the closure captures or made in it, has room for every send on
 // it (#242). Each is made with a constant buffer of at least one, and used
 // only where [waiterChanSends] follows it, with no more sends than its
-// buffer holds. So once the caller has stopped receiving, after one receive
-// or on ctx.Done(), no send can block.
+// buffer holds, and no path leaves the variable it is read from unset, as
+// [resolvedMayBeUnset] tells. So once the caller has stopped receiving,
+// after one receive or on ctx.Done(), no send can block.
 func waiterBuffered(f *Flow, ch ssa.Value) bool {
 	read := ch
 	if load, ok := ch.(*ssa.UnOp); ok && load.Op == token.MUL {
@@ -230,7 +231,10 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 		}
 	}
 	stored, complete := f.CapturedSources(read)
-	if !complete || len(stored) == 0 {
+	// A variable unset on some path holds a nil channel, on which a send
+	// blocks for ever, as var ch chan T; if c { ch = make(chan T, 1) } has
+	// (#364).
+	if !complete || len(stored) == 0 || resolvedMayBeUnset(f, ch) {
 		return false
 	}
 	return !slices.ContainsFunc(stored, func(s Source) bool {
