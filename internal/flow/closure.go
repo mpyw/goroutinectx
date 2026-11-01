@@ -314,9 +314,9 @@ func (r *closureReader) callsContextMethod(call *ssa.CallCommon, v ssa.Value) bo
 // put there ([ctxkind.Holds]). held is v, or the value v converts to an
 // interface. A held that [closureContainsContexts] tells, as a slice of
 // contexts, counts when the contexts it holds may not be fresh, as
-// [closureContextElemsPass] judges them, or it is built from a context
-// that is not fresh, as [Flow.InvolvesContext] follows what is put in a
-// map or a channel (#344). A held of an interface type other than a context or a carrier
+// [closureContextElemsPass] judges them, call being given them, or it is
+// built from a context that is not fresh, as [Flow.InvolvesContext]
+// follows what is put in a map or a channel (#344). A held of an interface type other than a context or a carrier
 // is judged by the values it can be, as [closureReader.interfaceMayHold]
 // judges it. Whether the callee
 // reads it is not looked into, as for a function or method spawned
@@ -337,7 +337,7 @@ func (r *closureReader) callsWithHolder(call *ssa.CallCommon, v, held ssa.Value)
 		return true
 	}
 	return closureContainsContexts(r.kinds, held.Type(), make(map[types.Type]bool)) &&
-		(closureContextElemsPass(r.flow, r.kinds, held) || r.flow.InvolvesContext(held, r.kinds))
+		(closureContextElemsPass(r.flow, r.kinds, held, call) || r.flow.InvolvesContext(held, r.kinds))
 }
 
 // closureContainsContexts reports whether t is a slice, an array, a map, a
@@ -527,8 +527,9 @@ func closureCallsOnlyFresh(f *Flow, v ssa.Value, kinds *ctxkind.Classifier, thro
 // [closureHoldsContexts] tells one, that the closure reads a context from
 // counts when the contexts arg holds may not be fresh, as
 // [closureContextElemsPass] judges them, as the same value captured would
-// (#338, #341).
-func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, kinds *ctxkind.Classifier, funcs Policy) bool {
+// (#338, #341). call is the go statement's call, which may be given what
+// arg addresses without writing it (#351).
+func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, call *ssa.CallCommon, kinds *ctxkind.Classifier, funcs Policy) bool {
 	defer f.ask()()
 	t := param.Type()
 	uses := spilledUses(param)
@@ -545,7 +546,7 @@ func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, ki
 	if closureHoldsContexts(r.kinds, t, make(map[types.Type]bool)) {
 		r.root, r.seen = param, make(map[ssa.Value]bool)
 		reads := slices.ContainsFunc(uses, func(u ssa.Value) bool { return r.reads(u, false) })
-		return reads && closureContextElemsPass(f, r.kinds, arg)
+		return reads && closureContextElemsPass(f, r.kinds, arg, call)
 	}
 	if !types.IsInterface(t) || kinds.Is(t, ctxkind.Captured) {
 		return false
@@ -556,6 +557,20 @@ func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, ki
 			return ok && r.callsWithHolder(call.Common(), u, arg)
 		})
 	})
+}
+
+// ClosureArgHoldsContext reports whether arg, which the go statement's call
+// gives the parameter param of the closure it runs, may hold a context
+// that is not fresh, when param is of a type [closureHoldsContexts] tells,
+// as a struct that holds a context, a pointer to one, or a slice of them:
+// the contexts arg holds are judged as [closureContextElemsPass] judges
+// them, so &h of h := H{c: context.Background()} holds none (#351), nor
+// does []S{{ctx: context.Background()}} (#343). A param of any other type
+// is left to the other rules, and reports true.
+func (f *Flow) ClosureArgHoldsContext(param *ssa.Parameter, arg ssa.Value, call *ssa.CallCommon, kinds *ctxkind.Classifier) bool {
+	defer f.ask()()
+	k := kinds.From(closurePackage(param.Parent()))
+	return !closureHoldsContexts(k, param.Type(), make(map[types.Type]bool)) || closureContextElemsPass(f, k, arg, call)
 }
 
 // closureHoldsFuncs reports whether t is a slice, an array, a map or a
@@ -620,21 +635,43 @@ func closureHoldsContexts(kinds *ctxkind.Classifier, t types.Type, seen map[type
 // [closureCapturedPass] gives them (#346). A context passes unless
 // [Flow.IsFreshContext] tells it is fresh. The elements of a slice made
 // from a local array, as [Flow.ResolvedSliceElems] gives them, pass when
-// one of them does. A map, a channel or a variable made by the analyzed
-// function, with make, a literal or new, does not pass for that alone:
-// what is put there is judged by the arguments' rules, as
-// [Flow.InvolvesContext]. Any other value cannot be followed, as a
-// parameter, a field or the result of a call, so it passes.
-func closureContextElemsPass(f *Flow, kinds *ctxkind.Classifier, v ssa.Value) bool {
+// one of them does. A map or a channel made by the analyzed function,
+// with make or a literal, does not pass for that alone: what is put there
+// is judged by the arguments' rules, as [Flow.InvolvesContext]. Any other
+// value cannot be followed, as a parameter, a field or the result of a
+// call, so it passes.
+//
+// A local variable v addresses or is loaded from, or the local array a
+// slice v is of covers, is judged by the values stored into it and its
+// parts, as [Flow.ResolvedHeldValues] gives them: it passes when one of
+// them that may hold a context, other than a constant as nil, does, or
+// when it may be written in a way not followed, as by a call given its
+// address. So the struct of
+// &H{c: context.Background()} or of []S{{ctx: context.Background()}} does
+// not (#351, #343). passed is the call v is given to, a go statement's or
+// one in the closure, or nil, as [Flow.ResolvedHeldValues] takes it: what
+// it writes there comes from what it is given, which is judged on its own.
+//
+// The walk ends: a variable whose address is stored into a part of another
+// one is not followed, so a variable is never reached from what is stored
+// into it.
+func closureContextElemsPass(f *Flow, kinds *ctxkind.Classifier, v ssa.Value, passed *ssa.CallCommon) bool {
 	return closureCapturedPass(f, v, func(v ssa.Value) bool {
 		t := v.Type()
 		if kinds.Is(t, ctxkind.Context|ctxkind.Implements) {
 			return !f.IsFreshContext(v)
 		}
+		pass := func(e ssa.Value) bool { return closureContextElemsPass(f, kinds, e, passed) }
+		if stored, held, ok := f.ResolvedHeldValues(v, passed); held {
+			return !ok || slices.ContainsFunc(stored, func(e ssa.Value) bool {
+				_, isConst := e.(*ssa.Const)
+				return !isConst && kinds.MayHold(e, ctxkind.Captured) && pass(e)
+			})
+		}
 		switch t.Underlying().(type) {
 		case *types.Slice, *types.Array:
 			if elems, ok := f.ResolvedSliceElems(v); ok {
-				return slices.ContainsFunc(elems, func(e ssa.Value) bool { return closureContextElemsPass(f, kinds, e) })
+				return slices.ContainsFunc(elems, pass)
 			}
 		}
 		sources, complete := f.Sources(v)

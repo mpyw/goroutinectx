@@ -853,6 +853,19 @@ go func(j *Job) {
 <td>
 
 ```go
+j := Job{ctx: context.Background()}
+go func(j *Job) {
+	doSomething(j.ctx)
+}(&j)
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A struct, a pointer to one, or a slice of them that holds only fresh contexts does not count. A struct written in a way that is not followed, as by a method given its address, counts</td>
+</tr>
+<tr>
+<td>
+
+```go
 go func(r Runner) {
 	r.Run()
 }(ctxRunner{ctx})
@@ -922,7 +935,7 @@ func handler(
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> The same for an array, a map, a channel or a pointer of contexts, or of structs with a context field, as when the goroutine captures <code>ctxs</code>. A literal of only fresh contexts is reported</td>
+<td>⚠️ <b>Not reported.</b> The same for an array, a map, a channel or a pointer of contexts, or of structs with a context field, as when the goroutine captures <code>ctxs</code>. A literal of only fresh contexts, or a local variable that holds only them, is reported</td>
 </tr>
 <tr>
 <td>
