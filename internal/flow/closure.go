@@ -3,6 +3,7 @@ package flow
 import (
 	"go/token"
 	"go/types"
+	"math"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -36,13 +37,80 @@ func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Clas
 }
 
 func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, funcs *FuncResolver, seen map[*ssa.Function]bool) bool {
-	if closure == nil || seen[closure] || f.closures[closure] {
+	if closure == nil {
 		return false
 	}
+	key := closureVerdictKey{closure: closure, kinds: kinds, funcs: funcs}
+	if depth, onStack := f.closures[closure]; onStack {
+		f.closureLow = min(f.closureLow, depth)
+		return false
+	}
+	free := !closureFactoriesCalled(f)
+	if seen[closure] {
+		// Judged before in this question, and found false, or the question
+		// would have ended. That is the verdict when it was remembered.
+		if captures, ok := f.captures[key]; !ok || captures || !free {
+			f.closureLow = 0
+		}
+		return false
+	}
+	if captures, ok := f.captures[key]; ok && free {
+		return captures
+	}
 	seen[closure] = true
-	f.closures[closure] = true
-	defer delete(f.closures, closure)
 
+	depth := len(f.closures) + 1
+	low, cuts := f.closureLow, f.cuts
+	if depth == 1 {
+		low = closureUnheld
+	}
+	f.closureLow = closureUnheld
+	f.closures[closure] = depth
+	captures := closureCapturesFreeVar(f, closure, kinds, funcs, seen)
+	delete(f.closures, closure)
+
+	// A verdict cut only at this closure itself, with nothing outside it
+	// changing what a parameter passes, is the same wherever it is asked,
+	// unless the bound on the work cut it short.
+	if f.closureLow >= depth {
+		if free && f.cuts == cuts {
+			f.captures[key] = captures
+		}
+		f.closureLow = low
+	} else {
+		f.closureLow = min(low, f.closureLow)
+	}
+	return captures
+}
+
+// closureVerdictKey is a closure and what [Flow.ClosureCapturesContext]
+// judges it with.
+//
+//declscope:shared // flow.go holds the verdicts
+type closureVerdictKey struct {
+	closure *ssa.Function       //declscope:private
+	kinds   *ctxkind.Classifier //declscope:private
+	funcs   *FuncResolver       //declscope:private
+}
+
+// closureUnheld is the closureLow of a verdict cut at no closure.
+const closureUnheld = math.MaxInt
+
+// closureFactoriesCalled reports whether a resolver is following the
+// result of a factory, up the stack, so that a parameter of it does not
+// pass.
+func closureFactoriesCalled(f *Flow) bool {
+	for _, n := range f.called {
+		if n > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// closureCapturesFreeVar reports whether one of the variables closure
+// captures gives it a context, as [Flow.ClosureCapturesContext] judges it.
+func closureCapturesFreeVar(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, funcs *FuncResolver, seen map[*ssa.Function]bool) bool {
 	r := &closureReader{
 		flow:  f,
 		kinds: kinds.From(closurePackage(closure)),
