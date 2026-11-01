@@ -574,7 +574,7 @@ go func() {
 ```
 
 </td>
-<td>✅️ <b>Passes.</b> It reads an element of a slice. An element of a map or a channel counts too, as <code>m[k]</code>, <code>&lt;-ch</code> or a <code>range</code> gives</td>
+<td>✅️ <b>Passes.</b> It reads an element of a slice. An element of a map or a channel counts too, as <code>m[k]</code>, <code>&lt;-ch</code> or a <code>range</code> gives. So does the slice, the map or the channel given to a call, as <code>slices.Values(ctxs)</code></td>
 </tr>
 <tr>
 <td>

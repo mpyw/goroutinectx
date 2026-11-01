@@ -218,7 +218,7 @@ These differences are kept on purpose:
 | Difference | Why |
 |------------|-----|
 | `ParamNames` uses `Param`, not `Given` | A handler that takes a type that only implements `context.Context`, as `*gin.Context`, or a struct with a context field, would be checked, which means new reports. Such a type is often not the context to pass on |
-| A captured value is `Captured`, a call's argument `Holds` too | A captured struct that holds a context counts only when it is given to a call, as the receiver or an argument (`callsWithHolder`). A struct captured and not given anywhere does not use its context |
+| A captured value is `Captured`, a call's argument `Holds` too | A captured struct that holds a context, or a slice, an array, a map, a channel or a pointer of contexts or such structs (#344), counts only when it is given to a call, as the receiver or an argument (`callsWithHolder`). A struct captured and not given anywhere does not use its context |
 | The deriver checks take a parameter by `Captured`, not `Given` | A closure that gets a struct holding a context did not get a context of its own, so it must still derive the one it reads (#256). Without a deriver, the same parameter counts by `Given`, as the closure uses ctx |
 | `GivesOnlyFreshContext` tests the fresh argument with `Context` | Only a `context.Context` can be fresh: `IsFreshContext` follows a value back to a `Background()` or `TODO()` call. Any other argument is tested with `MayHold(Given)` |
 
