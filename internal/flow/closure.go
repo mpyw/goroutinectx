@@ -411,6 +411,15 @@ func (r *closureReader) interfaceMayHold(v ssa.Value) bool {
 	})
 }
 
+// closureInterfaceArgMayHold reports whether v, an interface, may hold a
+// context, as [closureReader.interfaceMayHold] judges it.
+//
+//declscope:shared // context.go judges an interface a named function is given the same way
+func closureInterfaceArgMayHold(f *Flow, v ssa.Value, kinds *ctxkind.Classifier) bool {
+	r := &closureReader{flow: f, kinds: kinds}
+	return r.interfaceMayHold(v)
+}
+
 // givesHolderAsInterface reports whether conv, v converted to an interface,
 // is given to a call as [closureReader.callsWithHolder] judges it.
 func (r *closureReader) givesHolderAsInterface(conv ssa.Value, v ssa.Value) bool {

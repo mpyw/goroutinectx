@@ -134,24 +134,121 @@ func (f *Flow) GivesOnlyFreshContext(call *ssa.CallCommon, kinds *ctxkind.Classi
 // receiver as the first argument of the call, which is judged with the
 // others (#274, #323, #324).
 func (f *Flow) IsNamedFuncWithoutContext(v ssa.Value, kinds *ctxkind.Classifier) bool {
+	bound, ok := contextNamedFunc(v)
+	return ok && !slices.ContainsFunc(bound, func(recv ssa.Value) bool {
+		return kinds.MayHold(recv, ctxkind.Given) || f.SignalsContext(recv, kinds)
+	})
+}
+
+// contextNamedFunc reports whether v is a named function or method, a
+// method expression or a method value, as [Flow.IsNamedFuncWithoutContext]
+// tells one before it looks at the receiver. It gives the receiver a method
+// value holds, and nothing for the others.
+func contextNamedFunc(v ssa.Value) (bound []ssa.Value, ok bool) {
 	if mc, ok := v.(*ssa.MakeClosure); ok {
 		fn, _ := mc.Fn.(*ssa.Function)
-		return Classify(fn) == ClassifiedBound &&
-			!slices.ContainsFunc(mc.Bindings, func(recv ssa.Value) bool {
-				return kinds.MayHold(recv, ctxkind.Given) || f.SignalsContext(recv, kinds)
-			})
+		return mc.Bindings, Classify(fn) == ClassifiedBound
 	}
 	fn, ok := v.(*ssa.Function)
 	if !ok {
-		return false
+		return nil, false
 	}
 	switch Classify(fn) {
 	case ClassifiedNamed, ClassifiedMethod, ClassifiedThunk, ClassifiedExternal:
 		// A function or a method of another package is built from type
 		// information.
+		return nil, true
+	}
+	return nil, false
+}
+
+// NamedFuncsWithoutContext reports whether call calls only named functions
+// or methods, as [Flow.IsNamedFuncWithoutContext] tells them, that cannot get
+// a context from it. No parameter of the signature is of [ctxkind.Given], and
+// no argument, receiver or receiver of a method value is tied to a context,
+// as [contextTiedTo] judges one. It gives the functions with a body that the
+// callees are, a method value or a method expression as its method, for the
+// caller to judge further. With -report-callee-without-context, a go
+// statement that calls them is reported.
+func (f *Flow) NamedFuncsWithoutContext(call *ssa.CallCommon, kinds *ctxkind.Classifier) ([]*ssa.Function, bool) {
+	defer f.ask()()
+	if call.IsInvoke() {
+		return nil, false
+	}
+	for param := range call.Signature().Params().Variables() {
+		if kinds.Is(param.Type(), ctxkind.Given) {
+			return nil, false
+		}
+	}
+	sources, complete := f.Sources(call.Value)
+	if !complete || len(sources) == 0 {
+		return nil, false
+	}
+	given := slices.Clone(call.Args)
+	var bodies []*ssa.Function
+	for _, s := range sources {
+		bound, ok := contextNamedFunc(s.Value)
+		if !ok {
+			return nil, false
+		}
+		given = append(given, bound...)
+		if body := contextFuncBody(s.Func()); body != nil {
+			bodies = append(bodies, body)
+		}
+	}
+	if slices.ContainsFunc(given, func(v ssa.Value) bool { return contextTiedTo(f, v, kinds) }) {
+		return nil, false
+	}
+	return bodies, true
+}
+
+// contextFuncBody gives the function with a body that fn runs: fn itself, or
+// the method a method value or a method expression wraps. It gives nil for a
+// function built from type information.
+func contextFuncBody(fn *ssa.Function) *ssa.Function {
+	if fn == nil {
+		return nil
+	}
+	switch Classify(fn) {
+	case ClassifiedBound, ClassifiedThunk:
+		obj, _ := fn.Object().(*types.Func)
+		if obj == nil {
+			return nil
+		}
+		fn = fn.Prog.FuncValue(obj)
+	}
+	if fn == nil || fn.Blocks == nil {
+		return nil
+	}
+	return fn
+}
+
+// contextTiedTo reports whether v, a value a named function is given, ties
+// it to a context, by the rules a value a closure is given counts by:
+//
+//   - a context or a carrier that is not fresh, as [Flow.IsFreshContext]
+//     tells, and a value of [ctxkind.Given], as a struct that holds one;
+//   - the channel of ctx.Done() or a cancel func, as [Flow.SignalsContext]
+//     tells;
+//   - a value built from a context that is not fresh, as
+//     [Flow.InvolvesContext] follows it, as the *exec.Cmd that
+//     exec.CommandContext(ctx, ...) makes;
+//   - a func that may hold a context, as [ctxkind.Classifier.MayHold] judges
+//     it, so a func value that cannot be followed counts;
+//   - an interface that may hold a context, as
+//     [closureInterfaceArgMayHold] judges it.
+func contextTiedTo(f *Flow, v ssa.Value, kinds *ctxkind.Classifier) bool {
+	t := v.Type()
+	switch {
+	case kinds.Is(t, ctxkind.Context):
+		return !f.IsFreshContext(v)
+	case kinds.Is(t, ctxkind.Given), f.SignalsContext(v, kinds), f.InvolvesContext(v, kinds):
 		return true
 	}
-	return false
+	if _, isFunc := t.Underlying().(*types.Signature); isFunc {
+		return kinds.MayHold(v, ctxkind.Given)
+	}
+	return types.IsInterface(t) && closureInterfaceArgMayHold(f, v, kinds)
 }
 
 // SignalsContext reports whether one of the sources of v is a signal of a

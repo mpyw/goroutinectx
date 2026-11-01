@@ -44,6 +44,10 @@ type Config struct {
 	// ReportWaiters is -report-waiters: report a goroutine that only waits
 	// and signals too, as [flow.Flow.IsWaiter] tells one (#230).
 	ReportWaiters bool `json:"report-waiters"`
+	// ReportCalleeWithoutContext is -report-callee-without-context: report
+	// a go statement that calls a named function or method that cannot get
+	// a context from it, as [flow.Flow.NamedFuncsWithoutContext] tells.
+	ReportCalleeWithoutContext bool `json:"report-callee-without-context"`
 
 	// Checkers turns each checker that has a flag on or off by its name: on
 	// when its value is true. In JSON each is a key of its own, beside the
@@ -200,7 +204,7 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	}
 
 	r := &runner{
-		env:        env.New(pass, ssaProg, parsed.carriers, parsed.derivers, spawners, cfg.ReportWaiters),
+		env:        env.New(pass, ssaProg, parsed.carriers, parsed.derivers, spawners, cfg.ReportWaiters, cfg.ReportCalleeWithoutContext),
 		ignoreMaps: ignoreMaps,
 		skipFiles:  skipFiles,
 		enabled:    make(ignore.EnabledCheckers),

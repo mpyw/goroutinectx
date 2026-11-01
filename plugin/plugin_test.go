@@ -163,3 +163,13 @@ func buildAnalyzer(t *testing.T, settings any) *analysis.Analyzer {
 	}
 	return as[0]
 }
+
+// TestPluginReportCalleeWithoutContext runs the reportcallee fixture with
+// report-callee-without-context set.
+func TestPluginReportCalleeWithoutContext(t *testing.T) {
+	a := buildAnalyzer(t, map[string]any{
+		"report-callee-without-context": true,
+		"context-carriers":              []any{"github.com/labstack/echo/v4.Context"},
+	})
+	analysistest.Run(t, testdata(t), a, "reportcallee")
+}

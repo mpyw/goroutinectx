@@ -35,7 +35,7 @@ func (c *Goroutine) CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []anal
 func (c *Goroutine) propagates(e *env.Env, s *site.Site) bool {
 	p := newSpawnedContextPolicy(e, nil)
 	if call := s.Common(); call != nil && !call.IsInvoke() {
-		if spawnedGivesNamedFuncOnlyFreshContext(e, call) {
+		if spawnedGivesNamedFuncOnlyFreshContext(e, call) || spawnedReportsCalleeWithoutContext(e, call) {
 			return false
 		}
 		p = newSpawnedGoContextPolicy(e, call)

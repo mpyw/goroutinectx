@@ -52,6 +52,11 @@ type Config struct {
 	// one that runs wg.Wait() and then close(done). By default it is not
 	// reported.
 	ReportWaiters bool
+	// ReportCalleeWithoutContext reports a go statement that calls a named
+	// function or method given no context, as go s.loop() in a function
+	// that takes ctx. By default it is not reported, as a named function is
+	// judged by its arguments only.
+	ReportCalleeWithoutContext bool
 	// Checkers turns a checker on or off by its name, such as "goroutine". A
 	// checker left out keeps its default.
 	Checkers map[string]bool
@@ -66,6 +71,7 @@ func New(cfg Config) (*analysis.Analyzer, error) {
 	c.ExternalSpawner = cfg.ExternalSpawner
 	c.ContextCarriers = cfg.ContextCarriers
 	c.ReportWaiters = cfg.ReportWaiters
+	c.ReportCalleeWithoutContext = cfg.ReportCalleeWithoutContext
 	// In the order of the names, so that of several unknown checkers the
 	// error names the same one each time.
 	for _, name := range slices.Sorted(maps.Keys(cfg.Checkers)) {
@@ -94,6 +100,8 @@ func analyzerWithFlags() *analysis.Analyzer {
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 	a.Flags.BoolVar(&c.ReportWaiters, "report-waiters", false,
 		"also report goroutines that only wait (e.g., wg.Wait()) and signal (e.g., close(done))")
+	a.Flags.BoolVar(&c.ReportCalleeWithoutContext, "report-callee-without-context", false,
+		"also report goroutines that call a named function or method given no context (e.g., go s.loop())")
 
 	for _, d := range checkers.Defs {
 		if d.HasFlag() {
