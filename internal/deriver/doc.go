@@ -39,11 +39,13 @@
 //
 // # Matcher Usage
 //
-// Parse the flag value with [NewMatcher]:
+// Build a matcher from the OR groups with [NewMatcher]. The flag splits
+// its value at commas into the groups. The golangci-lint plugin and
+// goroutinectx.Config take them as a list:
 //
-//	matcher, err := deriver.NewMatcher(flagValue)
+//	matcher, err := deriver.NewMatcher([]string{"A+B", "C"})
 //	if err != nil {
-//	    // A specification names no import path
+//	    // A group is empty, or a specification names no import path
 //	}
 //
 // [Matcher.MatchesFunc] tells whether a called function is any of the
@@ -59,10 +61,10 @@
 //
 //	type Matcher struct {
 //	    OrGroups [][]funcspec.Spec  // Each group = AND, groups = OR
-//	    Original string             // Original flag value for messages
+//	    Original string             // The groups joined by commas, for messages
 //	}
 //
-// Example for "A+B,C":
+// Example for "A+B,C", or the groups ["A+B", "C"]:
 //
 //	OrGroups = [
 //	    [A, B],  // First AND group
@@ -75,7 +77,7 @@
 //
 // # Error Messages
 //
-// [Matcher.Original] keeps the flag value for messages, as in
+// [Matcher.Original] joins the groups with commas for messages, as in
 // "goroutine should call <Original> to derive context".
 //
 // # Empty Matcher

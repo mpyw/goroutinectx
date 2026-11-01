@@ -332,10 +332,10 @@ Deriver function matching with OR/AND logic:
 ```go
 type Matcher struct {
     OrGroups [][]funcspec.Spec // Each group must have ALL specs satisfied
-    Original string            // Original flag value for error messages
+    Original string            // The groups joined by commas, for messages
 }
 
-func NewMatcher(deriveFuncsStr string) (*Matcher, error)
+func NewMatcher(groups []string) (*Matcher, error) // one OR group per item, functions joined by +
 func (m *Matcher) IsEmpty() bool
 func (m *Matcher) MatchesFunc(fn *types.Func) bool
 ```

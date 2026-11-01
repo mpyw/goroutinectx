@@ -21,6 +21,7 @@ This file records design decisions and implementation details. The short, always
   - AND (plus): `-goroutine-deriver=example.com/a.F1+example.com/b.F2` - all must be called
   - Mixed: `-goroutine-deriver=example.com/a.F1+example.com/a.F2,example.com/b.F3` - (F1 AND F2) OR F3
   - A short name such as `apm.F1` is rejected: each function needs the full import path of its package
+  - `run.Config.GoroutineDeriver` and `goroutinectx.Config.GoroutineDeriver` are `[]string`, one OR group per item, with `+` inside an item. The golangci-lint plugin takes a list and rejects a string. Only the flag splits at commas, through `analyzerList`. An empty item, or an empty function joined by `+`, is rejected
 - **gotask**: Detect [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) task functions without context derivation (requires `-goroutine-deriver`)
   - `Do*` functions: checks that task arguments call the deriver
   - [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), also on a `CancelableTask`, which embeds `Task`: checks that ctx argument is derived
@@ -213,7 +214,7 @@ func caller(ctx context.Context) {
 
 ### Derive Function Matching
 
-`internal/deriver/` parses `-goroutine-deriver` into a `deriver.Matcher`, with `deriver.NewMatcher`. Used by:
+`internal/deriver/` parses the OR groups of `-goroutine-deriver` (a `[]string`) into a `deriver.Matcher`, with `deriver.NewMatcher`. `Original` joins the groups with commas, as the flag spells them. Used by:
 - `goroutinederive`: checks `go func()` calls
 - `gotask`: checks gotask task functions and DoAsync calls
 

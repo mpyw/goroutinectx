@@ -16,29 +16,28 @@ type Matcher struct {
 	Original string
 }
 
-// NewMatcher creates a Matcher from a derive function string.
-// Supports OR (comma) and AND (plus) operators.
-// Format: "pkg/path.Func" or "pkg/path.Type.Method". It rejects a
-// specification funcspec.Parse rejects.
-func NewMatcher(deriveFuncsStr string) (*Matcher, error) {
+// NewMatcher creates a Matcher from the OR groups of -goroutine-deriver.
+// Each group names one function, or several joined by + that must all be
+// called (AND). A function is "pkg/path.Func" or "pkg/path.Type.Method". It
+// rejects an empty group, an empty function of a group, and a specification
+// funcspec.Parse rejects. Original joins the groups with commas, as the
+// flag spells them.
+func NewMatcher(groups []string) (*Matcher, error) {
 	m := &Matcher{
-		Original: deriveFuncsStr,
+		Original: strings.Join(groups, ","),
 	}
 
-	// Split by comma first (OR groups)
-	for orPart := range strings.SplitSeq(deriveFuncsStr, ",") {
-		orPart = strings.TrimSpace(orPart)
-		if orPart == "" {
-			continue
+	for i, group := range groups {
+		if strings.TrimSpace(group) == "" {
+			return nil, fmt.Errorf("-goroutine-deriver: group %d is empty", i+1)
 		}
 
 		// Split by plus (AND within group)
 		var andGroup []funcspec.Spec
-
-		for andPart := range strings.SplitSeq(orPart, "+") {
+		for andPart := range strings.SplitSeq(group, "+") {
 			andPart = strings.TrimSpace(andPart)
 			if andPart == "" {
-				continue
+				return nil, fmt.Errorf("-goroutine-deriver: %q: a function joined by + is empty", group)
 			}
 
 			spec, err := funcspec.Parse(andPart)
@@ -47,10 +46,7 @@ func NewMatcher(deriveFuncsStr string) (*Matcher, error) {
 			}
 			andGroup = append(andGroup, spec)
 		}
-
-		if len(andGroup) > 0 {
-			m.OrGroups = append(m.OrGroups, andGroup)
-		}
+		m.OrGroups = append(m.OrGroups, andGroup)
 	}
 
 	return m, nil

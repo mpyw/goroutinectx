@@ -36,10 +36,12 @@ var ErrNoSpawners = run.ErrNoSpawners
 // the flag of the same name. The zero Config keeps every checker at its
 // default.
 type Config struct {
-	// GoroutineDeriver requires goroutines to call this function to derive
+	// GoroutineDeriver requires goroutines to call a function to derive
 	// their context, such as github.com/org/pkg.Func or
-	// github.com/org/pkg.Type.Method.
-	GoroutineDeriver string
+	// github.com/org/pkg.Type.Method. Each item is one group, and a
+	// goroutine must call all the functions of one group. Join several
+	// functions of a group with +.
+	GoroutineDeriver []string
 	// ExternalSpawner names external functions that spawn goroutines, such
 	// as github.com/org/pkg.Func or github.com/org/pkg.Type.Method.
 	ExternalSpawner []string
@@ -84,8 +86,8 @@ func New(cfg Config) (*analysis.Analyzer, error) {
 func analyzerWithFlags() *analysis.Analyzer {
 	c := new(run.DefaultConfig())
 	a := analyzerBuild(c)
-	a.Flags.Var(analyzerDeriver{&c.GoroutineDeriver}, "goroutine-deriver",
-		"require goroutines to call this function to derive context (e.g., github.com/org/pkg.Func or github.com/org/pkg.Type.Method)")
+	a.Flags.Var(analyzerList{&c.GoroutineDeriver, func(l []string) error { return run.Config{GoroutineDeriver: l}.Validate() }}, "goroutine-deriver",
+		"require goroutines to call this function to derive context (e.g., github.com/org/pkg.Func or github.com/org/pkg.Type.Method). Join functions that must all be called with +, and groups with commas")
 	a.Flags.Var(analyzerList{&c.ExternalSpawner, func(l []string) error { return run.Config{ExternalSpawner: l}.Validate() }}, "external-spawner",
 		"comma-separated list of external spawner functions (e.g., github.com/org/pkg.Func or github.com/org/pkg.Type.Method)")
 	a.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
@@ -144,25 +146,6 @@ func (l analyzerList) Set(s string) error {
 		}
 	}
 	*l.list = list
-	return nil
-}
-
-// analyzerDeriver is -goroutine-deriver. Setting it rejects a function
-// specification that names no import path.
-type analyzerDeriver struct{ value *string }
-
-func (d analyzerDeriver) String() string {
-	if d.value == nil {
-		return ""
-	}
-	return *d.value
-}
-
-func (d analyzerDeriver) Set(s string) error {
-	if err := (run.Config{GoroutineDeriver: s}).Validate(); err != nil {
-		return err
-	}
-	*d.value = s
 	return nil
 }
 

@@ -26,10 +26,22 @@ func TestPluginLists(t *testing.T) {
 
 func TestPluginDeriverAndCarriers(t *testing.T) {
 	a := buildAnalyzer(t, map[string]any{
-		"goroutine-deriver": "github.com/my-example-app/telemetry/apm.NewGoroutineContext",
+		"goroutine-deriver": []any{"github.com/my-example-app/telemetry/apm.NewGoroutineContext"},
 		"context-carriers":  []any{"github.com/labstack/echo/v4.Context"},
 	})
 	analysistest.Run(t, testdata(t), a, "carrierderive")
+}
+
+// TestPluginDeriverGroups gives goroutine-deriver two groups, the first of
+// two functions joined by +.
+func TestPluginDeriverGroups(t *testing.T) {
+	a := buildAnalyzer(t, map[string]any{
+		"goroutine-deriver": []any{
+			"github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext",
+			"github.com/my-example-app/telemetry/apm.NewGoroutineContext",
+		},
+	})
+	analysistest.Run(t, testdata(t), a, "goroutinederivemixed")
 }
 
 func TestPluginReportWaiters(t *testing.T) {
@@ -68,6 +80,7 @@ func TestPluginRejectsBadSettings(t *testing.T) {
 		{"an unknown key", map[string]any{"goroutines": true}},
 		{"a bool given a string", map[string]any{"goroutine": "yes"}},
 		{"a list given a string", map[string]any{"external-spawner": "pkg.Func"}},
+		{"goroutine-deriver given a string", map[string]any{"goroutine-deriver": "github.com/my-example-app/telemetry/apm.NewGoroutineContext"}},
 		{"settings that are not a map", []any{"goroutine"}},
 	}
 	for _, tt := range tests {
@@ -82,13 +95,20 @@ func TestPluginRejectsBadSettings(t *testing.T) {
 
 func TestPluginRejectsShortName(t *testing.T) {
 	for _, settings := range []map[string]any{
-		{"goroutine-deriver": "apm.NewGoroutineContext"},
+		{"goroutine-deriver": []any{"apm.NewGoroutineContext"}},
 		{"external-spawner": []any{"apm.Spawn"}},
 		{"context-carriers": []any{"echo.Context"}},
 	} {
 		if _, err := newPlugin(t)(settings); err == nil || !strings.Contains(err.Error(), "not an import path") {
 			t.Errorf("settings %v: got error %v, want one about the import path", settings, err)
 		}
+	}
+}
+
+func TestPluginRejectsEmptyDeriverGroup(t *testing.T) {
+	settings := map[string]any{"goroutine-deriver": []any{"github.com/my-example-app/telemetry/apm.NewGoroutineContext", " "}}
+	if _, err := newPlugin(t)(settings); err == nil || !strings.Contains(err.Error(), "group 2 is empty") {
+		t.Errorf("got error %v, want one about the empty group", err)
 	}
 }
 
