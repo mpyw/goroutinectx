@@ -1147,6 +1147,19 @@ go func() {
 </td>
 <td>✅️ <b>Passes.</b> So does a factory given a map or a channel of funcs that use <code>ctx</code></td>
 </tr>
+<tr>
+<td>
+
+```go
+run := worker
+go func() {
+	run(context.Background())
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A named function given only a fresh context does not get <code>ctx</code>, the same as for <code>go worker(context.Background())</code></td>
+</tr>
 </tbody>
 </table>
 
