@@ -480,20 +480,26 @@ func closureCallsOnlyFresh(f *Flow, v ssa.Value, kinds *ctxkind.Classifier, thro
 // every function arg can hold at [SiteCaptured], so one that cannot be
 // followed, as a parameter, passes. An interface param the closure calls a
 // method of, or gives to a call, counts when arg may hold a context, as
-// [closureReader.interfaceMayHold] judges it.
+// [closureReader.interfaceMayHold] judges it. A use in a closure the
+// closure makes, which captures param, counts the same, as the value
+// loaded from the variable SSA spills param to ([spilledUses], #322).
 func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, kinds *ctxkind.Classifier, funcs Policy) bool {
 	defer f.ask()()
 	t := param.Type()
+	uses := spilledUses(param)
 	if _, isFunc := t.Underlying().(*types.Signature); isFunc {
-		return closureRuns(param, false) && judgeCaptured(f, funcs, arg).Passes()
+		runs := slices.ContainsFunc(uses, func(u ssa.Value) bool { return closureRuns(u, false) })
+		return runs && judgeCaptured(f, funcs, arg).Passes()
 	}
 	if !types.IsInterface(t) || kinds.Is(t, ctxkind.Captured) {
 		return false
 	}
 	r := &closureReader{flow: f, kinds: kinds.From(closurePackage(param.Parent()))}
-	return slices.ContainsFunc(*param.Referrers(), func(ref ssa.Instruction) bool {
-		call, ok := ref.(ssa.CallInstruction)
-		return ok && r.callsWithHolder(call.Common(), param, arg)
+	return slices.ContainsFunc(uses, func(u ssa.Value) bool {
+		return slices.ContainsFunc(*u.Referrers(), func(ref ssa.Instruction) bool {
+			call, ok := ref.(ssa.CallInstruction)
+			return ok && r.callsWithHolder(call.Common(), u, arg)
+		})
 	})
 }
 

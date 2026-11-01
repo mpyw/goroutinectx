@@ -888,7 +888,7 @@ func handler(
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> The value of a parameter cannot be traced, as when the goroutine captures <code>g</code></td>
+<td>⚠️ <b>Not reported.</b> The value of a parameter cannot be traced, as when the goroutine captures <code>g</code>. A closure inside the goroutine that runs <code>f</code> counts the same</td>
 </tr>
 <tr>
 <td>
