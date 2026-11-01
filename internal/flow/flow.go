@@ -8,9 +8,9 @@ import (
 
 // Flow follows SSA values back to where they come from, for one pass. Every
 // question asked of it, as [Flow.Sources], [Flow.CapturedSources],
-// [Flow.Returns] or [FuncResolver.Passes], shares
+// [Flow.Returns] or [Judge], shares
 // one bound on the work it does, with the questions it asks in turn: a
-// resolver judging a closure that asks whether a context is fresh does not
+// policy judging a closure that asks whether a context is fresh does not
 // start a new bound. What it finds is remembered for the rest of the pass,
 // unless the bound cut it short.
 type Flow struct {
@@ -40,11 +40,11 @@ type Flow struct {
 	// captures remembers the verdicts of ClosureCapturesContext, by the
 	// closure and what it is judged with (#239).
 	captures map[closureVerdictKey]bool //declscope:shared // closure.go remembers its verdicts
-	// called are the factories whose results a resolver follows from a call
+	// called are the factories whose results a judgement follows from a call
 	// that gives them no func that passes, up the stack. A func parameter of
 	// one holds what the call gives, so it does not pass for being a
 	// parameter.
-	called map[*ssa.Function]int //declscope:shared // resolve.go follows the factories a call calls
+	called map[*ssa.Function]int //declscope:shared // judge.go follows the factories a call calls
 }
 
 // NewFlow gives the Flow of one pass.
@@ -61,7 +61,7 @@ func NewFlow() *Flow {
 // ask starts a question, or joins the one in progress, and gives the
 // function that ends it.
 //
-//declscope:shared // each question to the Flow asks, in resolve.go, context.go and closure.go
+//declscope:shared // each question to the Flow asks, in resolve.go, judge.go, context.go and closure.go
 func (f *Flow) ask() (done func()) {
 	if f.open == 0 {
 		f.steps = 0
@@ -146,7 +146,7 @@ func (f *Flow) Sources(v ssa.Value) (sources []Source, complete bool) {
 // given as it was stored, not followed further: ask [Flow.Sources] of it.
 // complete is false when they cannot all be followed.
 //
-// The resolver does not read values this way: a load it follows sees only
+// [Judge] does not read values this way: a load it follows sees only
 // the stores that reach it.
 func (f *Flow) CapturedSources(v ssa.Value) (sources []Source, complete bool) {
 	defer f.ask()()
@@ -223,4 +223,69 @@ func sourceFuncKind(fn *ssa.Function) SourceKind {
 		return SourceMethod
 	}
 	return SourceUnknown
+}
+
+// Verdict is what [Judge] gives for the functions a value can hold.
+type Verdict uint8
+
+const (
+	// Unknown is the verdict of what cannot be followed. It counts as Pass,
+	// so that only what is resolved is reported. A hook of a [Policy] that
+	// gives it leaves the value to the rules after it.
+	Unknown Verdict = iota
+	// Pass is the verdict of a function that does what the policy asks.
+	Pass
+	// Fail is the verdict of a function that does not.
+	Fail
+	// FailDeferOnly is the verdict of a function that does it only in
+	// defer, too late. It fails, but less than Fail does: of two values one
+	// of which is enough, the one that fails this way wins over the one
+	// that fails outright.
+	FailDeferOnly
+)
+
+// Passes reports whether v counts as passing: Pass or Unknown.
+func (v Verdict) Passes() bool {
+	return v == Pass || v == Unknown
+}
+
+// Site is where the function a [Policy] judges runs.
+type Site uint8
+
+const (
+	// SiteSpawned is a function a goroutine or a callback runs.
+	SiteSpawned Site = iota
+	// SiteCaptured is a func value a closure captures and runs, judged as
+	// if it were spawned directly (#234), as [Flow.ClosureCapturesContext]
+	// judges the func values a closure runs.
+	SiteCaptured
+)
+
+// Policy is what [Judge] judges the functions a value can hold by. Judge
+// asks its hooks in this order, each with a built-in rule after it:
+//
+//  1. Literal, for a function literal the value can be.
+//  2. Call, for the result of a call. Unknown leaves it to the rules
+//     below: a call of an interface method passes; FactoryCall; a call
+//     given a function that passes passes too, as a decorator runs it;
+//     what the callee returns is followed.
+//  3. Factory, for a function whose result is followed. When it does not
+//     pass the function, one of the values the function returns passing is
+//     enough.
+//
+// A Policy is compared by identity, as [Flow.ClosureCapturesContext]
+// remembers its verdicts by the policy too, so it must be comparable, as a
+// pointer is.
+type Policy interface {
+	// Literal judges a function literal, run at site.
+	Literal(fn *ssa.Function, site Site) Verdict
+	// Call judges the result of call, or gives Unknown to leave it to the
+	// rules after it.
+	Call(call *ssa.CallCommon) Verdict
+	// FactoryCall reports whether the result of call passes without being
+	// followed, as when a context is passed to the factory it calls.
+	FactoryCall(call *ssa.CallCommon) bool
+	// Factory reports whether fn passes without what it returns being
+	// followed, as when it takes a context.
+	Factory(fn *ssa.Function) bool
 }

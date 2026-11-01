@@ -26,7 +26,7 @@ func run(fn func()) {
 `
 
 // TestClosureCapturesContextFuncs checks that a func value a closure runs
-// counts only through the resolver it is given: with none, a parameter the
+// counts only through the policy it is given: with none, a parameter the
 // closure calls gives it nothing.
 func TestClosureCapturesContextFuncs(t *testing.T) {
 	t.Parallel()
@@ -37,11 +37,11 @@ func TestClosureCapturesContextFuncs(t *testing.T) {
 
 	flow := NewFlow()
 	if flow.ClosureCapturesContext(closure, kinds, nil) {
-		t.Error("with no resolver, the closure counts as capturing a context")
+		t.Error("with no policy, the closure counts as capturing a context")
 	}
-	r := &FuncResolver{Flow: flow, Closure: func(*ssa.Function) bool { return false }}
-	if !flow.ClosureCapturesContext(closure, kinds, r) {
-		t.Error("with a resolver, the parameter the closure calls does not pass")
+	p := &judgeTestPolicy{literal: func(*ssa.Function) Verdict { return Fail }}
+	if !flow.ClosureCapturesContext(closure, kinds, p) {
+		t.Error("with a policy, the parameter the closure calls does not pass")
 	}
 }
 
@@ -89,7 +89,7 @@ func TestClosureCapturesContextCycle(t *testing.T) {
 
 // TestClosureChainIsLinear checks that a chain of closures that call each
 // other is judged in time linear in its length: each closure is judged
-// once, and the resolver asks about each a few times at most. Before the
+// once, and the policy is asked about each a few times at most. Before the
 // verdicts were remembered (#239), 16 closures took about 55s, and 10 that
 // each capture the one before twice took about 13s.
 func TestClosureChainIsLinear(t *testing.T) {
@@ -111,18 +111,21 @@ func TestClosureChainIsLinear(t *testing.T) {
 			kinds := ctxkind.New(pkg.Prog, nil, "")
 			flow := NewFlow()
 			asked := 0
-			r := &FuncResolver{Flow: flow}
-			r.Closure = func(fn *ssa.Function) bool {
+			p := &judgeTestPolicy{}
+			p.literal = func(fn *ssa.Function) Verdict {
 				asked++
-				return flow.ClosureCapturesContext(fn, kinds, r)
+				if flow.ClosureCapturesContext(fn, kinds, p) {
+					return Pass
+				}
+				return Fail
 			}
 			h := pkg.Func("h")
 			spawned := h.AnonFuncs[len(h.AnonFuncs)-1]
-			if flow.ClosureCapturesContext(spawned, kinds, r) {
+			if flow.ClosureCapturesContext(spawned, kinds, p) {
 				t.Error("the chain captures a context, but none of its closures captures one")
 			}
 			if limit := 4 * tt.n * tt.captures; asked > limit {
-				t.Errorf("the resolver judged a closure %d times, want at most %d", asked, limit)
+				t.Errorf("the policy judged a closure %d times, want at most %d", asked, limit)
 			}
 		})
 	}
@@ -147,6 +150,8 @@ func closureChainSource(n, captures int) string {
 }
 
 // buildClosurePackage builds src as the package p, with its SSA.
+//
+//declscope:shared // judge_test.go builds its packages alike
 func buildClosurePackage(t *testing.T, src string) *ssa.Package {
 	t.Helper()
 	fset := token.NewFileSet()
