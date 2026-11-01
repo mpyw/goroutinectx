@@ -6,6 +6,7 @@ package reportcallee
 
 import (
 	"context"
+	"io"
 	"net"
 	"os/exec"
 	"sync"
@@ -16,6 +17,8 @@ import (
 func backgroundTask() {}
 
 func otherTask() {}
+
+func errTask() error { return nil }
 
 func worker(n int) { _ = n }
 
@@ -96,6 +99,33 @@ func (w *waitGroup) waitAll() {
 	w.wg.Wait()
 	close(w.done)
 }
+
+// genericWaitAll only waits and signals, and is generic.
+func genericWaitAll[T any](wg *sync.WaitGroup, done chan T) {
+	wg.Wait()
+	close(done)
+}
+
+// genericWorker is generic and does not wait.
+func genericWorker[T any](v T) { _ = v }
+
+// genericWaitGroup only waits and signals in its method, and is generic.
+type genericWaitGroup[T any] struct {
+	wg   sync.WaitGroup
+	done chan T
+}
+
+func (w *genericWaitGroup[T]) waitAll() {
+	w.wg.Wait()
+	close(w.done)
+}
+
+// genericLoop is generic and holds no context.
+type genericLoop[T any] struct {
+	n T
+}
+
+func (s *genericLoop[T]) loop() { _ = s.n }
 
 // [BAD]: A named function given nothing
 func badBackgroundTask(ctx context.Context) {
@@ -313,6 +343,84 @@ func goodWaiterMethodValue(ctx context.Context, w *waitGroup) {
 	f := w.waitAll
 	go f()
 	<-w.done
+}
+
+// [GOOD]: A generic function that only waits and signals
+func goodGenericWaiter(ctx context.Context, wg *sync.WaitGroup) {
+	done := make(chan struct{})
+	go genericWaitAll(wg, done)
+	<-done
+}
+
+// [GOOD]: A method of a generic type that only waits and signals
+func goodGenericWaiterMethod(ctx context.Context, w *genericWaitGroup[struct{}]) {
+	go w.waitAll()
+	<-w.done
+}
+
+// [GOOD]: A method value of a generic type that only waits and signals
+func goodGenericWaiterMethodValue(ctx context.Context, w *genericWaitGroup[struct{}]) {
+	f := w.waitAll
+	go f()
+	<-w.done
+}
+
+// [GOOD]: A method expression of a generic type that only waits and signals
+func goodGenericWaiterMethodExpr(ctx context.Context, w *genericWaitGroup[struct{}]) {
+	go (*genericWaitGroup[struct{}]).waitAll(w)
+	<-w.done
+}
+
+// [BAD]: A generic function that does not wait
+func badGenericWorker(ctx context.Context) {
+	go genericWorker(42) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: A method of a generic type that does not wait
+func badGenericMethod(ctx context.Context, s *genericLoop[int]) {
+	go s.loop() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: A method value of a generic type that does not wait
+func badGenericMethodValue(ctx context.Context, s *genericLoop[int]) {
+	f := s.loop
+	go f() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: An interface method called directly
+func goodInterfaceClose(ctx context.Context, c io.Closer) {
+	go c.Close()
+}
+
+// [GOOD]: A method value of an interface method
+//
+// It runs the method of the dynamic type, as go c.Close() does.
+func goodInterfaceMethodValue(ctx context.Context, c io.Closer) {
+	f := c.Close
+	go f()
+}
+
+// [GOOD]: A method expression of an interface method
+func goodInterfaceMethodExpr(ctx context.Context, c io.Closer) {
+	go io.Closer.Close(c)
+}
+
+// [GOOD]: Either of a named function and a method value of an interface method
+func goodPhiInterfaceMethodValue(ctx context.Context, c io.Closer, b bool) {
+	f := errTask
+	if b {
+		f = c.Close
+	}
+	go f()
+}
+
+// [BAD]: Either of a named function and a concrete method value
+func badPhiConcreteMethodValue(ctx context.Context, s *loopServer, b bool) {
+	f := backgroundTask
+	if b {
+		f = s.loop
+	}
+	go f() // want `goroutine does not propagate context "ctx"`
 }
 
 // [GOOD]: No context in the function
