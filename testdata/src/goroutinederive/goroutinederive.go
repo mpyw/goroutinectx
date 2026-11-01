@@ -51,6 +51,45 @@ type ctxWrapper struct {
 	user string
 }
 
+// ctxJob is a job that holds a context.
+type ctxJob struct {
+	Ctx  context.Context
+	Name string
+}
+
+// [BAD]: Has own param that holds a context, without the deriver
+//
+// A struct that holds a context is not a context parameter of its own, so
+// the goroutine must still derive the context it reads from it (#256).
+func badOwnHolderParam(ctx context.Context) {
+	j := &ctxJob{Ctx: ctx}
+	go func(j *ctxJob) { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		_ = j.Ctx
+	}(j)
+}
+
+// [GOOD]: Has own param that holds a context, with the deriver
+//
+// The goroutine derives the context it reads from the struct.
+func goodOwnHolderParamCallsDeriver(ctx context.Context) {
+	j := &ctxJob{Ctx: ctx}
+	go func(j *ctxJob) {
+		_ = apm.NewGoroutineContext(j.Ctx)
+	}(j)
+}
+
+// [BAD]: Factory takes a struct that holds a context, without the deriver
+//
+// The factory and the closure it makes take no context of their own (#256).
+func badFactoryHolderParam(ctx context.Context) {
+	j := &ctxJob{Ctx: ctx}
+	go jobWorker(j)() // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+}
+
+func jobWorker(j *ctxJob) func() {
+	return func() { _ = j.Ctx }
+}
+
 // [NOTCHECKED]: Basic - named function call (not checked).
 //
 // Named function call pattern is not checked for deriver.

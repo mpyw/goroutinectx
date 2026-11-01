@@ -158,49 +158,65 @@ func (c *Classifier) ParamNames(info *types.Info, fnType *ast.FuncType, k Kind) 
 // too, as a context in the struct literal of ctxRunner{ctx} converted to an
 // interface, or a closure sent on a channel or set in a map literal (#240).
 func (c *Classifier) Involves(k Kind, vs ...ssa.Value) bool {
-	seen := make(map[ssa.Value]bool)
-	return slices.ContainsFunc(vs, func(v ssa.Value) bool { return c.involves(v, k, seen) })
+	return c.InvolvesUnless(k, nil, vs...)
 }
 
-func (c *Classifier) involves(v ssa.Value, k Kind, seen map[ssa.Value]bool) bool {
-	if v == nil || seen[v] {
+// InvolvesUnless is [Classifier.Involves], but a value of a kind in k for
+// which skip reports true does not count, and is not looked into, as a fresh
+// context.Background() given to a goroutine as an any (#252). skip may be
+// nil.
+func (c *Classifier) InvolvesUnless(k Kind, skip func(ssa.Value) bool, vs ...ssa.Value) bool {
+	in := involving{c: c, k: k, skip: skip, seen: make(map[ssa.Value]bool)}
+	return slices.ContainsFunc(vs, in.involves)
+}
+
+// involving is one question [Classifier.InvolvesUnless] answers.
+type involving struct {
+	c    *Classifier
+	k    Kind
+	skip func(ssa.Value) bool
+	seen map[ssa.Value]bool
+}
+
+func (in *involving) involves(v ssa.Value) bool {
+	if v == nil || in.seen[v] {
 		return false
 	}
-	seen[v] = true
-	if c.Is(v.Type(), k) {
-		return true
+	in.seen[v] = true
+	if in.c.Is(v.Type(), in.k) {
+		return in.skip == nil || !in.skip(v)
 	}
 	instr, ok := v.(ssa.Instruction)
 	if !ok {
 		return false
 	}
 	for _, op := range instr.Operands(nil) {
-		if op != nil && c.involves(*op, k, seen) {
+		if op != nil && in.involves(*op) {
 			return true
 		}
 	}
 	switch v.(type) {
 	case *ssa.Alloc, *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan:
-		return c.involvesPut(v, k, seen)
+		return in.involvesPut(v)
 	}
 	return false
 }
 
 // involvesPut reports whether a value put into container, or into a field
 // or an element of it, however deep, involves a value of a kind in k.
-func (c *Classifier) involvesPut(container ssa.Value, k Kind, seen map[ssa.Value]bool) bool {
+func (in *involving) involvesPut(container ssa.Value) bool {
 	return slices.ContainsFunc(*container.Referrers(), func(ref ssa.Instruction) bool {
 		switch x := ref.(type) {
 		case *ssa.Store:
-			return x.Addr == container && c.involves(x.Val, k, seen)
+			return x.Addr == container && in.involves(x.Val)
 		case *ssa.FieldAddr:
-			return x.X == container && c.involvesPut(x, k, seen)
+			return x.X == container && in.involvesPut(x)
 		case *ssa.IndexAddr:
-			return x.X == container && c.involvesPut(x, k, seen)
+			return x.X == container && in.involvesPut(x)
 		case *ssa.MapUpdate:
-			return x.Map == container && (c.involves(x.Key, k, seen) || c.involves(x.Value, k, seen))
+			return x.Map == container && (in.involves(x.Key) || in.involves(x.Value))
 		case *ssa.Send:
-			return x.Chan == container && c.involves(x.X, k, seen)
+			return x.Chan == container && in.involves(x.X)
 		}
 		return false
 	})

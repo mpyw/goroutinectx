@@ -37,6 +37,9 @@
 //     context field, is not checked.
 //   - Captured leaves out Holds. A captured struct that holds a context
 //     counts only when it is given to a call, which the caller tells.
+//   - A parameter that exempts a closure from the deriver counts by
+//     Captured, not Given. A struct that holds a context is not a context
+//     of the closure's own (#256).
 //   - The fresh argument of a call is tested with Context. Only a
 //     context.Context can be a fresh Background() or TODO().
 //   - [Classifier.HasParam] counts a blank parameter and a receiver, which

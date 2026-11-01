@@ -12,7 +12,8 @@ import (
 )
 
 // spawnedContextPolicy judges a closure by whether it takes or captures a
-// context, or, when derivers is not empty, calls the deriver at its start.
+// context (with derivers, it must take a context of its own,
+// [spawnedContextPolicy.paramKind]), or, when derivers is not empty, calls the deriver at its start.
 // When derivers is empty, a closure that only waits and signals passes too
 // ([spawnedWaiterPasses]). With derivers, it must still call the deriver,
 // as a go statement must for the goroutinederive checker (#243). A factory
@@ -59,7 +60,7 @@ func newSpawnedGoContextPolicy(e *env.Env, call *ssa.CallCommon) *spawnedContext
 func (p *spawnedContextPolicy) Literal(fn *ssa.Function, site flow.Site) flow.Verdict {
 	spawned := site == flow.SiteSpawned
 	switch {
-	case spawned && p.goCall == nil && p.e.Kinds.HasParam(fn, ctxkind.Given),
+	case spawned && p.goCall == nil && p.e.Kinds.HasParam(fn, p.paramKind()),
 		p.e.Flow.ClosureCapturesContext(fn, p.e.Kinds, p),
 		!p.derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, p.derivers).FoundAtStart,
 		spawned && p.derivers.IsEmpty() && spawnedWaiterPasses(p.e, fn),
@@ -69,19 +70,44 @@ func (p *spawnedContextPolicy) Literal(fn *ssa.Function, site flow.Site) flow.Ve
 	return flow.Fail
 }
 
+// paramKind gives the kinds a parameter of a spawned closure counts as a
+// context by. With no deriver it is [ctxkind.Given], as a closure that gets
+// a value holding ctx uses ctx. With derivers it is [ctxkind.Captured]: only
+// a closure given a context of its own, not a struct that holds one, is
+// left unchecked for the deriver, as for the goroutinederive checker (#256).
+func (p *spawnedContextPolicy) paramKind() ctxkind.Kind {
+	if p.derivers.IsEmpty() {
+		return ctxkind.Given
+	}
+	return ctxkind.Captured
+}
+
 // goParamsPass reports whether a parameter of fn ties it to ctx, as goCall
 // gives it: a context other than a fresh one, as [ctxkind.Given] counts
-// one, the channel of ctx.Done(), or a cancel func of a context made from
-// ctx.
+// one, the channel of ctx.Done(), a cancel func of a context made from
+// ctx, or, for a parameter of another type that may hold a context, a value
+// built from a context other than a fresh one, as [ctxkind.Classifier.Involves]
+// follows it: an interface, a func, a slice or an any given ctx (#252).
 func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
 	return slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool {
 		i := slices.Index(fn.Params, param)
-		if !p.e.Kinds.Is(param.Type(), ctxkind.Given) {
-			return i < len(args) && p.e.Flow.SignalsContext(args[i], p.e.Kinds)
+		if p.e.Kinds.Is(param.Type(), ctxkind.Given) {
+			return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
 		}
-		return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
+		if i >= len(args) {
+			return false
+		}
+		arg := args[i]
+		return p.e.Flow.SignalsContext(arg, p.e.Kinds) ||
+			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Kinds.InvolvesUnless(ctxkind.Given, p.isFreshContext, arg))
 	})
+}
+
+// isFreshContext reports whether v is a context.Context made by a fresh
+// context.Background() or TODO(), as [flow.Flow.IsFreshContext] tells.
+func (p *spawnedContextPolicy) isFreshContext(v ssa.Value) bool {
+	return p.e.Kinds.Is(v.Type(), ctxkind.Context) && p.e.Flow.IsFreshContext(v)
 }
 
 // Call fails a named function given only a fresh context

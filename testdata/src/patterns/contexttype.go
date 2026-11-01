@@ -804,3 +804,103 @@ func badGoParamPlainHolderGoroutine(ctx context.Context, p plainHolder) {
 		_ = p.name
 	}(p)
 }
+
+// ===== Goroutine given ctx through a parameter of another type =====
+
+// runner is run by a goroutine it is given to.
+type runner interface{ Run() }
+
+// ctxRunner is a runner that holds a context.
+type ctxRunner struct{ ctx context.Context }
+
+func (r ctxRunner) Run() { <-r.ctx.Done() }
+
+// plainRunner is a runner that holds no context.
+type plainRunner struct{ name string }
+
+func (r plainRunner) Run() { _ = r.name }
+
+// ctxName gives a name made from ctx, which holds no context.
+func ctxName(ctx context.Context) string { _ = ctx; return "" }
+
+// [GOOD]: Goroutine given ctx in an interface
+//
+// The parameter is given a value that holds ctx, as the same value
+// captured counts (#252).
+func goodGoParamIfaceGoroutine(ctx context.Context) {
+	go func(r runner) {
+		r.Run()
+	}(ctxRunner{ctx})
+}
+
+// [GOOD]: Goroutine given a func that uses ctx
+//
+// The func the goroutine runs captures ctx (#252).
+func goodGoParamFuncGoroutine(ctx context.Context) {
+	go func(f func()) {
+		f()
+	}(func() { <-ctx.Done() })
+}
+
+// [GOOD]: Goroutine given a slice of contexts
+//
+// The slice holds ctx (#252).
+func goodGoParamSliceGoroutine(ctx context.Context) {
+	go func(cs []context.Context) {
+		<-cs[0].Done()
+	}([]context.Context{ctx})
+}
+
+// [GOOD]: Goroutine given ctx as an any
+//
+// The parameter is ctx in an interface (#252).
+func goodGoParamAnyGoroutine(ctx context.Context) {
+	go func(v any) {
+		<-v.(context.Context).Done()
+	}(ctx)
+}
+
+// [BAD]: Goroutine given a fresh context as an any
+//
+// The parameter holds only context.Background(), not ctx.
+func badGoParamAnyFreshGoroutine(ctx context.Context) {
+	go func(v any) { // want `goroutine does not propagate context "ctx"`
+		_ = v
+	}(context.Background())
+}
+
+// [BAD]: Goroutine given a slice of fresh contexts
+//
+// The slice holds only context.TODO(), not ctx.
+func badGoParamSliceFreshGoroutine(ctx context.Context) {
+	go func(cs []context.Context) { // want `goroutine does not propagate context "ctx"`
+		_ = cs
+	}([]context.Context{context.TODO()})
+}
+
+// [BAD]: Goroutine given a func that does not use ctx
+//
+// The func captures nothing.
+func badGoParamFuncNoCtxGoroutine(ctx context.Context) {
+	go func(f func()) { // want `goroutine does not propagate context "ctx"`
+		f()
+	}(func() {})
+}
+
+// [BAD]: Goroutine given an interface that holds no context
+//
+// The runner is made from no context.
+func badGoParamIfacePlainGoroutine(ctx context.Context) {
+	go func(r runner) { // want `goroutine does not propagate context "ctx"`
+		r.Run()
+	}(plainRunner{name: "x"})
+}
+
+// [BAD]: Goroutine given a value made from ctx, of a type that holds none
+//
+// A string cannot hold a context, even when ctx was used to make it.
+func badGoParamStringFromCtxGoroutine(ctx context.Context) {
+	go func(name string) { // want `goroutine does not propagate context "ctx"`
+		_ = name
+	}(ctxName(ctx))
+}
