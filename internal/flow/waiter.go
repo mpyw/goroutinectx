@@ -356,11 +356,28 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 // that joins the closure with other values, outside a loop, is followed to
 // its one use in turn, as h := f; if c { h = g }; go h() runs f or g once
 // (#298). So is the one store of it to a local variable, outside a loop, to
-// the one load of the variable, as [waiterSpilledLoad] gives it, as
-// run := f; go func() { run() }() runs f once (#321). A closure that is not
-// used is its own site, as nothing runs it.
+// the one load of the variable, as [waiterSpilledLoads] gives it, as
+// run := f; go func() { run() }() runs f once (#321). When the variable is
+// loaded in several closures that are alternatives, each load is followed
+// to its use in turn, and the store is the site, as no one instruction
+// runs the closure (#345). A closure that is not used is its own site, as
+// nothing runs it. A closure that may run itself, through a variable that
+// a closure it runs captures, has none.
 func waiterRunSite(mk *ssa.MakeClosure) (site ssa.Instruction, ok bool) {
-	var v ssa.Value = mk
+	return waiterRunSiteFrom(mk, mk, make(map[*ssa.MakeClosure]bool))
+}
+
+// waiterRunSiteFrom gives the site that runs the closure mk makes, as
+// [waiterRunSite] does, from v, which holds it. sited holds the closures
+// whose sites are being looked for, up the stack.
+func waiterRunSiteFrom(mk *ssa.MakeClosure, v ssa.Value, sited map[*ssa.MakeClosure]bool) (site ssa.Instruction, ok bool) {
+	if v == ssa.Value(mk) {
+		if sited[mk] {
+			return nil, false
+		}
+		sited[mk] = true
+		defer delete(sited, mk)
+	}
 	for {
 		var refs []ssa.Instruction
 		for _, ref := range *v.Referrers() {
@@ -381,11 +398,20 @@ func waiterRunSite(mk *ssa.MakeClosure) (site ssa.Instruction, ok bool) {
 		case *ssa.Phi:
 			v = x
 		case *ssa.Store:
-			load, ok := waiterSpilledLoad(x, v)
+			loads, ok := waiterSpilledLoads(x, v, sited)
 			if !ok {
 				return nil, false
 			}
-			v = load
+			if len(loads) == 1 {
+				v = loads[0]
+				continue
+			}
+			for _, load := range loads {
+				if _, ok := waiterRunSiteFrom(mk, load, sited); !ok {
+					return nil, false
+				}
+			}
+			return x, true
 		default:
 			return refs[0], waiterRunsOnce(refs[0], v)
 		}
@@ -402,26 +428,48 @@ func waiterStoresAgain(refs []ssa.Instruction, ref ssa.Instruction) bool {
 	})
 }
 
-// waiterSpilledLoad gives the one load of the local variable st stores v
+// waiterSpilledLoads gives the loads of the local variable st stores v
 // to, as [spilledLoads] follows it into the closures that capture the
 // variable. Other values stored to the variable are alternatives, as for a
-// Phi: the load runs one of them. Each of those closures must be made outside a loop and run
-// once, as [waiterRunSite] tells, so that the load runs once when it is
-// outside a loop of its own function.
-func waiterSpilledLoad(st *ssa.Store, v ssa.Value) (*ssa.UnOp, bool) {
+// Phi: the load runs one of them. Each of those closures must be made
+// outside a loop and run once, as [waiterRunSite] tells, so that a load
+// runs once when it is outside a loop of its own function. There must be
+// one load, or several, each in another of those closures, when all of them
+// run at one site, so that only one of them runs, as
+// run := func() { send() }; if c { run = func() { send() } }; go run()
+// runs send once (#345). sited is as [waiterRunSiteFrom] has it.
+func waiterSpilledLoads(st *ssa.Store, v ssa.Value, sited map[*ssa.MakeClosure]bool) ([]*ssa.UnOp, bool) {
 	loads, binders, ok := spilledLoads(st, true)
-	if !ok || st.Val != v || len(loads) != 1 || waiterInLoop(loads[0].Block()) {
+	if !ok || st.Val != v || len(loads) == 0 || slices.ContainsFunc(loads, func(load *ssa.UnOp) bool { return waiterInLoop(load.Block()) }) {
 		return nil, false
 	}
+	var sites []ssa.Instruction
 	for _, mk := range binders {
 		if waiterInLoop(mk.Block()) {
 			return nil, false
 		}
-		if _, ok := waiterRunSite(mk); !ok {
+		site, ok := waiterRunSiteFrom(mk, mk, sited)
+		if !ok {
 			return nil, false
 		}
+		sites = append(sites, site)
 	}
-	return loads[0], true
+	if len(loads) == 1 {
+		return loads, true
+	}
+	if slices.ContainsFunc(sites, func(site ssa.Instruction) bool { return site != sites[0] }) {
+		return nil, false
+	}
+	loaded := make(map[*ssa.Function]bool)
+	for _, load := range loads {
+		fn := load.Parent()
+		bound := slices.ContainsFunc(binders, func(mk *ssa.MakeClosure) bool { return mk.Fn == fn })
+		if loaded[fn] || !bound {
+			return nil, false
+		}
+		loaded[fn] = true
+	}
+	return loads, true
 }
 
 // waiterOnceSpawns are the calls that run the func they are given once, in

@@ -189,3 +189,22 @@ func badCapturedSenderInClosureGoroutine(ctx context.Context, cmd *exec.Cmd) err
 		return ctx.Err()
 	}
 }
+
+// [BAD]: Two closures joined by a Phi call the sender from a variable they capture
+//
+// -report-waiters reports it (#345).
+func badCapturedSenderPhiCallersGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := func() { send() }
+	if pickFlag {
+		run = func() { send() }
+	}
+	go run() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

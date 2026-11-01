@@ -1504,7 +1504,7 @@ A send outside a `select` cannot block when all of these hold:
 - The channel is made with `make(chan T, n)` for a constant `n` of at least 1.
 - There are at most `n` sends on the channel in all, none in a loop. Every goroutine and every closure counts.
 
-A closure that sends, or starts a sender, must run once. A `go` statement, a direct or deferred call, and a `Go` of `errgroup`, `sync.WaitGroup` or conc run it once. A closure in a variable that another closure captures runs once when that closure runs once and loads the variable once, as `func() { go send() }()` does. Any other call, such as a spawner, may run it more than once.
+A closure that sends, or starts a sender, must run once. A `go` statement, a direct or deferred call, and a `Go` of `errgroup`, `sync.WaitGroup` or conc run it once. A closure in a variable that another closure captures runs once when that closure runs once and loads the variable once, as `func() { go send() }()` does. Closures joined by a Phi that each load it once count as one, as only one of them runs. Any other call, such as a spawner, may run it more than once.
 
 Anything else is reported as before. These may leak when `ctx` is cancelled:
 
