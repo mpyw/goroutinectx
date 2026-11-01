@@ -172,9 +172,6 @@ func contextNamedFunc(v ssa.Value) (bound []ssa.Value, ok bool) {
 // statement that calls them is reported.
 func (f *Flow) NamedFuncsWithoutContext(call *ssa.CallCommon, kinds *ctxkind.Classifier) ([]*ssa.Function, bool) {
 	defer f.ask()()
-	if call.IsInvoke() {
-		return nil, false
-	}
 	for param := range call.Signature().Params().Variables() {
 		if kinds.Is(param.Type(), ctxkind.Given) {
 			return nil, false
@@ -206,16 +203,10 @@ func (f *Flow) NamedFuncsWithoutContext(call *ssa.CallCommon, kinds *ctxkind.Cla
 // the method a method value or a method expression wraps. It gives nil for a
 // function built from type information.
 func contextFuncBody(fn *ssa.Function) *ssa.Function {
-	if fn == nil {
-		return nil
-	}
 	switch Classify(fn) {
 	case ClassifiedBound, ClassifiedThunk:
-		obj, _ := fn.Object().(*types.Func)
-		if obj == nil {
-			return nil
-		}
-		fn = fn.Prog.FuncValue(obj)
+		// SSA gives a wrapper the method it wraps as its object.
+		fn = fn.Prog.FuncValue(fn.Object().(*types.Func))
 	}
 	if fn == nil || fn.Blocks == nil {
 		return nil
@@ -226,8 +217,9 @@ func contextFuncBody(fn *ssa.Function) *ssa.Function {
 // contextTiedTo reports whether v, a value a named function is given, ties
 // it to a context, by the rules a value a closure is given counts by:
 //
-//   - a context or a carrier that is not fresh, as [Flow.IsFreshContext]
-//     tells, and a value of [ctxkind.Given], as a struct that holds one;
+//   - a value of [ctxkind.Given], as a context, a carrier or a struct that
+//     holds one. A fresh context can only be given to a parameter of
+//     [ctxkind.Given], which the caller has ruled out;
 //   - the channel of ctx.Done() or a cancel func, as [Flow.SignalsContext]
 //     tells;
 //   - a value built from a context that is not fresh, as
@@ -239,10 +231,7 @@ func contextFuncBody(fn *ssa.Function) *ssa.Function {
 //     [closureInterfaceArgMayHold] judges it.
 func contextTiedTo(f *Flow, v ssa.Value, kinds *ctxkind.Classifier) bool {
 	t := v.Type()
-	switch {
-	case kinds.Is(t, ctxkind.Context):
-		return !f.IsFreshContext(v)
-	case kinds.Is(t, ctxkind.Given), f.SignalsContext(v, kinds), f.InvolvesContext(v, kinds):
+	if kinds.Is(t, ctxkind.Given) || f.SignalsContext(v, kinds) || f.InvolvesContext(v, kinds) {
 		return true
 	}
 	if _, isFunc := t.Underlying().(*types.Signature); isFunc {

@@ -6,6 +6,7 @@ package reportcallee
 
 import (
 	"context"
+	"net"
 	"os/exec"
 	"sync"
 
@@ -25,6 +26,10 @@ func workerDone(done <-chan struct{}) { <-done }
 func workerCancel(cancel context.CancelFunc) { cancel() }
 
 func workerAny(v any) { _ = v }
+
+func workerConn(conn net.Conn) { _ = conn }
+
+func workerRunner(r runner) { r.Run() }
 
 func workerFunc(fn func()) { fn() }
 
@@ -53,6 +58,8 @@ type ctxServer struct {
 }
 
 func (s *ctxServer) run() { <-s.ctx.Done() }
+
+func (s *ctxServer) Run() { s.run() }
 
 // runner is an interface whose method a go statement calls.
 type runner interface {
@@ -187,6 +194,23 @@ func goodMethodValue(ctx context.Context, s *ctxServer) {
 // Its signature takes a context, so the rule leaves it alone.
 func goodWorkerCtxNil(ctx context.Context) {
 	go workerCtx(nil)
+}
+
+// [GOOD]: A callee that takes a context, given a derived one
+func goodWorkerCtxDerived(ctx context.Context) {
+	go workerCtx(context.WithoutCancel(ctx))
+}
+
+// [BAD]: A named function given an interface of another module
+//
+// A net.Conn cannot hold a context the analyzed code put there.
+func badWorkerConn(ctx context.Context, conn net.Conn) {
+	go workerConn(conn) // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: A named function given an interface that holds a context
+func goodWorkerRunner(ctx context.Context) {
+	go workerRunner(&ctxServer{ctx: ctx})
 }
 
 // [GOOD]: A callee that takes a carrier

@@ -4103,11 +4103,45 @@ go s.run()
 
 ```go
 // func worker(ctx context.Context)
-go worker(nil)
+go worker(context.WithoutCancel(ctx))
 ```
 
 </td>
-<td>✅️ <b>Passes.</b> The function takes a context, so the flag leaves it alone</td>
+<td>✅️ <b>Passes.</b> The function takes a context. The flag leaves it to the usual rules for <a href="#fresh-contexts">fresh contexts</a></td>
+</tr>
+<tr>
+<td>
+
+```go
+// func worker(ctx context.Context)
+go worker(context.Background())
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The usual rule for fresh contexts reports it, with or without the flag</td>
+</tr>
+<tr>
+<td>
+
+```go
+go backgroundTask() //goroutinectx:ignore goroutine
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The ignore silences the report. Without the flag, the ignore is reported as unused</td>
+</tr>
+<tr>
+<td>
+
+```go
+// fn is a func parameter.
+// r is an interface.
+go fn()
+go r.Run()
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The flag does not touch a func value, a func parameter or an interface method. A func literal keeps the usual rules</td>
 </tr>
 </tbody>
 </table>
