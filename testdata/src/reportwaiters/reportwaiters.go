@@ -119,3 +119,43 @@ func badWaitCloseInPlaceGoroutine(ctx context.Context) {
 	}()
 	<-done
 }
+
+// pickFlag picks a branch the analyzer cannot predict.
+var pickFlag bool
+
+// [BAD]: Two senders joined by a Phi, a buffer of one
+//
+// -report-waiters reports it (#298).
+func badPhiTwoSendersGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if pickFlag {
+		run = func() { errc <- b.Wait() }
+	}
+	go run() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Two senders joined by a Phi, given to errgroup.Group.Go
+//
+// -report-waiters reports it (#298).
+func badPhiTwoSendersErrgroup(ctx context.Context, a, b *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	run := func() error { errc <- a.Wait(); return nil }
+	if pickFlag {
+		run = func() error { errc <- b.Wait(); return nil }
+	}
+	g.Go(run) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

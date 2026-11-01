@@ -191,13 +191,28 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 // the buffer all the same. ok is false when the channel may be used where
 // the sends cannot be counted: given to a call, stored anywhere but to its
 // own variable, or sent from or given to a closure that may run more than
-// once, as one in a loop is.
+// once, as one in a loop is. Closures joined by a Phi and run where it is
+// run are alternatives: only one of them runs, so the most sends of one of
+// them count, not their sum (#298).
 func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
+	// alternatives holds the most sends of the closures run at each site.
+	alternatives := make(map[ssa.Instruction]int)
 	for _, instr := range *v.Referrers() {
+		if mk, isClosure := instr.(*ssa.MakeClosure); isClosure {
+			n, site, ok := waiterClosureSends(mk, v, addr)
+			if !ok {
+				return 0, false
+			}
+			alternatives[site] = max(alternatives[site], n)
+			continue
+		}
 		n, ok := waiterChanUseSends(instr, v, addr)
 		if !ok {
 			return 0, false
 		}
+		sends += n
+	}
+	for _, n := range alternatives {
 		sends += n
 	}
 	return sends, true
@@ -209,8 +224,6 @@ func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
 // captures it are followed.
 func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends int, ok bool) {
 	switch x := instr.(type) {
-	case *ssa.MakeClosure:
-		return waiterClosureSends(x, v, addr)
 	case *ssa.Store:
 		if addr {
 			// The variable is set. What it is set to is followed on its own.
@@ -252,21 +265,50 @@ func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends in
 }
 
 // waiterClosureSends counts the sends of the closure mk makes on the channel
-// of v, which mk binds, as [waiterChanSends] does. The closure must be made
-// and used once: outside a loop, and run once, as [waiterRunsOnce] tells.
-func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int, ok bool) {
+// of v, which mk binds, as [waiterChanSends] does, and gives the site that
+// runs it, as [waiterRunSite] gives it. The closure must be made outside a
+// loop.
+func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int, site ssa.Instruction, ok bool) {
 	fn, isFunc := mk.Fn.(*ssa.Function)
 	i := slices.Index(mk.Bindings, v)
 	if !isFunc || i < 0 || i >= len(fn.FreeVars) || waiterInLoop(mk.Block()) {
-		return 0, false
+		return 0, nil, false
 	}
-	uses := 0
-	for _, instr := range *mk.Referrers() {
-		if uses++; uses > 1 || waiterInLoop(instr.Block()) || !waiterRunsOnce(instr, mk) {
-			return 0, false
+	site, ok = waiterRunSite(mk)
+	if !ok {
+		return 0, nil, false
+	}
+	sends, ok = waiterChanSends(fn.FreeVars[i], addr)
+	return sends, site, ok
+}
+
+// waiterRunSite gives the one instruction that uses the closure mk makes,
+// outside a loop, which must run it once, as [waiterRunsOnce] tells. A Phi
+// that joins the closure with other values, outside a loop, is followed to
+// its one use in turn, as h := f; if c { h = g }; go h() runs f or g once
+// (#298). A closure that is not used is its own site, as nothing runs it.
+func waiterRunSite(mk *ssa.MakeClosure) (site ssa.Instruction, ok bool) {
+	var v ssa.Value = mk
+	for {
+		var refs []ssa.Instruction
+		for _, ref := range *v.Referrers() {
+			// A Phi that joins v on several edges refers to it once each.
+			if !slices.Contains(refs, ref) {
+				refs = append(refs, ref)
+			}
 		}
+		switch {
+		case len(refs) == 0 && v == mk:
+			return mk, true
+		case len(refs) != 1 || waiterInLoop(refs[0].Block()):
+			return nil, false
+		}
+		phi, isPhi := refs[0].(*ssa.Phi)
+		if !isPhi {
+			return refs[0], waiterRunsOnce(refs[0], v)
+		}
+		v = phi
 	}
-	return waiterChanSends(fn.FreeVars[i], addr)
 }
 
 // waiterOnceSpawns are the calls that run the func they are given once, in
@@ -285,13 +327,13 @@ var waiterOnceSpawns = []funcspec.Spec{
 	{PkgPath: "github.com/sourcegraph/conc/stream", TypeName: "Stream", FuncName: "Go"},
 }
 
-// waiterRunsOnce reports whether instr runs the closure mk makes at most
+// waiterRunsOnce reports whether instr runs the closure v holds at most
 // once: as the function of a go statement or of a direct or deferred call,
 // or as the func given to one of [waiterOnceSpawns]. Any other call given
 // the closure may run it any number of times (#255), as a channel given to a
 // call may be sent on any number of times. So may any other use, as a
 // conversion to an interface.
-func waiterRunsOnce(instr ssa.Instruction, mk *ssa.MakeClosure) bool {
+func waiterRunsOnce(instr ssa.Instruction, v ssa.Value) bool {
 	var call *ssa.CallCommon
 	switch x := instr.(type) {
 	case *ssa.Go:
@@ -303,8 +345,8 @@ func waiterRunsOnce(instr ssa.Instruction, mk *ssa.MakeClosure) bool {
 	default:
 		return false
 	}
-	if !slices.Contains(call.Args, ssa.Value(mk)) {
-		return call.Value == mk
+	if !slices.Contains(call.Args, v) {
+		return call.Value == v
 	}
 	fn := ExtractCalledFunc(call)
 	return fn != nil && slices.ContainsFunc(waiterOnceSpawns, func(s funcspec.Spec) bool { return s.Matches(fn) })
