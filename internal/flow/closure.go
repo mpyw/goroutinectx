@@ -418,19 +418,16 @@ func (r *closureReader) runsPassing(v ssa.Value) bool {
 // looked into, but one given only a fresh context does not get ctx, as for
 // the same function called in the closure by its name.
 func (r *closureReader) callsNamedOnlyFresh(v ssa.Value) bool {
-	return closureHoldsOnlyNamed(r.flow, v, make(map[ssa.Value]bool)) && closureCallsOnlyFresh(r.flow, v, r.kinds, true)
+	return closureHoldsOnlyNamed(r.flow, v) && closureCallsOnlyFresh(r.flow, v, r.kinds, true)
 }
 
-// closureHoldsOnlyNamed reports whether every value v can read is a named
-// function or method, of the analyzed package or of another. A value
-// loaded from a variable captured by reference reads what is stored to the
-// variable, and a free variable of an outer closure what it is made with,
-// each followed by [Flow.Sources] in turn, as through a Phi.
-func closureHoldsOnlyNamed(f *Flow, v ssa.Value, seen map[ssa.Value]bool) bool {
-	if seen[v] {
-		return true
-	}
-	seen[v] = true
+// closureHoldsOnlyNamed reports whether every value v can read, as
+// [Flow.CapturedSources] reads it, out to the function that makes the
+// closure, is a named function or method, of the analyzed package or of
+// another, each followed by [Flow.Sources] in turn, as through a Phi. A
+// value loaded from a variable captured by reference reads what is stored
+// to the variable.
+func closureHoldsOnlyNamed(f *Flow, v ssa.Value) bool {
 	if load, ok := v.(*ssa.UnOp); ok && load.Op == token.MUL {
 		if _, isFV := load.X.(*ssa.FreeVar); isFV {
 			v = load.X
@@ -443,9 +440,6 @@ func closureHoldsOnlyNamed(f *Flow, v ssa.Value, seen map[ssa.Value]bool) bool {
 	return !slices.ContainsFunc(captured, func(c Source) bool {
 		if c.Value == v {
 			return true
-		}
-		if _, isFV := c.Value.(*ssa.FreeVar); isFV {
-			return !closureHoldsOnlyNamed(f, c.Value, seen)
 		}
 		sources, complete := f.Sources(c.Value)
 		return !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s Source) bool {

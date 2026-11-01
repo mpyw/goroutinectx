@@ -1150,6 +1150,30 @@ func badCapturedNamedFuncDeferFreshCtxWaitGroup(ctx context.Context) {
 	wg.Wait()
 }
 
+// [BAD]: Captured named function called in a nested literal given a fresh context
+//
+// The nested literal reads the same variable, which holds only the named
+// function.
+func badCapturedNamedFuncNestedFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() { run(context.Background(), "worker") }()
+	}()
+}
+
+// [NOTCHECKED]: Captured named function compared with nil inside a literal
+//
+// Only a func value used by calls alone is judged by what the calls give,
+// so one also compared with nil passes, as #228 judges it.
+func notCheckedCapturedNamedFuncNilCheckFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	go func() {
+		if run != nil {
+			run(context.Background(), "worker")
+		}
+	}()
+}
+
 // [GOOD]: Captured named function called inside a literal given ctx
 //
 // The function gets ctx.
