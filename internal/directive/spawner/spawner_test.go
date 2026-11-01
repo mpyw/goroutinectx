@@ -71,5 +71,8 @@ func TestNilMapHasNoSpawner(t *testing.T) {
 	if (*Map)(nil).IsSpawner(fn) {
 		t.Error("a nil Map marked a function")
 	}
+	if (*Map)(nil).HasDirective(fn) {
+		t.Error("a nil Map found a directive")
+	}
 	new(Fact).AFact()
 }

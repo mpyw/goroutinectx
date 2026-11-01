@@ -86,6 +86,17 @@ func (m *Map) IsSpawner(fn *types.Func) bool {
 	return m.matchesExternal(fn)
 }
 
+// HasDirective reports whether fn is marked by a //goroutinectx:spawner
+// directive, in this package or an imported one. Unlike [Map.IsSpawner], a
+// match of -external-spawner does not count.
+func (m *Map) HasDirective(fn *types.Func) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m.marked.funcs[fn.Origin()]
+	return ok
+}
+
 // matchesExternal checks if fn matches any external spec.
 func (m *Map) matchesExternal(fn *types.Func) bool {
 	return slices.ContainsFunc(m.external, func(spec funcspec.Spec) bool { return spec.Matches(fn) })

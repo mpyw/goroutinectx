@@ -98,6 +98,12 @@ func TestAnalyzer(t *testing.T) {
 		{name: "spawnerlabelexternal", cfg: goroutinectx.Config{Checkers: label, ExternalSpawner: []string{
 			"github.com/example/workerpool.Run",
 		}}, pkgs: []string{"spawnerlabelexternal"}},
+		// -spawnerlabel with external spawners declared in the package
+		// checked, with no directive (#383).
+		{name: "spawnerlabelown", cfg: goroutinectx.Config{Checkers: label, ExternalSpawner: []string{
+			"github.com/example/spawnerlabelown.Pool.Submit",
+			"github.com/example/spawnerlabelown.Start",
+		}}, pkgs: []string{"github.com/example/spawnerlabelown"}},
 		{name: "gotask", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"gotask"}},
 		// Generated files are skipped.
 		{name: "filefilter", pkgs: []string{"filefilter"}},

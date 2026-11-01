@@ -134,6 +134,7 @@ Each directory of `testdata/src` is one fixture package. The settings each runs 
 | `spawnerlabel/` | The spawnerlabel checker |
 | `spawnerlabeldoc/` | spawnerlabel with the directive on any doc comment line |
 | `spawnerlabelexternal/` | spawnerlabel with `-external-spawner` |
+| `github.com/example/spawnerlabelown/` | spawnerlabel with `-external-spawner` naming functions of the package checked |
 | `externalspawner/` | `-external-spawner` |
 | `generics/` | Generic functions, generic types and generic methods |
 | `genericsderive/` | The same for gotask, with a deriver |
@@ -256,7 +257,7 @@ Follows values through the package's SSA form: what a closure captures (`Closure
 
 The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only, as `Flow.Returns` gives it, or through the result at one index, as `Flow.ReturnsAt` gives it. spawnerlabel takes a closure returned as any result.
 
-spawnerlabel asks the same `Flow` where each func value it runs in a goroutine comes from. A value from a func parameter of the function checked asks for the label. That is the parameter, a closure that captures it, or the result of a call given it. It reads captured values with `Flow.CapturedValues`, then `Flow.Sources`, and writes no walk of its own.
+spawnerlabel asks the same `Flow` where each func value it runs in a goroutine comes from. A value from a func parameter of the function checked asks for the label. That is the parameter, a closure that captures it, or the result of a call given it. A closure counts only for what it captures of a func type, a slice of funcs, or a task. A string a func parameter returned does not count. It reads captured values with `Flow.CapturedValues`, then `Flow.Sources`, and writes no walk of its own.
 
 `Flow` is the one engine that follows values, built once per pass and held by `env.Env`. `Flow.Sources(v)` gives the values `v` can come from, each with its kind (function literal, named function, method, call result, parameter, global, unknown), and whether the list is complete. It goes through Phi nodes, type changes, loads of local variables and of their parts, and map lookups at constant keys. It never looks through a call. Two other questions read what it does not:
 
