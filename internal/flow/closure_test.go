@@ -152,7 +152,7 @@ func closureChainSource(n, captures int) string {
 // buildClosurePackage builds src as the package p, with its SSA.
 //
 //declscope:shared // judge_test.go and resolve_test.go build their packages alike
-func buildClosurePackage(t *testing.T, src string) *ssa.Package {
+func buildClosurePackage(t testing.TB, src string) *ssa.Package {
 	t.Helper()
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "p.go", src, 0)

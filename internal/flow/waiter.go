@@ -252,10 +252,33 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 			if !exact || n < 1 {
 				return true
 			}
-			sends, ok := waiterChanSends(mc, false)
-			return !ok || int64(sends) > n
+			return int64(waiterCountedSends(f, mc, int(min(n, waiterSendsLimit)))) > n
 		})
 	})
+}
+
+// waiterSendsLimit bounds the buffer a send count is asked against. A
+// count stops once it passes the buffer, so a larger one changes nothing
+// but the work.
+const waiterSendsLimit = 1 << 20
+
+// waiterCountedSends counts the sends on the channel mc makes, as
+// [waiterChanSends] does, up to more than limit, the size of its buffer,
+// and remembers the count for the pass: every sender on the channel asks
+// it (#366). It is more than limit, too, when they cannot be counted.
+func waiterCountedSends(f *Flow, mc *ssa.MakeChan, limit int) int {
+	if n, done := f.chanSends[mc]; done {
+		return n
+	}
+	sends, ok := waiterChanSends(mc, false, limit)
+	if !ok {
+		sends = limit + 1
+	}
+	if f.chanSends == nil {
+		f.chanSends = make(map[*ssa.MakeChan]int)
+	}
+	f.chanSends[mc] = sends
+	return sends
 }
 
 // waiterChanSends counts the sends on the channel v holds, or, when addr is
@@ -267,24 +290,29 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 // once, as one in a loop is. Closures joined by a Phi and run where it is
 // run are alternatives: only one of them runs, so the most sends of one of
 // them count, not their sum (#298). So are closures run at sites that
-// exclude each other, as [waiterMostSends] counts them (#350).
-func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
+// exclude each other, as [waiterMostSends] counts them (#350). The count
+// stops once it is more than limit, as no more sends than that can fit.
+func waiterChanSends(v ssa.Value, addr bool, limit int) (sends int, ok bool) {
 	// alternatives holds the most sends of the closures run at each site.
 	alternatives := make(map[ssa.Instruction]int)
 	for _, instr := range *v.Referrers() {
 		if mk, isClosure := instr.(*ssa.MakeClosure); isClosure {
-			n, site, ok := waiterClosureSends(mk, v, addr)
+			n, site, ok := waiterClosureSends(mk, v, addr, limit)
 			if !ok {
 				return 0, false
 			}
 			alternatives[site] = max(alternatives[site], n)
 			continue
 		}
-		n, ok := waiterChanUseSends(instr, v, addr)
+		n, ok := waiterChanUseSends(instr, v, addr, limit)
 		if !ok {
 			return 0, false
 		}
-		sends += n
+		// Every count below is a part of the whole, so one more than limit
+		// makes the whole more.
+		if sends += n; sends > limit {
+			return sends, true
+		}
 	}
 	return sends + waiterMostSends(alternatives), true
 }
@@ -295,8 +323,10 @@ func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
 // reached. So the sites that run in one function lie on one path, each
 // reaching the next, as [waiterReaches] tells, and the most sends of such a
 // chain count, as if c { go f() } else { go g() } runs f or g (#350). The
-// counts of the functions are added up.
+// counts of the functions are added up. Which block reaches which is found
+// once for all the sites (#366).
 func waiterMostSends(alternatives map[ssa.Instruction]int) int {
+	r := waiterReach{}
 	// most holds the most sends of a chain from each site.
 	most := make(map[ssa.Instruction]int, len(alternatives))
 	var chain func(site ssa.Instruction) int
@@ -306,7 +336,7 @@ func waiterMostSends(alternatives map[ssa.Instruction]int) int {
 		}
 		next := 0
 		for other := range alternatives {
-			if other != site && waiterReaches(site, other) {
+			if other != site && r.reaches(site, other) {
 				next = max(next, chain(other))
 			}
 		}
@@ -331,27 +361,65 @@ func waiterMostSends(alternatives map[ssa.Instruction]int) int {
 // from that of a. Neither is in a loop, so at most one of them reaches the
 // other.
 func waiterReaches(a, b ssa.Instruction) bool {
+	return (&waiterReach{}).reaches(a, b)
+}
+
+// waiterReach tells which instructions reach which, as [waiterReaches]
+// does, remembering the blocks each block reaches and where each
+// instruction is in its block, for many questions about one function.
+type waiterReach struct {
+	// blocks holds the blocks each block reaches, itself only when it is in
+	// a loop.
+	blocks map[*ssa.BasicBlock]map[*ssa.BasicBlock]bool
+	// index holds where each instruction asked of is in its block.
+	index map[ssa.Instruction]int
+}
+
+// reaches reports whether b may run after a, as [waiterReaches] tells.
+func (r *waiterReach) reaches(a, b ssa.Instruction) bool {
 	if a.Parent() != b.Parent() {
 		return false
 	}
 	if a.Block() == b.Block() {
-		instrs := a.Block().Instrs
-		return slices.Index(instrs, a) < slices.Index(instrs, b)
+		return r.indexOf(a) < r.indexOf(b)
+	}
+	return r.reached(a.Block())[b.Block()]
+}
+
+// indexOf gives where instr is in its block.
+func (r *waiterReach) indexOf(instr ssa.Instruction) int {
+	if i, done := r.index[instr]; done {
+		return i
+	}
+	if r.index == nil {
+		r.index = make(map[ssa.Instruction]int)
+	}
+	for i, in := range instr.Block().Instrs {
+		r.index[in] = i
+	}
+	return r.index[instr]
+}
+
+// reached gives the blocks from reaches.
+func (r *waiterReach) reached(from *ssa.BasicBlock) map[*ssa.BasicBlock]bool {
+	if seen, done := r.blocks[from]; done {
+		return seen
 	}
 	seen := map[*ssa.BasicBlock]bool{}
-	stack := slices.Clone(a.Block().Succs)
+	stack := slices.Clone(from.Succs)
 	for len(stack) > 0 {
 		next := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		if next == b.Block() {
-			return true
-		}
 		if !seen[next] {
 			seen[next] = true
 			stack = append(stack, next.Succs...)
 		}
 	}
-	return false
+	if r.blocks == nil {
+		r.blocks = make(map[*ssa.BasicBlock]map[*ssa.BasicBlock]bool)
+	}
+	r.blocks[from] = seen
+	return seen
 }
 
 // waiterExclusive reports whether at most one of sites runs in one run of
@@ -429,7 +497,7 @@ func waiterMakerOf(fn *ssa.Function) *ssa.MakeClosure {
 // [waiterChanSends] does. When addr is true, v points to the variable of the
 // channel, and only a store to it, a load from it, and a closure that
 // captures it are followed.
-func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends int, ok bool) {
+func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool, limit int) (sends int, ok bool) {
 	switch x := instr.(type) {
 	case *ssa.Store:
 		if addr {
@@ -437,11 +505,11 @@ func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends in
 			return 0, x.Addr == v
 		}
 		if _, local := x.Addr.(*ssa.Alloc); local {
-			return waiterChanSends(x.Addr, true)
+			return waiterChanSends(x.Addr, true, limit)
 		}
 	case *ssa.UnOp:
 		if addr {
-			return waiterChanSends(x, false)
+			return waiterChanSends(x, false, limit)
 		}
 		return 0, x.Op == token.ARROW
 	case *ssa.Send:
@@ -475,7 +543,7 @@ func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends in
 // of v, which mk binds, as [waiterChanSends] does, and gives the site that
 // runs it, as [waiterRunSite] gives it. The closure must be made outside a
 // loop.
-func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int, site ssa.Instruction, ok bool) {
+func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool, limit int) (sends int, site ssa.Instruction, ok bool) {
 	fn, isFunc := mk.Fn.(*ssa.Function)
 	i := slices.Index(mk.Bindings, v)
 	if !isFunc || i < 0 || i >= len(fn.FreeVars) || waiterInLoop(mk.Block()) {
@@ -485,7 +553,7 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 	if !ok {
 		return 0, nil, false
 	}
-	sends, ok = waiterChanSends(fn.FreeVars[i], addr)
+	sends, ok = waiterChanSends(fn.FreeVars[i], addr, limit)
 	return sends, site, ok
 }
 

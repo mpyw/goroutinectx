@@ -48,6 +48,9 @@ type Flow struct {
 	// that follow it, the last one innermost. A func parameter of one holds
 	// what the call gives, so it does not pass for being a parameter.
 	called map[*ssa.Function][]*ssa.CallCommon //declscope:shared // judge.go follows the factories a call calls
+	// chanSends remembers the sends counted on each channel, as
+	// waiterCountedSends counts them, for every sender on it to ask.
+	chanSends map[*ssa.MakeChan]int //declscope:shared // waiter.go counts the sends on a channel once
 }
 
 // NewFlow gives the Flow of one pass.
