@@ -1,7 +1,6 @@
 package checkers
 
 import (
-	"go/types"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -87,7 +86,7 @@ func (p *spawnedContextPolicy) paramKind() ctxkind.Kind {
 // gives it: a context other than a fresh one, as [ctxkind.Given] counts
 // one, the channel of ctx.Done(), a cancel func of a context made from
 // ctx, or, for a parameter of another type that may hold a context, a value
-// built from a context other than a fresh one, as [ctxkind.Classifier.Involves]
+// built from a context other than a fresh one, as [flow.Flow.InvolvesContext]
 // follows it: an interface, a func, a slice or an any given ctx (#252).
 func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
@@ -97,44 +96,8 @@ func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 			return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
 		}
 		return i < len(args) && (p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
-			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Kinds.InvolvesUnless(ctxkind.Given, p.goArgPartHoldsNoContext, args[i])))
+			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds)))
 	})
-}
-
-// goArgPartHoldsNoContext reports whether v, a part of an argument a go
-// statement gives a parameter of another type, is not to count toward ctx
-// nor to be looked into ([spawnedContextPolicy.goParamsPass]):
-//
-//   - a context.Context made by a fresh context.Background() or TODO(), as
-//     [flow.Flow.IsFreshContext] tells;
-//   - the result of a call, of a type that is not of [ctxkind.Given] and not
-//     an interface or a func. Such a result is data the call made, as the
-//     brokers a call given ctx lists, not a holder of what the call was
-//     given. A call of many results is judged by each one taken from it.
-func (p *spawnedContextPolicy) goArgPartHoldsNoContext(v ssa.Value) bool {
-	if p.e.Kinds.Is(v.Type(), ctxkind.Context) {
-		return p.e.Flow.IsFreshContext(v)
-	}
-	switch x := v.(type) {
-	case *ssa.Call:
-		if _, many := x.Type().(*types.Tuple); many {
-			return false
-		}
-	case *ssa.Extract:
-		if _, ok := x.Tuple.(*ssa.Call); !ok {
-			return false
-		}
-	default:
-		return false
-	}
-	if p.e.Kinds.Is(v.Type(), ctxkind.Given) {
-		return false
-	}
-	switch v.Type().Underlying().(type) {
-	case *types.Interface, *types.Signature:
-		return false
-	}
-	return true
 }
 
 // Call fails a named function given only a fresh context

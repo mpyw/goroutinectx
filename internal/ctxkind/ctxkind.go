@@ -279,6 +279,33 @@ func (c *Classifier) typeMayHold(t types.Type, k Kind, seen map[types.Type]bool)
 	return true
 }
 
+// HasContextField reports whether t, past its pointers, is a struct with a
+// field of [Captured], of any package and exported or not, or a field of a
+// struct by value that has one. Unlike [Holds], a field the analyzed code
+// cannot set counts too, as the unexported context of an *exec.Cmd or an
+// *http.Request: a call given ctx that makes such a value has put ctx there
+// (#257). A struct a field points to is not looked into.
+func (c *Classifier) HasContextField(t types.Type) bool {
+	return c.hasContextField(typeutil.UnwrapPointer(t), make(map[types.Type]bool))
+}
+
+func (c *Classifier) hasContextField(t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for f := range st.Fields() {
+		if c.Is(f.Type(), Captured) || c.hasContextField(types.Unalias(f.Type()), seen) {
+			return true
+		}
+	}
+	return false
+}
+
 // implements reports whether t, past its pointers, implements
 // context.Context.
 func (c *Classifier) implements(t types.Type) bool {
