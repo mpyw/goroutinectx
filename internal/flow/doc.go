@@ -122,8 +122,9 @@
 //
 // [Flow.IsFreshContext] reports whether a value is only ever a
 // context.Background() or TODO(). [Flow.GivesOnlyFreshContext] reports whether a
-// call gives such a context and nothing else that may hold one. What counts
-// as a context is up to the ctxkind package.
+// call gives such a context and nothing else that may hold one or signal one,
+// as the channel of ctx.Done() does. What counts as a context is up to the
+// ctxkind package.
 //
 // # Closure Free Variables
 //

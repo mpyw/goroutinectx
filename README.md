@@ -213,7 +213,7 @@ A context made with [`context.Background`](https://pkg.go.dev/context#Background
 
 A context the goroutine reads from a field or an element of a value it captures counts. So does a value whose type implements `context.Context`, such as a struct that embeds one. A method called on a captured value counts too when it returns a context, as `req.Context()` does. A call that takes a captured value that holds a context your code can have put there counts too, whether the value is the receiver, as in `s.run()`, or an argument, as in `handle(s)`. The callee is not looked into, the same as for `go s.run()` and `go handle(s)`. A context field counts when it is exported, or when it is declared in your package or another package of your module. When the driver does not tell which module, a field of any package outside the standard library counts. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported.
 
-A goroutine that takes a signal of the context, not the context itself, passes too. The signal can be captured or given as an argument. It is one of these:
+A goroutine that takes a signal of the context, not the context itself, passes too. The signal can be captured or given as an argument, to a function literal or a named function. It is one of these:
 
 - The channel of `ctx.Done()`
 - The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`
@@ -236,6 +236,9 @@ func handler(ctx context.Context) {
         waitSignal()
         cancel()
     }()
+
+    // Good: worker is given ctx.Done() along with a fresh context
+    go worker(context.Background(), ctx.Done())
 
     // Bad: the context it cancels is not made from ctx
     _, stop := context.WithCancel(context.Background())
