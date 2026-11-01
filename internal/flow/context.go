@@ -185,7 +185,7 @@ func (f *Flow) NamedFuncsWithoutContext(call *ssa.CallCommon, kinds *ctxkind.Cla
 	var bodies []*ssa.Function
 	for _, s := range sources {
 		bound, ok := contextNamedFunc(s.Value)
-		if !ok {
+		if !ok || contextAbstractMethod(s.Func()) {
 			return nil, false
 		}
 		given = append(given, bound...)
@@ -215,14 +215,32 @@ func contextInvolvesOrSignals(f *Flow, v ssa.Value, kinds *ctxkind.Classifier) b
 	return involves || signals
 }
 
+// contextAbstractMethod reports whether fn is the wrapper of a method value
+// or a method expression of an interface method, as c.Close or
+// io.Closer.Close. A call of it runs the method of the dynamic type, as
+// go c.Close() does, so [Flow.NamedFuncsWithoutContext] leaves it alone too
+// (#385).
+func contextAbstractMethod(fn *ssa.Function) bool {
+	switch Classify(fn) {
+	case ClassifiedBound, ClassifiedThunk:
+		return types.IsInterface(fn.Object().(*types.Func).Signature().Recv().Type())
+	}
+	return false
+}
+
 // contextFuncBody gives the function with a body that fn runs: fn itself, or
-// the method a method value or a method expression wraps. It gives nil for a
-// function built from type information.
+// the method a method value or a method expression wraps. An instance of a
+// generic function or method, as waitAll[int], has no body of its own, so
+// its generic origin is given (#384). It gives nil for a function built from
+// type information.
 func contextFuncBody(fn *ssa.Function) *ssa.Function {
 	switch Classify(fn) {
 	case ClassifiedBound, ClassifiedThunk:
 		// SSA gives a wrapper the method it wraps as its object.
-		fn = fn.Prog.FuncValue(fn.Object().(*types.Func))
+		fn = fn.Prog.FuncValue(fn.Object().(*types.Func).Origin())
+	}
+	if fn != nil && fn.Origin() != nil {
+		fn = fn.Origin()
 	}
 	if fn == nil || fn.Blocks == nil {
 		return nil

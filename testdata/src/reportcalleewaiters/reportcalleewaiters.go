@@ -42,3 +42,18 @@ func badWaiterMethodValue(ctx context.Context, w *waitGroup) {
 	go f() // want `goroutine does not propagate context "ctx"`
 	<-w.done
 }
+
+// genericWaitAll only waits and signals, and is generic.
+func genericWaitAll[T any](wg *sync.WaitGroup, done chan T) {
+	wg.Wait()
+	close(done)
+}
+
+// [BAD]: A generic function that only waits and signals
+//
+// -report-waiters reports it too.
+func badGenericWaiter(ctx context.Context, wg *sync.WaitGroup) {
+	done := make(chan struct{})
+	go genericWaitAll(wg, done) // want `goroutine does not propagate context "ctx"`
+	<-done
+}
