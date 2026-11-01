@@ -525,3 +525,19 @@ func badRangeFuncExprNested(ctx context.Context, xs []int) {
 		}
 	}
 }
+
+// ===== Unreachable code =====
+
+// [GOOD]: Variadic call in unreachable code
+//
+// SSA has no instruction for it, so the slice has no value to judge.
+func goodVariadicUnreachable(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		},
+	}
+	panic(fns)
+	_ = gotask.DoAllFnsSettled(ctx, fns...)
+}
