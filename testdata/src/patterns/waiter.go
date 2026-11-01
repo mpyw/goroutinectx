@@ -290,6 +290,46 @@ func badWaitLoopGoroutine(ctx context.Context, cmds []*exec.Cmd) {
 	<-done
 }
 
+// [BAD]: Wait in a loop made with goto
+//
+// The loop has two entries, so neither of its blocks dominates the other. It
+// never ends all the same (#365).
+func badWaitGotoLoopGoroutine(ctx context.Context, c bool) {
+	var wg sync.WaitGroup
+	n := 0
+	go func() { // want `goroutine does not propagate context "ctx"`
+		if c {
+			goto second
+		}
+	first:
+		wg.Wait()
+	second:
+		n++
+		goto first
+	}()
+}
+
+// [GOOD]: Wait, then goto forward
+//
+// A goto that jumps forward makes no loop.
+func goodWaitGotoForwardGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	go func() {
+		err := cmd.Wait()
+		if err == nil {
+			goto done
+		}
+		errc <- err
+	done:
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // ===== Wait, then send on an unbuffered channel =====
 
 // [BAD]: Wait, then send on an unbuffered channel
