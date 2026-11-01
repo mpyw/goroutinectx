@@ -421,7 +421,7 @@ func (r *closureReader) waitsDone(v ssa.Value) bool {
 // (#257): the call has put ctx there, even in a field the analyzed code
 // cannot read. A call of many results is judged by each one taken from it.
 // A go statement's argument counts such a result too
-// ([contextCallResultMayHold]). A value of an interface or a func type is
+// ([Flow.InvolvesContext]). A value of an interface or a func type is
 // left to the other rules, as a net.Conn a dial given ctx makes holds no
 // ctx after the dial (#240). A result of another type, as a string made
 // from ctx, holds none.

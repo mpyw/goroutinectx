@@ -67,8 +67,6 @@ func contextLeftOut(f *Flow, part ssa.Value, kinds *ctxkind.Classifier) bool {
 // func, or has a context field of any package, exported or not
 // ([ctxkind.Classifier.HasContextField]), as the *exec.Cmd that
 // exec.CommandContext(ctx, ...) makes (#257).
-//
-//declscope:shared // closure.go judges a captured value a call made with ctx
 func contextCallResultMayHold(t types.Type, kinds *ctxkind.Classifier) bool {
 	switch t.Underlying().(type) {
 	case *types.Interface, *types.Signature:
