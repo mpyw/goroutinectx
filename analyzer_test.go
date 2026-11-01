@@ -45,6 +45,12 @@ func TestAnalyzer(t *testing.T) {
 		// The goroutines that only wait and signal of patterns, reported
 		// (#230).
 		{name: "reportwaiters", cfg: goroutinectx.Config{ReportWaiters: true}, pkgs: []string{"reportwaiters"}},
+		// Go statements that call a named function given no context, with
+		// -report-callee-without-context.
+		{name: "reportcallee", cfg: goroutinectx.Config{ReportCalleeWithoutContext: true, ContextCarriers: []string{echoCarrier}}, pkgs: []string{"reportcallee"}},
+		// Its named functions that only wait and signal, with
+		// -report-waiters too.
+		{name: "reportcalleewaiters", cfg: goroutinectx.Config{ReportCalleeWithoutContext: true, ReportWaiters: true}, pkgs: []string{"reportcalleewaiters"}},
 		{name: "patternsderive", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"patternsderive"}},
 		// In module mode, a method of a captured value counts when its
 		// context field is unexported but of the analyzed module, and not
@@ -181,6 +187,55 @@ func TestFlagReportWaiters(t *testing.T) {
 	}
 	analysistest.Run(t, analysistest.TestData(), a, "reportwaiters")
 }
+
+// TestFlagReportCalleeWithoutContext checks that
+// -report-callee-without-context reaches the run.
+func TestFlagReportCalleeWithoutContext(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
+	for name, value := range map[string]string{
+		"report-callee-without-context": "true",
+		"context-carriers":              echoCarrier,
+	} {
+		if err := a.Flags.Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	analysistest.Run(t, analysistest.TestData(), a, "reportcallee")
+}
+
+// TestReportCalleeOff runs the reportcallee fixture without
+// -report-callee-without-context. Its go statements are not reported, and
+// only its ignore goes unused.
+func TestReportCalleeOff(t *testing.T) {
+	t.Parallel()
+	a, err := goroutinectx.New(goroutinectx.Config{ContextCarriers: []string{echoCarrier}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &analyzerUnmet{}
+	var unused int
+	for _, r := range analysistest.Run(rec, analysistest.TestData(), a, "reportcallee") {
+		for _, d := range r.Diagnostics {
+			if strings.HasPrefix(d.Message, "unused goroutinectx:ignore") {
+				unused++
+				continue
+			}
+			t.Errorf("%s: reported without the flag: %s", r.Pass.Fset.Position(d.Pos), d.Message)
+		}
+	}
+	if unused != 1 {
+		t.Errorf("got %d unused ignores, want 1", unused)
+	}
+	if rec.errors == 0 {
+		t.Error("the fixture's expectations were met without the flag")
+	}
+}
+
+// analyzerUnmet counts the errors analysistest reports, instead of failing.
+type analyzerUnmet struct{ errors int }
+
+func (r *analyzerUnmet) Errorf(string, ...any) { r.errors++ }
 
 // TestFlagRejectsShortName checks that a function or a carrier with no
 // import path is rejected when the flag is set (#90, #122).

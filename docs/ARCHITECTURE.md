@@ -114,6 +114,8 @@ Each directory of `testdata/src` is one fixture package. The settings each runs 
 | `patterns/` | Cases the goroutine, errgroup, waitgroup and spawner checkers share, one file per pattern |
 | `patternsderive/` | The same, with `-goroutine-deriver` |
 | `reportwaiters/` | The goroutines of `patterns` that only wait and signal, with `-report-waiters` |
+| `reportcallee/` | Go statements that call a named function given no context, with `-report-callee-without-context` |
+| `reportcalleewaiters/` | Its named functions that only wait and signal, with `-report-waiters` too |
 | `goroutine/` | goroutine-only cases |
 | `errgroup/` | errgroup-only cases |
 | `waitgroup/` | waitgroup-only cases |
@@ -145,7 +147,7 @@ Each directory of `testdata/src` is one fixture package. The settings each runs 
 
 ### analyzer.go
 
-Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-external-spawner`, `-context-carriers`, `-report-waiters`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
+Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-external-spawner`, `-context-carriers`, `-report-waiters`, `-report-callee-without-context`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`, and from them one `env.Env` for the pass
 2. Builds each checker that is on from the `env.Env`
 3. Maps each function with a context parameter to the name of the first (`Kinds.ParamNames`)
@@ -189,6 +191,7 @@ type Env struct {
     Derivers      *deriver.Matcher    // nil when -goroutine-deriver is not set
     Spawners      *spawner.Map        // marked spawners and -external-spawner
     ReportWaiters bool                // -report-waiters
+    ReportCalleeWithoutContext bool   // -report-callee-without-context
     Flow          *flow.Flow          // follows values, one bound per question, remembered for the pass
 }
 ```

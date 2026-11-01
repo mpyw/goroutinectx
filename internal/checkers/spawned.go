@@ -172,3 +172,24 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 	}
 	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
 }
+
+// spawnedReportsCalleeWithoutContext reports whether call, the call of a go
+// statement, is reported by -report-callee-without-context: it calls only
+// named functions or methods that cannot get a context from it, as
+// [flow.Flow.NamedFuncsWithoutContext] tells. Such a call passes when the
+// flag is off, as a named function is judged by its arguments only. A
+// callee that only waits and signals still passes, as [spawnedWaiterPasses]
+// tells, unless -report-waiters is set too. Of several callees a value can be,
+// one that only waits and signals is enough.
+//
+//declscope:shared // goroutine.go judges a named function a go statement calls alike
+func spawnedReportsCalleeWithoutContext(e *env.Env, call *ssa.CallCommon) bool {
+	if !e.ReportCalleeWithoutContext {
+		return false
+	}
+	callees, ok := e.Flow.NamedFuncsWithoutContext(call, e.Kinds)
+	if !ok {
+		return false
+	}
+	return !slices.ContainsFunc(callees, func(fn *ssa.Function) bool { return spawnedWaiterPasses(e, fn) })
+}

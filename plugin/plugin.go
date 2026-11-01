@@ -54,6 +54,8 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 		ContextCarriers:  cfg.ContextCarriers,
 		ReportWaiters:    cfg.ReportWaiters,
 		Checkers:         checkers,
+
+		ReportCalleeWithoutContext: cfg.ReportCalleeWithoutContext,
 	})
 	if err != nil {
 		return nil, err
