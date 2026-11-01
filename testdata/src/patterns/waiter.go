@@ -789,6 +789,216 @@ func badChanSentGoroutine(ctx context.Context, cmd *exec.Cmd, out chan<- chan er
 	}
 }
 
+// ===== Senders joined by a Phi (#298) =====
+
+// [GOOD]: One sender run through a Phi
+//
+// Each value the Phi joins is the one sender, run once.
+func goodPhiSenderGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := send
+	if conditionFlag {
+		run = send
+	}
+	go run()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Two senders joined by a Phi, a buffer of one
+//
+// The go statement runs one of them, so there is one sender for the one
+// slot.
+func goodPhiTwoSendersGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if conditionFlag {
+		run = func() { errc <- b.Wait() }
+	}
+	go run()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Two senders joined by a Phi, given to errgroup.Group.Go
+//
+// errgroup.Group.Go runs one of them once.
+func goodPhiTwoSendersErrgroup(ctx context.Context, a, b *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	run := func() error { errc <- a.Wait(); return nil }
+	if conditionFlag {
+		run = func() error { errc <- b.Wait(); return nil }
+	}
+	g.Go(run)
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Two senders joined by a Phi, given to sync.WaitGroup.Go
+//
+// sync.WaitGroup.Go runs one of them once.
+func goodPhiTwoSendersWaitGroup(ctx context.Context, a, b *exec.Cmd) error {
+	var wg sync.WaitGroup
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if conditionFlag {
+		run = func() { errc <- b.Wait() }
+	}
+	wg.Go(run)
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called once through two Phis starts the sender
+//
+// Each Phi is used once, so the closure that makes the goroutine runs once.
+func goodPhiClosureCalledOnceGoroutine(ctx context.Context, cmd *exec.Cmd, other bool) error {
+	errc := make(chan error, 1)
+	start := func() {
+		go func() {
+			errc <- cmd.Wait()
+		}()
+	}
+	s := start
+	if conditionFlag {
+		s = start
+	}
+	t := s
+	if other {
+		t = s
+	}
+	t()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A sender only made, a buffer of two
+//
+// The closure only made is counted as a sender too, though nothing runs it,
+// and the buffer has room for both.
+func goodSenderOnlyMadeBufferTwoGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 2)
+	go func() {
+		errc <- a.Wait()
+	}()
+	_ = func() { errc <- b.Wait() }
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Senders joined by a Phi and one more, a buffer of one
+//
+// The go statement of the Phi runs one sender, and the other go statement
+// one more, so two senders share the one slot.
+func badPhiSendersAndOneMoreGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if conditionFlag {
+		run = func() { errc <- a.Wait() }
+	}
+	go run() // want `goroutine does not propagate context "ctx"`
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- b.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A sender through a Phi spawned in a loop
+//
+// The go statement runs the sender for each pass of the loop.
+func badPhiSenderInLoopGoroutine(ctx context.Context, cmd *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := send
+	if conditionFlag {
+		run = send
+	}
+	for range n {
+		go run() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure through a Phi called twice starts the sender
+//
+// Two senders share the one slot.
+func badPhiClosureCalledTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	start := func() {
+		go func() { // want `goroutine does not propagate context "ctx"`
+			errc <- cmd.Wait()
+		}()
+	}
+	s := start
+	if conditionFlag {
+		s = start
+	}
+	s()
+	s()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One sender through a Phi given to a spawner
+//
+// A spawner may run the func it is given more than once (#255).
+func badPhiSenderSpawner(ctx context.Context, cmd *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	send := func() error { errc <- cmd.Wait(); return nil }
+	run := send
+	if conditionFlag {
+		run = send
+	}
+	runWithGroup(g, run) // want `runWithGroup\(\) func argument should use context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // ===== Body in a function literal called in place (#282) =====
 
 // [GOOD]: WaitGroup.Wait, then close, in a function literal called in place
