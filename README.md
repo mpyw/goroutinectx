@@ -877,6 +877,23 @@ go func(f func()) {
 <td>
 
 ```go
+func handler(
+	ctx context.Context,
+	g func(),
+) {
+	go func(f func()) {
+		f()
+	}(g)
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The value of a parameter cannot be traced, as when the goroutine captures <code>g</code></td>
+</tr>
+<tr>
+<td>
+
+```go
 go func(v any) {
 	doSomething(v)
 }(context.Background())

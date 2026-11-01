@@ -979,3 +979,66 @@ func goodGoParamIfaceFromMapGoroutine(ctx context.Context) {
 		r.Run()
 	}(r)
 }
+
+// [GOOD]: Goroutine given a func parameter it runs
+//
+// The func cannot be followed, so it may use ctx, as the same func
+// captured passes (#296).
+func goodGoParamFuncParamGoroutine(ctx context.Context, f func()) {
+	go func(g func()) {
+		g()
+	}(f)
+}
+
+// [GOOD]: Goroutine in a closure, given a func parameter it captures
+//
+// The func the closure captures is a parameter, which cannot be followed
+// (#296).
+func goodGoParamFuncParamInClosureGoroutine(ctx context.Context, f func()) {
+	func() {
+		go func(g func()) {
+			g()
+		}(f)
+	}()
+}
+
+// [GOOD]: Goroutine given an interface parameter it runs
+//
+// The runner cannot be followed, and its type is declared in the module,
+// so it may hold ctx, as the same runner captured passes (#296).
+func goodGoParamIfaceParamGoroutine(ctx context.Context, r runner) {
+	go func(x runner) {
+		x.Run()
+	}(r)
+}
+
+// [BAD]: Goroutine given a func parameter it does not run
+//
+// The func is only compared, as the same func captured would be.
+func badGoParamFuncParamNotRunGoroutine(ctx context.Context, f func()) {
+	go func(g func()) { // want `goroutine does not propagate context "ctx"`
+		_ = g == nil
+	}(f)
+}
+
+// [BAD]: Goroutine given a func made by a factory that uses no context
+//
+// The factory returns a func that captures nothing.
+func badGoParamFuncFromFactoryGoroutine(ctx context.Context) {
+	go func(g func()) { // want `goroutine does not propagate context "ctx"`
+		g()
+	}(plainFuncFactory())
+}
+
+// plainFuncFactory gives a func that uses no context.
+func plainFuncFactory() func() { return func() {} }
+
+// [BAD]: Goroutine given an error parameter
+//
+// An interface of the standard library does not count, as the same error
+// captured does not.
+func badGoParamErrorParamGoroutine(ctx context.Context, err error) {
+	go func(e error) { // want `goroutine does not propagate context "ctx"`
+		_ = e.Error()
+	}(err)
+}
