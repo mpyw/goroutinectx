@@ -291,6 +291,59 @@ func badDoAsyncCallbackVariable(ctx context.Context) {
 	task.DoAsync(ctx, errChan) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
+// [GOOD]: DoAsync on a task parameter
+//
+// The function of a task parameter cannot be traced, so it passes, as a
+// factory that cannot be followed does (#326).
+func goodDoAsyncTaskParam(ctx context.Context, task gotask.Task[error]) {
+	task.DoAsync(ctx, nil)
+}
+
+// [GOOD]: DoAsync on a task a pointer parameter points to
+//
+// A load through a pointer the function is given cannot be followed, so it
+// passes (#326).
+func goodDoAsyncTaskPtrParam(ctx context.Context, task *gotask.Task[error]) {
+	(*task).DoAsync(ctx, nil)
+}
+
+// [GOOD]: DoAsync on a task a captured pointer parameter points to
+//
+// The same load in a closure passes too (#326).
+func goodDoAsyncCapturedTaskPtrParam(ctx context.Context, task *gotask.Task[error]) {
+	func() {
+		(*task).DoAsync(ctx, nil)
+	}()
+}
+
+// [GOOD]: DoAsync on a cancelable task parameter
+//
+// The task the parameter embeds cannot be traced, so it passes (#326).
+func goodDoAsyncCancelableTaskParam(ctx context.Context, task gotask.CancelableTask[error]) {
+	task.DoAsync(ctx, nil)
+}
+
+// [BAD]: DoAsync on a task parameter or a task that does not derive
+//
+// The parameter passes, but the task built in the function is judged by its
+// function (#326).
+func badDoAsyncTaskParamOrLiteral(ctx context.Context, task gotask.Task[error], replace bool) {
+	if replace {
+		task = gotask.NewTask(func(ctx context.Context) error { return nil })
+	}
+	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [BAD]: DoAsync through a pointer to a local task that does not derive
+//
+// A load through a pointer to a local variable is followed to the task
+// stored to it (#326).
+func badDoAsyncLocalTaskPtr(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	ptr := &task
+	(*ptr).DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
 // [GOOD]: DoAllFnsSettled with callback variable
 //
 // Callback assigned to variable that calls deriver, used in variadic call.
