@@ -5,6 +5,7 @@ package patterns
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 
@@ -1298,6 +1299,203 @@ func badCapturedStructNoCtxArgGoroutine(ctx context.Context) {
 func badCapturedStructCtxBuiltinArgGoroutine(ctx context.Context) {
 	s := &ctxService{ctx: ctx}
 	go func() { _ = append([]*ctxService(nil), s) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== Captured contexts in a slice, a map or a channel, given to a function (#344) =====
+
+// waitAllCtxs waits for each of cs.
+func waitAllCtxs(cs []context.Context) {
+	for _, c := range cs {
+		<-c.Done()
+	}
+}
+
+// waitCtxMap waits for each context of m.
+func waitCtxMap(m map[string]context.Context) {
+	for _, c := range m {
+		<-c.Done()
+	}
+}
+
+// waitCtxChan waits for the context it receives from ch.
+func waitCtxChan(ch chan context.Context) { <-(<-ch).Done() }
+
+// waitCtxSlicePtr waits for each of *p.
+func waitCtxSlicePtr(p *[]context.Context) { waitAllCtxs(*p) }
+
+// serveCtxServices serves each of ss.
+func serveCtxServices(ss []*ctxService) {
+	for _, s := range ss {
+		serveCtxService(s)
+	}
+}
+
+// countInts counts is.
+func countInts(is []int) int { return len(is) }
+
+// [GOOD]: Captured slice of ctx given to a function
+//
+// The function may read the contexts, as for go waitAllCtxs(cs) (#344).
+func goodCapturedCtxSliceArgGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	go func() { waitAllCtxs(cs) }()
+}
+
+// [GOOD]: Captured slice of ctx ranged over through slices.Values
+//
+// slices.Values is given the slice, which holds ctx (#344).
+func goodCapturedCtxSliceValuesGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	go func() {
+		for c := range slices.Values(cs) {
+			<-c.Done()
+		}
+	}()
+}
+
+// [GOOD]: Captured slice parameter of contexts given to a function
+//
+// The contexts cannot be followed, as the slice ranged over directly passes (#344).
+func goodCapturedCtxSliceParamArgGoroutine(ctx context.Context, cs []context.Context) {
+	go func() { waitAllCtxs(cs) }()
+}
+
+// [GOOD]: Captured map of ctx given to a function
+//
+// What is put in the map is ctx (#344).
+func goodCapturedCtxMapArgGoroutine(ctx context.Context) {
+	m := map[string]context.Context{"a": ctx}
+	go func() { waitCtxMap(m) }()
+}
+
+// [GOOD]: Captured channel ctx is sent on, given to a function
+//
+// What is sent on the channel is ctx (#344).
+func goodCapturedCtxChanArgGoroutine(ctx context.Context) {
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	go func() { waitCtxChan(ch) }()
+}
+
+// [GOOD]: Address of a captured slice of ctx given to a function
+//
+// The slice the variable holds holds ctx (#344).
+func goodCapturedCtxSlicePtrArgGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	go func() { waitCtxSlicePtr(&cs) }()
+}
+
+// [GOOD]: Captured slice of structs that hold ctx, given to a function
+//
+// Each element holds a context the analyzed code can have put there (#344).
+func goodCapturedCtxHolderSliceArgGoroutine(ctx context.Context) {
+	ss := []*ctxService{{ctx: ctx}}
+	go func() { serveCtxServices(ss) }()
+}
+
+// [GOOD]: Captured slice of ctx given to a function, in errgroup.Group.Go
+//
+// The function may read the contexts (#344).
+func goodCapturedCtxSliceArgErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	cs := []context.Context{ctx}
+	g.Go(func() error { waitAllCtxs(cs); return nil })
+	_ = g.Wait()
+}
+
+// [BAD]: Captured slice of only fresh contexts given to a function
+//
+// No context in the slice is ctx (#344).
+func badCapturedCtxSliceFreshArgGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	go func() { waitAllCtxs(cs) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of only fresh contexts ranged over through slices.Values
+//
+// No context in the slice is ctx (#344).
+func badCapturedCtxSliceFreshValuesGoroutine(ctx context.Context) {
+	cs := []context.Context{context.TODO()}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		for c := range slices.Values(cs) {
+			<-c.Done()
+		}
+	}()
+}
+
+// [BAD]: Captured map of only fresh contexts given to a function
+//
+// No context in the map is ctx (#344).
+func badCapturedCtxMapFreshArgGoroutine(ctx context.Context) {
+	m := map[string]context.Context{"a": context.Background()}
+	go func() { waitCtxMap(m) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured channel nothing is sent on, given to a function
+//
+// No context is put in the channel (#344).
+func badCapturedCtxChanEmptyArgGoroutine(ctx context.Context) {
+	ch := make(chan context.Context, 1)
+	go func() { waitCtxChan(ch) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Address of a captured slice of only fresh contexts given to a function
+//
+// The slice the variable holds holds no ctx (#344).
+func badCapturedCtxSlicePtrFreshArgGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	go func() { waitCtxSlicePtr(&cs) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of ctx given only to a builtin
+//
+// Taking the length of the slice does not read a context.
+func badCapturedCtxSliceBuiltinArgGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	go func() { _ = len(cs) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of ints given to a function
+//
+// A slice of another type holds no context.
+func badCapturedIntSliceArgGoroutine(ctx context.Context, is []int) {
+	go func() { _ = countInts(is) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of *testing.T given to a function
+//
+// Each t holds the test's own context in an unexported field, not ctx, as
+// for one t given to a function (#191).
+func badCapturedTestingTSliceArgGoroutine(ctx context.Context, ts []*testing.T) {
+	go func() { logToAll(ts) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Captured array of slices of ctx given to a function
+//
+// The contexts are followed through each level (#344).
+func goodCapturedCtxNestedArrayArgGoroutine(ctx context.Context) {
+	cs := [1][]context.Context{{ctx}}
+	go func() { waitCtxNestedArray(cs) }()
+}
+
+// waitCtxNestedArray waits for each context of cs.
+func waitCtxNestedArray(cs [1][]context.Context) { waitAllCtxs(cs[0]) }
+
+// [BAD]: Captured parameter of a slice type that holds itself, given to a function
+//
+// No context is ever held in it.
+func badCapturedSelfSliceArgGoroutine(ctx context.Context, l goParamSelfSlice) {
+	go func() { countSelfSlice(l) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// countSelfSlice counts l.
+func countSelfSlice(l goParamSelfSlice) int { return len(l) }
+
+// logToAll logs to each of ts.
+func logToAll(ts []*testing.T) {
+	for _, t := range ts {
+		logTo(t)
+	}
 }
 
 // ===== Method of a captured *testing.T =====

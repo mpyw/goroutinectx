@@ -23,9 +23,10 @@ import (
 // it is fresh: an element of a slice, a map or a channel, as m[k], <-ch or
 // a range over one gives, and a value a type assertion gives, too (#253). So does a method called on a captured value that returns a
 // context, and a call that takes a captured value that holds a context the
-// analyzed code can have put there ([ctxkind.Holds]), as its receiver or as
-// any argument, as a function or method spawned directly with it is left
-// alone. A value of an interface type counts when one of the values it can
+// analyzed code can have put there ([ctxkind.Holds]), or a slice, a map or
+// another container of contexts that may not be fresh (#344), as its
+// receiver or as any argument, as a function or method spawned directly
+// with it is left alone. A value of an interface type counts when one of the values it can
 // be holds one, or one cannot be followed (#240). A captured closure that
 // captures a context counts too.
 //
@@ -311,7 +312,11 @@ func (r *closureReader) callsContextMethod(call *ssa.CallCommon, v ssa.Value) bo
 // an interface method included, or as any argument, and held, past its
 // pointers, holds a context or a carrier that the analyzed code can have
 // put there ([ctxkind.Holds]). held is v, or the value v converts to an
-// interface. A held of an interface type other than a context or a carrier
+// interface. A held that [closureContainsContexts] tells, as a slice of
+// contexts, counts when the contexts it holds may not be fresh, as
+// [closureContextElemsPass] judges them, or it is built from a context
+// that is not fresh, as [Flow.InvolvesContext] follows what is put in a
+// map or a channel (#344). A held of an interface type other than a context or a carrier
 // is judged by the values it can be, as [closureReader.interfaceMayHold]
 // judges it. Whether the callee
 // reads it is not looked into, as for a function or method spawned
@@ -328,7 +333,42 @@ func (r *closureReader) callsWithHolder(call *ssa.CallCommon, v, held ssa.Value)
 		// A context or a carrier is judged where it is read, by carries.
 		return !r.kinds.Is(held.Type(), ctxkind.Captured) && r.interfaceMayHold(held)
 	}
-	return r.kinds.Is(typeutil.UnwrapPointer(held.Type()), ctxkind.Holds)
+	if r.kinds.Is(typeutil.UnwrapPointer(held.Type()), ctxkind.Holds) {
+		return true
+	}
+	return closureContainsContexts(r.kinds, held.Type(), make(map[types.Type]bool)) &&
+		(closureContextElemsPass(r.flow, r.kinds, held) || r.flow.InvolvesContext(held, r.kinds))
+}
+
+// closureContainsContexts reports whether t is a slice, an array, a map, a
+// channel or a pointer whose elements are contexts or carriers, as
+// [ctxkind.Captured] counts one, structs, or pointers to them, that hold
+// one the analyzed code can have put there ([ctxkind.Holds]), or such
+// values in turn, as []context.Context, map[string]*Holder and
+// [][]context.Context are (#344). A struct of another package, as
+// []*http.Request, does not count, as for [closureReader.callsWithHolder].
+// seen holds the types looked into, as a type may hold itself.
+func closureContainsContexts(kinds *ctxkind.Classifier, t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	var elem types.Type
+	switch u := t.Underlying().(type) {
+	case *types.Slice:
+		elem = u.Elem()
+	case *types.Array:
+		elem = u.Elem()
+	case *types.Map:
+		elem = u.Elem()
+	case *types.Chan:
+		elem = u.Elem()
+	case *types.Pointer:
+		elem = u.Elem()
+	default:
+		return false
+	}
+	return kinds.Is(elem, ctxkind.Captured) || kinds.Is(typeutil.UnwrapPointer(elem), ctxkind.Holds) || closureContainsContexts(kinds, elem, seen)
 }
 
 // interfaceMayHold reports whether v, of an interface type and read from
