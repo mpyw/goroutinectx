@@ -1447,6 +1447,124 @@ func badCapturedCtxSlicePtrFreshArgGoroutine(ctx context.Context) {
 	go func() { waitCtxSlicePtr(&cs) }() // want `goroutine does not propagate context "ctx"`
 }
 
+// [BAD]: Captured slice of only fresh contexts given to a function, in either of two closures
+//
+// The call in the other closure has no context to write into the slice
+// (#357).
+func badCapturedCtxSliceFreshArgPhiGoroutine(ctx context.Context, cond bool) {
+	cs := []context.Context{context.Background()}
+	f := func() { waitAllCtxs(cs) }
+	if cond {
+		f = func() { waitAllCtxs(cs) }
+	}
+	go f() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of only fresh contexts ranged over through slices.Values, in either of two closures
+//
+// The other closure has no context to write into the slice (#357).
+func badCapturedCtxSliceFreshValuesPhiGoroutine(ctx context.Context, cond bool) {
+	cs := []context.Context{context.Background()}
+	f := func() {
+		for c := range slices.Values(cs) {
+			<-c.Done()
+		}
+	}
+	if cond {
+		f = func() {
+			for c := range slices.Values(cs) {
+				<-c.Done()
+			}
+		}
+	}
+	go f() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Address of a captured slice of only fresh contexts given to a function, in either of two closures
+//
+// The call in the other closure has no context to write into the slice
+// (#357).
+func badCapturedCtxSlicePtrFreshArgPhiGoroutine(ctx context.Context, cond bool) {
+	cs := []context.Context{context.Background()}
+	f := func() { waitCtxSlicePtr(&cs) }
+	if cond {
+		f = func() { waitCtxSlicePtr(&cs) }
+	}
+	go f() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of only fresh contexts given to a function, in two goroutines
+//
+// The call in the other goroutine has no context to write into the slice
+// (#357).
+func badCapturedCtxSliceFreshArgTwoGoroutines(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	go func() { waitAllCtxs(cs) }() // want `goroutine does not propagate context "ctx"`
+	go func() { waitAllCtxs(cs) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured slice of only fresh contexts also given to calls outside the goroutine
+//
+// Neither len nor a function given only the slice has a context to write
+// into it (#357).
+func badCapturedCtxSliceFreshArgAlsoCalledGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	_ = len(cs)
+	waitAllCtxs(cs)
+	go func() { waitAllCtxs(cs) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Captured slice of fresh contexts a function given ctx fills
+//
+// The call may write ctx into the slice (#357).
+func goodCapturedCtxSliceFilledByCallGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	fillCtxSlice(cs, ctx)
+	go func() { waitAllCtxs(cs) }()
+}
+
+// [GOOD]: Captured slice of fresh contexts a function given its address and ctx sets
+//
+// The call may store a slice of ctx into the variable (#357).
+func goodCapturedCtxSlicePtrSetByCallGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	setCtxSlicePtr(&cs, ctx)
+	go func() { waitAllCtxs(cs) }()
+}
+
+// [GOOD]: Captured slice of fresh contexts a closure that captures ctx fills
+//
+// The closure may write ctx into the slice it is given (#357).
+func goodCapturedCtxSliceFilledByClosureGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	fill := func(s []context.Context) { s[0] = ctx }
+	fill(cs)
+	go func() { waitAllCtxs(cs) }()
+}
+
+// [GOOD]: Captured slice of fresh contexts a method of an interface is given
+//
+// The method cannot be followed, so it may write a context into the
+// slice (#357).
+func goodCapturedCtxSliceGivenToInterfaceGoroutine(ctx context.Context, w ctxSliceWriter) {
+	cs := []context.Context{context.Background()}
+	w.write(cs)
+	go func() { waitAllCtxs(cs) }()
+}
+
+// ctxSliceWriter writes contexts into a slice.
+type ctxSliceWriter interface{ write(cs []context.Context) }
+
+// fillCtxSlice sets each element of cs to ctx.
+func fillCtxSlice(cs []context.Context, ctx context.Context) {
+	for i := range cs {
+		cs[i] = ctx
+	}
+}
+
+// setCtxSlicePtr sets *p to a slice of ctx.
+func setCtxSlicePtr(p *[]context.Context, ctx context.Context) { *p = []context.Context{ctx} }
+
 // [BAD]: Captured slice of ctx given only to a builtin
 //
 // Taking the length of the slice does not read a context.

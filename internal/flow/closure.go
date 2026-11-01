@@ -648,9 +648,10 @@ func closureHoldsContexts(kinds *ctxkind.Classifier, t types.Type, seen map[type
 // when it may be written in a way not followed, as by a call given its
 // address. So the struct of
 // &H{c: context.Background()} or of []S{{ctx: context.Background()}} does
-// not (#351, #343). passed is the call v is given to, a go statement's or
-// one in the closure, or nil, as [Flow.ResolvedHeldValues] takes it: what
-// it writes there comes from what it is given, which is judged on its own.
+// not (#351, #343). A call given it does not count as such a write when
+// [closureGivenOnly] tells it, as passed, the call v is given to, a go
+// statement's or one in the closure, or nil, and a call that has no
+// context to write there.
 //
 // The walk ends: a variable whose address is stored into a part of another
 // one is not followed, so a variable is never reached from what is stored
@@ -662,7 +663,7 @@ func closureContextElemsPass(f *Flow, kinds *ctxkind.Classifier, v ssa.Value, pa
 			return !f.IsFreshContext(v)
 		}
 		pass := func(e ssa.Value) bool { return closureContextElemsPass(f, kinds, e, passed) }
-		if stored, held, ok := f.ResolvedHeldValues(v, passed); held {
+		if stored, held, ok := f.ResolvedHeldValues(v, closureGivenOnly(kinds, passed)); held {
 			return !ok || slices.ContainsFunc(stored, func(e ssa.Value) bool {
 				_, isConst := e.(*ssa.Const)
 				return !isConst && kinds.MayHold(e, ctxkind.Captured) && pass(e)
@@ -683,6 +684,31 @@ func closureContextElemsPass(f *Flow, kinds *ctxkind.Classifier, v ssa.Value, pa
 			return true
 		})
 	})
+}
+
+// closureGivenOnly tells the calls that may be given v, a variable or a
+// part of it, without that counting as a write not followed. One is
+// passed, as what it writes there comes from what it is given, which is
+// judged on its own. Another is a call whose function and other arguments
+// hold no context, as len(cs), or a function or another closure given only
+// cs or &cs: it has no context to write there but one it makes (#357). A
+// call given a context too, a closure that captures one, or a method of an
+// interface, may store one, so it counts.
+func closureGivenOnly(kinds *ctxkind.Classifier, passed *ssa.CallCommon) func(call ssa.CallInstruction, v ssa.Value) bool {
+	holds := func(v ssa.Value) bool { return kinds.MayHold(v, ctxkind.Captured) }
+	return func(call ssa.CallInstruction, v ssa.Value) bool {
+		c := call.Common()
+		if c == passed {
+			return true
+		}
+		if c.IsInvoke() {
+			return false
+		}
+		if _, isBuiltin := c.Value.(*ssa.Builtin); !isBuiltin && holds(c.Value) {
+			return false
+		}
+		return !slices.ContainsFunc(c.Args, func(a ssa.Value) bool { return a != v && holds(a) })
+	}
 }
 
 // closureCapturedPass reports whether passes passes v, or what v reads

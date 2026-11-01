@@ -1703,6 +1703,20 @@ func goodGoParamCtxHolderPtrSetByMethodGoroutine(ctx context.Context) {
 	}(h)
 }
 
+// [BAD]: Goroutine given a pointer to a holder of only a fresh context, also given to a method
+//
+// The method is given no context to write into the struct (#357).
+func badGoParamCtxHolderPtrFreshGivenToMethodGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{context.Background()}
+	h.resetCtx()
+	go func(x *goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x.ctx.Done()
+	}(&h)
+}
+
+// resetCtx sets the context h holds to a fresh one.
+func (h *goParamCtxHolder) resetCtx() { h.ctx = context.Background() }
+
 // [GOOD]: Goroutine given a pointer to a holder a closure sets to ctx
 //
 // The closure writes the struct in a way not followed, so it may hold ctx

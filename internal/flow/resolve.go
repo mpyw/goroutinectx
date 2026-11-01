@@ -768,17 +768,19 @@ func resolvedRoots(base ssa.Value, w resolvedWalk) ([]*ssa.Alloc, bool) {
 // that holds nothing else, as h := &T{} that a closure captures keeps it, is
 // followed through the loads of that variable. ok is false when root may be
 // written in a way not followed: through an address that is passed on, at
-// an index that is not constant, or in a closure. passed, when not nil, is
-// a call that may be given an address of root or of its part without that
-// counting as a write not followed, as the go statement that gives it to
-// the closure judged, or a call in a closure given it (#351). stores gives the stores of writes in the order
-// they are found, so that a walk over them takes the same order each time.
-func resolvedPartWrites(root *ssa.Alloc, passed *ssa.CallCommon) (writes map[*ssa.Store][]int, stores []*ssa.Store, ok bool) {
+// an index that is not constant, or in a closure. given, when not nil,
+// tells a call that may be given v, an address of root or of its part, or
+// a slice of it, without that counting as a write not followed, as the go
+// statement that gives it to the closure judged, or a call in a closure
+// given it (#351), or one that has no context to write there (#357).
+// stores gives the stores of writes in the order they are found, so that a
+// walk over them takes the same order each time.
+func resolvedPartWrites(root *ssa.Alloc, given func(call ssa.CallInstruction, v ssa.Value) bool) (writes map[*ssa.Store][]int, stores []*ssa.Store, ok bool) {
 	writes = make(map[*ssa.Store][]int)
 	kept := make(map[ssa.Value]ssa.Value)
-	// passedOnly reports whether call is passed, which is given the
-	// address without that counting as a write.
-	passedOnly := func(call ssa.CallInstruction) bool { return passed != nil && call.Common() == passed }
+	// givenOnly reports whether call is given v without that counting as
+	// a write.
+	givenOnly := func(call ssa.CallInstruction, v ssa.Value) bool { return given != nil && given(call, v) }
 	var walk func(v ssa.Value, path []int, inClosure bool) bool
 	// keep walks the loads of v, a variable that addr, the address of root
 	// or of its part at path, is stored in. A variable that holds any other
@@ -811,7 +813,7 @@ func resolvedPartWrites(root *ssa.Alloc, passed *ssa.CallCommon) (writes map[*ss
 				}
 			case *ssa.DebugRef:
 			case ssa.CallInstruction:
-				if !passedOnly(r) {
+				if !givenOnly(r, v) {
 					return false
 				}
 			default:
@@ -865,7 +867,7 @@ func resolvedPartWrites(root *ssa.Alloc, passed *ssa.CallCommon) (writes map[*ss
 				}
 			case *ssa.DebugRef:
 			case ssa.CallInstruction:
-				if !passedOnly(r) {
+				if !givenOnly(r, v) {
 					return false
 				}
 			default:
@@ -881,10 +883,11 @@ func resolvedPartWrites(root *ssa.Alloc, passed *ssa.CallCommon) (writes map[*ss
 // ResolvedHeldValues gives every value stored into what v holds, or into
 // a part of it, however deep: the local variable v addresses, the one v is
 // a load of, or the local array a slice v is of covers. held is false for
-// any other v. passed is as [resolvedPartWrites] has it: the call v is
-// given to, or nil. ok is false when the variable may be written in a
-// way not followed, as [resolvedPartWrites] tells.
-func (f *Flow) ResolvedHeldValues(v ssa.Value, passed *ssa.CallCommon) (values []ssa.Value, held, ok bool) {
+// any other v. given is as [resolvedPartWrites] has it: it tells a call
+// given the variable that does not count as a write, or is nil. ok is
+// false when the variable may be written in a way not followed, as
+// [resolvedPartWrites] tells.
+func (f *Flow) ResolvedHeldValues(v ssa.Value, given func(call ssa.CallInstruction, v ssa.Value) bool) (values []ssa.Value, held, ok bool) {
 	defer f.ask()()
 	var root ssa.Value
 	switch x := v.(type) {
@@ -901,7 +904,7 @@ func (f *Flow) ResolvedHeldValues(v ssa.Value, passed *ssa.CallCommon) (values [
 	if !isAlloc {
 		return nil, false, false
 	}
-	_, stores, ok := resolvedPartWrites(a, passed)
+	_, stores, ok := resolvedPartWrites(a, given)
 	if !ok {
 		return nil, true, false
 	}
