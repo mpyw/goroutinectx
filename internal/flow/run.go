@@ -117,8 +117,13 @@ func (r *runner) call(site RunCall) bool {
 }
 
 // runReturnedClosures gives the function literals fn returns, as any result
-// of any of its returns.
+// of any of its returns. An instantiation of a generic function, a
+// synthetic wrapper or one with no body of its own, gives those of its
+// origin (#303).
 func runReturnedClosures(fn *ssa.Function) []*ssa.Function {
+	if fn.Origin() != nil {
+		fn = fn.Origin()
+	}
 	var closures []*ssa.Function
 	for _, result := range returns(fn, returnedEvery) {
 		switch r := result.(type) {
