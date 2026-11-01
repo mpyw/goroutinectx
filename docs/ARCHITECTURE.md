@@ -397,7 +397,7 @@ func (f *Flow) ClosureCapturesContext(
 **Key behaviors:**
 - Uses SSA values, not name matching (handles shadowing correctly)
 - Checks ALL context parameters, not just the first one
-- Context usage in nested closures counts: a closure captures what its inner closures capture
+- Context usage in nested closures counts: a closure captures what its inner closures capture, and a captured value an inner closure uses, as a `cancel` called in a deferred recover closure, is judged as if the closure used it itself (#268)
 - A context read from a field or an element of a captured value counts, unless it is only ever fresh; an element of a map or a channel, and a type assertion, are parts too, and as they are not followed, what they give is never fresh (#253); a captured value that implements `context.Context`, or a method called on a captured value that returns a context or holds one the analyzed module can set (an exported field, or a field of a type in the module, or outside the standard library when the module is not known), counts too
 
 ### Higher-Order Function Support
@@ -518,7 +518,7 @@ Separating interfaces allows checkers to implement only what they need, avoiding
 
 **Decision:** Context usage in nested closures satisfies the outer goroutine's requirement.
 
-**Rationale:** The check reads the SSA free variables of the spawned closure. A closure gets a free variable for each one its inner closures capture, so a context used in a deferred or recovery closure, or in an inner goroutine, is captured by the outer goroutine too. That goroutine does carry the context, so reporting it would be a false positive (see 7). Each `go` statement and spawn call is still checked on its own, so an inner goroutine that does not use the context is reported.
+**Rationale:** The check reads the SSA free variables of the spawned closure. A closure gets a free variable for each one its inner closures capture, so a context used in a deferred or recovery closure, or in an inner goroutine, is captured by the outer goroutine too. The same holds for a captured value that is not a context: a `cancel`, a method call on an interface, a command made with `exec.CommandContext`, or a type assertion to a context in an inner closure is judged as in the outer closure (#268). That goroutine does carry the context, so reporting it would be a false positive (see 7). Each `go` statement and spawn call is still checked on its own, so an inner goroutine that does not use the context is reported.
 
 ### 7. Zero False Positives Philosophy
 
