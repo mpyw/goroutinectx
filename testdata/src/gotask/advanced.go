@@ -615,13 +615,40 @@ func goodCapturedVariadicSliceByRef(ctx context.Context, fn func(context.Context
 	}()
 }
 
-// [GOOD]: Variadic slice a closure captures, from a call whose slice is not traced
+// [BAD]: Variadic slice a closure captures, from lo.Map without deriver
 //
-// Nothing is known of the elements, so the call passes.
-func goodCapturedVariadicSliceUntraced(ctx context.Context, xs []int) {
+// The captured slice is judged as the call that made it, as the same slice
+// held in a variable of the function is (#270, #304).
+func badCapturedVariadicSliceLoMap(ctx context.Context, xs []int) {
 	fns := lo.Map(xs, func(int, int) func(context.Context) error {
 		return func(ctx context.Context) error { return nil }
 	})
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+	}()
+}
+
+// [GOOD]: Variadic slice a closure captures, from lo.Map with deriver
+//
+// The callback lo.Map is given gives a task function that derives (#304).
+func goodCapturedVariadicSliceLoMap(ctx context.Context, xs []int) {
+	fns := lo.Map(xs, func(int, int) func(context.Context) error {
+		return func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		}
+	})
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
+// [GOOD]: Variadic slice a closure captures, from a call that cannot be followed
+//
+// Nothing is known of the elements of the slice a func parameter gives, so
+// the call passes (#301, #304).
+func goodCapturedVariadicSliceUntraced(ctx context.Context, mk func() []func(context.Context) error) {
+	fns := mk()
 	func() {
 		_ = gotask.DoAllFnsSettled(ctx, fns...)
 	}()

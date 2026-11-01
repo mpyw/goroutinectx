@@ -3,6 +3,7 @@ package gotask
 
 import (
 	"context"
+	"slices"
 
 	netcontext "golang.org/x/net/context"
 
@@ -744,6 +745,61 @@ func nonDerivingTasks() []func(context.Context) error {
 	return []func(context.Context) error{
 		func(ctx context.Context) error { return nil },
 	}
+}
+
+// derivingTasksVar is a func variable that gives deriving functions. What
+// a package-level variable holds is not followed.
+var derivingTasksVar = func() []func(context.Context) error {
+	return []func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+}
+
+// taskSource gives task functions by an interface method.
+type taskSource interface {
+	Tasks() []func(context.Context) error
+}
+
+// [GOOD]: The slice a package-level func variable gives, expanded
+//
+// The callee cannot be followed and is given no callback, so nothing is
+// known of the slice, as of a task a factory that cannot be followed gives
+// (#301).
+func goodExpandedFuncVar(ctx context.Context) {
+	_ = gotask.DoAllFnsSettled(ctx, derivingTasksVar()...)
+}
+
+// [GOOD]: The slice a func parameter gives, expanded
+//
+// The callee is a parameter, which cannot be followed (#301).
+func goodExpandedFuncParam(ctx context.Context, mk func() []func(context.Context) error) {
+	_ = gotask.DoAllFnsSettled(ctx, mk()...)
+}
+
+// [GOOD]: The slice an interface method gives, expanded
+//
+// An interface method cannot be followed (#301).
+func goodExpandedIfaceMethod(ctx context.Context, src taskSource) {
+	_ = gotask.DoAllFnsSettled(ctx, src.Tasks()...)
+}
+
+// [GOOD]: The slice a function of another package gives, expanded
+//
+// A function with no body cannot be followed (#301).
+func goodExpandedNoBody(ctx context.Context, fns []func(context.Context) error) {
+	_ = gotask.DoAllFnsSettled(ctx, slices.Clone(fns)...)
+}
+
+// [BAD]: The slice a local func variable gives, expanded, without deriver
+//
+// The closure the variable holds is followed to the slice it returns.
+func badExpandedLocalFuncVar(ctx context.Context) {
+	mk := func() []func(context.Context) error {
+		return []func(context.Context) error{
+			func(ctx context.Context) error { return nil },
+		}
+	}
+	_ = gotask.DoAllFnsSettled(ctx, mk()...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
 }
 
 // ===== CONTEXT WRAPPED IN A LOOP =====
