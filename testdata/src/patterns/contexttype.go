@@ -1331,3 +1331,115 @@ func badGoParamSelfSliceParamGoroutine(ctx context.Context, l goParamSelfSlice) 
 }
 
 type goParamSelfSlice []goParamSelfSlice
+
+type goParamCtxHolder struct{ ctx context.Context }
+
+type goParamCtxHolderPtr struct{ p *goParamCtxHolder }
+
+type goParamCtxNotHolder struct{ n int }
+
+// [GOOD]: Goroutine given a slice parameter of structs it reads a context field of
+//
+// The contexts cannot be followed, as the same slice captured passes (#341).
+func goodGoParamCtxHolderSliceParamGoroutine(ctx context.Context, cs []goParamCtxHolder) {
+	go func(x []goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a map parameter of structs it reads a context field of
+//
+// The contexts cannot be followed (#341).
+func goodGoParamCtxHolderMapParamGoroutine(ctx context.Context, m map[string]goParamCtxHolder) {
+	go func(x map[string]goParamCtxHolder) {
+		<-x["a"].ctx.Done()
+	}(m)
+}
+
+// [GOOD]: Goroutine given a slice parameter of pointers to structs it reads a context field of
+//
+// The contexts cannot be followed (#341).
+func goodGoParamCtxHolderPtrSliceParamGoroutine(ctx context.Context, cs []*goParamCtxHolder) {
+	go func(x []*goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a channel parameter of structs it reads a context field of
+//
+// The contexts cannot be followed (#341).
+func goodGoParamCtxHolderChanParamGoroutine(ctx context.Context, c <-chan goParamCtxHolder) {
+	go func(x <-chan goParamCtxHolder) {
+		<-(<-x).ctx.Done()
+	}(c)
+}
+
+// [GOOD]: Goroutine given a struct parameter it reads a context from through a pointer field
+//
+// The context cannot be followed, as the same struct captured passes (#341).
+func goodGoParamCtxHolderPtrFieldParamGoroutine(ctx context.Context, s goParamCtxHolderPtr) {
+	go func(x goParamCtxHolderPtr) {
+		<-x.p.ctx.Done()
+	}(s)
+}
+
+// [GOOD]: Goroutine given a slice parameter of structs it reads a context from through a pointer field
+//
+// The context cannot be followed (#341).
+func goodGoParamCtxHolderPtrFieldSliceParamGoroutine(ctx context.Context, cs []goParamCtxHolderPtr) {
+	go func(x []goParamCtxHolderPtr) {
+		<-x[0].p.ctx.Done()
+	}(cs)
+}
+
+// [BAD]: Goroutine given a slice parameter of structs without a context field
+//
+// No context is read from it.
+func badGoParamCtxNotHolderSliceParamGoroutine(ctx context.Context, cs []goParamCtxNotHolder) {
+	go func(x []goParamCtxNotHolder) { // want `goroutine does not propagate context "ctx"`
+		_ = x[0].n
+	}(cs)
+}
+
+// [BAD]: Goroutine given a slice parameter of structs whose context it does not read
+//
+// The structs are only counted, as the same slice captured would be.
+func badGoParamCtxHolderSliceParamNotReadGoroutine(ctx context.Context, cs []goParamCtxHolder) {
+	go func(x []goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		_ = len(x)
+	}(cs)
+}
+
+// [BAD]: Goroutine given a local map of structs nothing is put into
+//
+// The map holds no context.
+func badGoParamCtxHolderEmptyMapGoroutine(ctx context.Context) {
+	m := map[string]goParamCtxHolder{}
+	go func(x map[string]goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x["a"].ctx.Done()
+	}(m)
+}
+
+// [BAD]: Goroutine given a local channel of structs nothing is sent on
+//
+// The channel holds no context.
+func badGoParamCtxHolderEmptyChanGoroutine(ctx context.Context) {
+	c := make(chan goParamCtxHolder)
+	go func(x chan goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-(<-x).ctx.Done()
+	}(c)
+}
+
+// [BAD]: Goroutine given a slice parameter of a struct type that holds itself
+//
+// No context is ever read from it.
+func badGoParamSelfStructSliceParamGoroutine(ctx context.Context, cs []goParamSelfStruct) {
+	go func(x []goParamSelfStruct) { // want `goroutine does not propagate context "ctx"`
+		_ = x[0].next.n
+	}(cs)
+}
+
+type goParamSelfStruct struct {
+	next *goParamSelfStruct
+	n    int
+}

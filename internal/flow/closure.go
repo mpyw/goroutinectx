@@ -482,11 +482,12 @@ func closureCallsOnlyFresh(f *Flow, v ssa.Value, kinds *ctxkind.Classifier, thro
 // slice, an array, a map or a channel of funcs whose elements the closure
 // runs counts when the funcs arg holds pass, as [closureElemsPass] judges
 // them, as the elements of the same value captured would (#325). A slice,
-// an array, a map, a channel or a pointer of contexts, as
+// an array, a map, a channel or a pointer of contexts, or of structs with
+// a context field at any depth, or such a struct, as
 // [closureHoldsContexts] tells one, that the closure reads a context from
 // counts when the contexts arg holds may not be fresh, as
 // [closureContextElemsPass] judges them, as the same value captured would
-// (#338).
+// (#338, #341).
 func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, kinds *ctxkind.Classifier, funcs Policy) bool {
 	defer f.ask()()
 	t := param.Type()
@@ -501,7 +502,7 @@ func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, ki
 		runs := slices.ContainsFunc(uses, func(u ssa.Value) bool { return r.reads(u, false) })
 		return runs && closureElemsPass(f, funcs, arg)
 	}
-	if closureHoldsContexts(r.kinds, t, 0) {
+	if closureHoldsContexts(r.kinds, t, make(map[types.Type]bool)) {
 		r.root, r.seen = param, make(map[ssa.Value]bool)
 		reads := slices.ContainsFunc(uses, func(u ssa.Value) bool { return r.reads(u, false) })
 		return reads && closureContextElemsPass(f, r.kinds, arg)
@@ -537,35 +538,39 @@ func closureHoldsFuncs(t types.Type) bool {
 	return isFunc
 }
 
-// closureHoldsContextsDepth bounds how deep [closureHoldsContexts] looks,
-// as a type may hold itself, as type L []L does.
-const closureHoldsContextsDepth = 8
-
 // closureHoldsContexts reports whether t is a slice, an array, a map, a
-// channel or a pointer whose elements are contexts or carriers, as
-// [ctxkind.Captured] counts one, or are such values in turn, as
-// [][]context.Context is. A pointer to a context alone is left to the
-// argument rules, as it is [ctxkind.Given] already.
-func closureHoldsContexts(kinds *ctxkind.Classifier, t types.Type, depth int) bool {
-	var elem types.Type
-	switch u := t.Underlying().(type) {
-	case *types.Slice:
-		elem = u.Elem()
-	case *types.Array:
-		elem = u.Elem()
-	case *types.Map:
-		elem = u.Elem()
-	case *types.Chan:
-		elem = u.Elem()
-	case *types.Pointer:
-		elem = u.Elem()
-	default:
+// channel, a pointer or a struct whose elements or fields are contexts or
+// carriers, as [ctxkind.Captured] counts one, or are such values in turn,
+// as [][]context.Context, []struct{ ctx context.Context } and
+// struct{ p *struct{ ctx context.Context } } are (#341). A pointer to a
+// context alone is left to the argument rules, as it is [ctxkind.Given]
+// already. seen holds the types looked into, as a type may hold itself, as
+// type L []L does.
+func closureHoldsContexts(kinds *ctxkind.Classifier, t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
 		return false
 	}
-	if kinds.Is(elem, ctxkind.Captured) {
-		return true
+	seen[t] = true
+	var parts []types.Type
+	switch u := t.Underlying().(type) {
+	case *types.Slice:
+		parts = []types.Type{u.Elem()}
+	case *types.Array:
+		parts = []types.Type{u.Elem()}
+	case *types.Map:
+		parts = []types.Type{u.Elem()}
+	case *types.Chan:
+		parts = []types.Type{u.Elem()}
+	case *types.Pointer:
+		parts = []types.Type{u.Elem()}
+	case *types.Struct:
+		for field := range u.Fields() {
+			parts = append(parts, field.Type())
+		}
 	}
-	return depth < closureHoldsContextsDepth && closureHoldsContexts(kinds, elem, depth+1)
+	return slices.ContainsFunc(parts, func(part types.Type) bool {
+		return kinds.Is(part, ctxkind.Captured) || closureHoldsContexts(kinds, part, seen)
+	})
 }
 
 // closureContextElemsPass reports whether the contexts v holds, v being a
