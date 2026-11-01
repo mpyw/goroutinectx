@@ -1,9 +1,12 @@
 package goroutinectx_test
 
 import (
+	"cmp"
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +109,46 @@ func TestAnalyzer(t *testing.T) {
 			}
 			analysistest.Run(t, dir, a, tt.pkgs...)
 		})
+	}
+}
+
+// TestUnusedIgnoreOrder runs the ignoreforms fixture several times, and
+// checks that its unused ignores, in two files, are reported in the order of
+// their positions each time (#294).
+func TestUnusedIgnoreOrder(t *testing.T) {
+	t.Parallel()
+	a, err := goroutinectx.New(goroutinectx.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first []string
+	for run := range 5 {
+		var got []token.Position
+		var lines []string
+		for _, r := range analysistest.Run(t, analysistest.TestData(), a, "ignoreforms") {
+			for _, d := range r.Diagnostics {
+				if !strings.HasPrefix(d.Message, "unused goroutinectx:ignore") {
+					continue
+				}
+				pos := r.Pass.Fset.Position(d.Pos)
+				got = append(got, pos)
+				lines = append(lines, fmt.Sprintf("%s: %s", pos, d.Message))
+			}
+		}
+		if len(got) < 2 {
+			t.Fatalf("run %d: got %d unused ignores, want several", run, len(got))
+		}
+		sorted := slices.IsSortedFunc(got, func(a, b token.Position) int {
+			return cmp.Or(cmp.Compare(a.Filename, b.Filename), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column))
+		})
+		if !sorted {
+			t.Errorf("run %d: unused ignores out of order:\n%s", run, strings.Join(lines, "\n"))
+		}
+		if first == nil {
+			first = lines
+		} else if !slices.Equal(lines, first) {
+			t.Errorf("run %d: unused ignores differ from the first run:\n%s\nwant:\n%s", run, strings.Join(lines, "\n"), strings.Join(first, "\n"))
+		}
 	}
 }
 

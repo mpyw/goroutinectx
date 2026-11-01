@@ -3,6 +3,7 @@ package flow
 import (
 	"go/constant"
 	"go/types"
+	"slices"
 	"testing"
 
 	"golang.org/x/tools/go/ssa"
@@ -99,5 +100,50 @@ func TestResolvedScanFromClosureCannotTell(t *testing.T) {
 	inside := h.AnonFuncs[0].Blocks[0].Instrs[0]
 	if resolvedScanFromClosure(inside, x, visit) {
 		t.Error("resolvedScanFromClosure scanned for a closure made twice")
+	}
+}
+
+// resolvedWritesSrc writes the field a of a variable s twice, with a write
+// of another field between.
+const resolvedWritesSrc = `package p
+
+type T struct{ a, b int }
+
+func k() T {
+	var s T
+	s.a = 1
+	s.b = 2
+	s.a = 3
+	return s
+}
+`
+
+// TestResolvedPartStoresInOrder checks that the stores of a part, when no
+// load says which of them it can read, are given in the order they are
+// found, on every call (#294).
+func TestResolvedPartStoresInOrder(t *testing.T) {
+	t.Parallel()
+
+	pkg := buildClosurePackage(t, resolvedWritesSrc)
+	var fieldA *ssa.FieldAddr
+	for _, instr := range pkg.Func("k").Blocks[0].Instrs {
+		if fa, ok := instr.(*ssa.FieldAddr); ok && fa.Field == 0 {
+			fieldA = fa
+			break
+		}
+	}
+	if fieldA == nil {
+		t.Fatal("no address of s.a in k")
+	}
+
+	for range 5 {
+		values, ok := resolvedPartStores(fieldA, nil, nil, resolvedWalk{f: NewFlow()})
+		var got []string
+		for _, v := range values {
+			got = append(got, v.String())
+		}
+		if !ok || !slices.Equal(got, []string{"1:int", "3:int"}) {
+			t.Errorf("resolvedPartStores(&s.a) = %v, %v, want [1:int 3:int], true", got, ok)
+		}
 	}
 }

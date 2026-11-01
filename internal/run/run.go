@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -420,19 +421,38 @@ func (r *runner) buildCheckers(cfg Config) []packageChecker {
 	return packageCheckers
 }
 
-// reportUnusedIgnores reports any ignore directives that were not used.
+// reportUnusedIgnores reports any ignore directives that were not used, in
+// the order of their positions: by file, line and column, then by the
+// checker names, so that every run reports them alike.
 func reportUnusedIgnores(pass *analysis.Pass, ignoreMaps map[string]ignore.Map, enabled ignore.EnabledCheckers) {
+	type report struct {
+		pos     token.Position
+		at      token.Pos
+		message string
+	}
+	var reports []report
 	for _, ignoreMap := range ignoreMaps {
 		for _, unused := range ignoreMap.GetUnusedIgnores(enabled) {
-			if len(unused.Checkers) == 0 {
-				pass.Reportf(unused.Pos, "unused goroutinectx:ignore directive")
-			} else {
+			message := "unused goroutinectx:ignore directive"
+			if len(unused.Checkers) > 0 {
 				checkerNames := make([]string, len(unused.Checkers))
 				for i, c := range unused.Checkers {
 					checkerNames[i] = string(c)
 				}
-				pass.Reportf(unused.Pos, "unused goroutinectx:ignore directive for checker(s): %s", strings.Join(checkerNames, ", "))
+				message += " for checker(s): " + strings.Join(checkerNames, ", ")
 			}
+			reports = append(reports, report{pos: pass.Fset.PositionFor(unused.Pos, false), at: unused.Pos, message: message})
 		}
+	}
+	slices.SortFunc(reports, func(a, b report) int {
+		return cmp.Or(
+			cmp.Compare(a.pos.Filename, b.pos.Filename),
+			cmp.Compare(a.pos.Line, b.pos.Line),
+			cmp.Compare(a.pos.Column, b.pos.Column),
+			cmp.Compare(a.message, b.message),
+		)
+	})
+	for _, r := range reports {
+		pass.Report(analysis.Diagnostic{Pos: r.at, Message: r.message})
 	}
 }

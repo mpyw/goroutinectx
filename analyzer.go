@@ -5,6 +5,7 @@ package goroutinectx
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -63,11 +64,13 @@ func New(cfg Config) (*analysis.Analyzer, error) {
 	c.ExternalSpawner = cfg.ExternalSpawner
 	c.ContextCarriers = cfg.ContextCarriers
 	c.ReportWaiters = cfg.ReportWaiters
-	for name, on := range cfg.Checkers {
+	// In the order of the names, so that of several unknown checkers the
+	// error names the same one each time.
+	for _, name := range slices.Sorted(maps.Keys(cfg.Checkers)) {
 		if !checkers.Settable(checkername.Name(name)) {
 			return nil, fmt.Errorf("unknown checker %q", name)
 		}
-		c.Checkers[checkername.Name(name)] = on
+		c.Checkers[checkername.Name(name)] = cfg.Checkers[name]
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err

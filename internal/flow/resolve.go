@@ -587,7 +587,7 @@ func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, w resol
 
 	var values []ssa.Value
 	for _, root := range roots {
-		writes, ok := resolvedPartWrites(root)
+		writes, stores, ok := resolvedPartWrites(root)
 		if !ok {
 			return nil, false
 		}
@@ -614,7 +614,7 @@ func resolvedPartStores(addr ssa.Value, extra []int, at ssa.Instruction, w resol
 			st, ok := instr.(*ssa.Store)
 			return ok && take(st)
 		}) {
-			for st := range writes {
+			for _, st := range stores {
 				take(st)
 			}
 		}
@@ -768,9 +768,11 @@ func resolvedRoots(base ssa.Value, w resolvedWalk) ([]*ssa.Alloc, bool) {
 // that holds nothing else, as h := &T{} that a closure captures keeps it, is
 // followed through the loads of that variable. ok is false when root may be
 // written in a way not followed: through an address that is passed on, at
-// an index that is not constant, or in a closure.
-func resolvedPartWrites(root *ssa.Alloc) (map[*ssa.Store][]int, bool) {
-	writes := make(map[*ssa.Store][]int)
+// an index that is not constant, or in a closure. stores gives the stores of
+// writes in the order they are found, so that a walk over them takes the
+// same order each time.
+func resolvedPartWrites(root *ssa.Alloc) (writes map[*ssa.Store][]int, stores []*ssa.Store, ok bool) {
+	writes = make(map[*ssa.Store][]int)
 	kept := make(map[ssa.Value]ssa.Value)
 	var walk func(v ssa.Value, path []int, inClosure bool) bool
 	// keep walks the loads of v, a variable that addr, the address of root
@@ -824,6 +826,7 @@ func resolvedPartWrites(root *ssa.Alloc) (map[*ssa.Store][]int, bool) {
 					return false
 				}
 				writes[r] = path
+				stores = append(stores, r)
 			case *ssa.UnOp:
 				if r.Op != token.MUL {
 					return false
@@ -858,7 +861,8 @@ func resolvedPartWrites(root *ssa.Alloc) (map[*ssa.Store][]int, bool) {
 		}
 		return true
 	}
-	return writes, walk(root, nil, false)
+	ok = walk(root, nil, false)
+	return writes, stores, ok
 }
 
 // resolvedPathCovers tells how a write to path q bears on a read of path p.

@@ -1,6 +1,7 @@
 package ignore
 
 import (
+	"cmp"
 	"go/ast"
 	"go/token"
 	"slices"
@@ -108,7 +109,8 @@ type UnusedIgnore struct {
 	Checkers []checkername.Name // Unused checker names (empty if entire directive is unused)
 }
 
-// GetUnusedIgnores returns ignore directives that were not used.
+// GetUnusedIgnores returns ignore directives that were not used, in the
+// order of their positions.
 func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore {
 	var unused []UnusedIgnore
 
@@ -146,5 +148,6 @@ func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore {
 		}
 	}
 
+	slices.SortFunc(unused, func(a, b UnusedIgnore) int { return cmp.Compare(a.Pos, b.Pos) })
 	return unused
 }
