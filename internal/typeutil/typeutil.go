@@ -90,6 +90,22 @@ func CheckPkgPath(s, pkgPath string) error {
 	return nil
 }
 
+// CheckItem rejects item, the i-th item (from 0) of the list setting flag,
+// when it is blank or holds a comma. noun is what one item names, as
+// "function". The command line splits a flag at commas and drops blank
+// parts first, so only a list given as a list, as the plugin's settings
+// and goroutinectx.Config are, can hold such an item.
+func CheckItem(flag string, i int, item, noun string) error {
+	if strings.TrimSpace(item) == "" {
+		return fmt.Errorf("%s: item %d is empty", flag, i+1)
+	}
+	if strings.Contains(item, ",") {
+		return fmt.Errorf("%s: %q: each item is one %s, and commas separate %ss only on the command line",
+			flag, item, noun, noun)
+	}
+	return nil
+}
+
 // stdTopLevel lists the standard library packages whose path has no slash.
 var stdTopLevel = []string{
 	"bufio", "bytes", "cmp", "context", "crypto", "embed", "encoding", "errors", "expvar", "flag", "fmt",

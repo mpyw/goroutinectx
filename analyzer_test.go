@@ -274,6 +274,26 @@ func TestFlagDeriverGroups(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), a, "goroutinederivemixed")
 }
 
+// TestFlagListsSplitAtCommas checks that -external-spawner and
+// -context-carriers split at commas and drop the blank parts, so the error
+// for an item that holds a comma, or a blank one, never comes from a flag.
+func TestFlagListsSplitAtCommas(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
+	for flag, want := range map[string]string{
+		"external-spawner": "example.com/pool.Run,example.com/pool.Pool.Go",
+		"context-carriers": "example.com/web.Context,example.com/cli.Context",
+	} {
+		parts := strings.Split(want, ",")
+		if err := a.Flags.Set(flag, " ,"+parts[0]+" ,, "+parts[1]+", "); err != nil {
+			t.Fatalf("-%s: %v", flag, err)
+		}
+		if got := a.Flags.Lookup(flag).Value.String(); got != want {
+			t.Errorf("-%s holds %q, want %q", flag, got, want)
+		}
+	}
+}
+
 // TestFlagRejectsEmptyFunction checks that -goroutine-deriver rejects a
 // group with an empty function joined by +, and keeps its value.
 func TestFlagRejectsEmptyFunction(t *testing.T) {

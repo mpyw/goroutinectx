@@ -12,6 +12,7 @@ import (
 
 	"github.com/mpyw/goroutinectx/internal/directive"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Fact marks a function of an imported package as a spawner. The package
@@ -97,15 +98,15 @@ func Build(marked *Marked, external []funcspec.Spec) *Map {
 	return &Map{marked: marked, external: external}
 }
 
-// ParseExternal parses the -external-spawner list. Blank entries are
-// skipped, and a specification funcspec.Parse rejects is an error.
+// ParseExternal parses the -external-spawner list. A blank entry, an entry
+// that holds a comma, and a specification funcspec.Parse rejects are errors.
 func ParseExternal(parts []string) ([]funcspec.Spec, error) {
 	var specs []funcspec.Spec
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+	for i, part := range parts {
+		if err := typeutil.CheckItem("-external-spawner", i, part, "function"); err != nil {
+			return nil, err
 		}
+		part = strings.TrimSpace(part)
 		spec, err := funcspec.Parse(part)
 		if err != nil {
 			return nil, fmt.Errorf("-external-spawner: %w", err)

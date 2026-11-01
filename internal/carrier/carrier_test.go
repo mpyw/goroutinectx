@@ -65,7 +65,14 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := Parse(strings.Split(tt.input, ","))
+			// Split as the flag does, which drops the blank parts.
+			var parts []string
+			for part := range strings.SplitSeq(tt.input, ",") {
+				if strings.TrimSpace(part) != "" {
+					parts = append(parts, part)
+				}
+			}
+			got, err := Parse(parts)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Parse(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
@@ -76,6 +83,34 @@ func TestParse(t *testing.T) {
 				if got[i] != tt.want[i] {
 					t.Errorf("Parse(%q)[%d] = %+v, want %+v", tt.input, i, got[i], tt.want[i])
 				}
+			}
+		})
+	}
+}
+
+// TestParseRejectsItems checks that a blank item and an item that holds a
+// comma are errors, as a list given as a list can hold them.
+func TestParseRejectsItems(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		parts []string
+		want  string
+	}{
+		{"an empty item", []string{"github.com/a/pkg.Type", ""}, "-context-carriers: item 2 is empty"},
+		{"a blank item", []string{"  "}, "-context-carriers: item 1 is empty"},
+		{
+			"an item with a comma", []string{"github.com/a/pkg.Type,github.com/b/pkg.Type"},
+			`-context-carriers: "github.com/a/pkg.Type,github.com/b/pkg.Type": each item is one type, and commas separate types only on the command line`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := Parse(tt.parts); err == nil || err.Error() != tt.want {
+				t.Errorf("got error %v, want %q", err, tt.want)
 			}
 		})
 	}

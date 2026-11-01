@@ -42,18 +42,18 @@ func IsCarrierType(t types.Type, carriers []Carrier) bool {
 	return slices.ContainsFunc(carriers, func(c Carrier) bool { return c.Matches(t) })
 }
 
-// Parse parses a list of context carriers, each pkg/path.Type. Blank
-// entries are skipped. An entry with no type, or whose package is a bare
-// name that is not a standard library package, is an error: it would never
-// match.
+// Parse parses a list of context carriers, each pkg/path.Type. A blank
+// entry and an entry that holds a comma are errors. So is an entry with no
+// type, or whose package is a bare name that is not a standard library
+// package: it would never match.
 func Parse(parts []string) ([]Carrier, error) {
 	var carriers []Carrier
 
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+	for i, part := range parts {
+		if err := typeutil.CheckItem("-context-carriers", i, part, "type"); err != nil {
+			return nil, err
 		}
+		part = strings.TrimSpace(part)
 
 		lastDot := strings.LastIndex(part, ".")
 		if lastDot <= 0 || lastDot == len(part)-1 {

@@ -4,6 +4,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/analysis/analysistest"
@@ -22,13 +23,42 @@ func TestAnalyzerExportsFacts(t *testing.T) {
 	analysistest.Run(t, abs, Analyzer, "spawnermarked")
 }
 
-// TestParseExternalSkipsBlank checks that a blank entry adds no spec.
-func TestParseExternalSkipsBlank(t *testing.T) {
+// TestParseExternal checks that ParseExternal gives a spec for each entry.
+func TestParseExternal(t *testing.T) {
 	t.Parallel()
 
-	specs, err := ParseExternal([]string{"", "  ", "github.com/example/pool.Run"})
-	if err != nil || len(specs) != 1 {
-		t.Fatalf("ParseExternal = %v, %v, want one spec", specs, err)
+	specs, err := ParseExternal([]string{" github.com/example/pool.Run ", "github.com/example/pool.Pool.Go"})
+	if err != nil || len(specs) != 2 {
+		t.Fatalf("ParseExternal = %v, %v, want two specs", specs, err)
+	}
+}
+
+// TestParseExternalRejects checks that a blank entry, an entry that holds a
+// comma, and a specification with no import path are errors.
+func TestParseExternalRejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		parts []string
+		want  string
+	}{
+		{"an empty item", []string{"github.com/example/pool.Run", ""}, "-external-spawner: item 2 is empty"},
+		{"a blank item", []string{"  "}, "-external-spawner: item 1 is empty"},
+		{
+			"an item with a comma", []string{"github.com/example/pool.Run,github.com/example/pool.Go"},
+			`-external-spawner: "github.com/example/pool.Run,github.com/example/pool.Go": each item is one function, and commas separate functions only on the command line`,
+		},
+		{"no import path", []string{"pool.Run"}, `-external-spawner: "pool.Run": "pool" is not an import path`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := ParseExternal(tt.parts); err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+				t.Errorf("got error %v, want one starting with %q", err, tt.want)
+			}
+		})
 	}
 }
 

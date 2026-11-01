@@ -4,7 +4,9 @@
 // goroutinectx. The settings in .golangci.yml take the names of the flags of
 // the goroutinectx command. goroutine-deriver, external-spawner and
 // context-carriers are lists there, not comma-separated strings. Each item
-// of goroutine-deriver is one OR group, of functions joined by +. A setting left out keeps its default.
+// of goroutine-deriver is one OR group, of functions joined by +. An item
+// that holds a comma, or a blank item, is an error. A setting left out
+// keeps its default.
 package plugin
 
 import (

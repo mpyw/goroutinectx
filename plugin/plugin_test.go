@@ -112,6 +112,53 @@ func TestPluginRejectsEmptyDeriverGroup(t *testing.T) {
 	}
 }
 
+// TestPluginRejectsListItems checks that an item that holds a comma, and an
+// empty item, are errors in each list setting (#386).
+func TestPluginRejectsListItems(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings map[string]any
+		want     string
+	}{
+		{
+			"a deriver group with a comma",
+			map[string]any{"goroutine-deriver": []any{"example.com/apm.F,context.WithoutCancel"}},
+			`-goroutine-deriver: "example.com/apm.F,context.WithoutCancel": each item is one group, and commas separate groups only on the command line`,
+		},
+		{
+			"a spawner with a comma",
+			map[string]any{"external-spawner": []any{"example.com/pool.Run,example.com/pool.Go"}},
+			`-external-spawner: "example.com/pool.Run,example.com/pool.Go": each item is one function, and commas separate functions only on the command line`,
+		},
+		{"an empty spawner", map[string]any{"external-spawner": []any{""}}, "-external-spawner: item 1 is empty"},
+		{
+			"a carrier with a comma",
+			map[string]any{"context-carriers": []any{"example.com/web.Context,example.com/cli.Context"}},
+			`-context-carriers: "example.com/web.Context,example.com/cli.Context": each item is one type, and commas separate types only on the command line`,
+		},
+		{"an empty carrier", map[string]any{"context-carriers": []any{"example.com/web.Context", ""}}, "-context-carriers: item 2 is empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := newPlugin(t)(tt.settings); err == nil || err.Error() != tt.want {
+				t.Errorf("got error %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestPluginAcceptsLists checks that each list setting takes several items.
+func TestPluginAcceptsLists(t *testing.T) {
+	settings := map[string]any{
+		"goroutine-deriver": []any{"example.com/apm.F+example.com/apm.G", "context.WithoutCancel"},
+		"external-spawner":  []any{"example.com/pool.Run", "example.com/pool.Pool.Go"},
+		"context-carriers":  []any{"example.com/web.Context", "example.com/cli.Context"},
+	}
+	if _, err := newPlugin(t)(settings); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPluginLoadMode(t *testing.T) {
 	p, err := newPlugin(t)(nil)
 	if err != nil {
