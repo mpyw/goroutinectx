@@ -16,8 +16,9 @@ import (
 
 // ClosureCapturesContext checks if a closure captures any context.Context variable
 // or a configured carrier type. A variable that only ever holds a fresh
-// context.Background() or TODO() does not count. A value whose type
-// implements context.Context counts as a context. A context the closure
+// context.Background() or TODO() does not count, a carrier that is a context
+// too included. A value whose type implements context.Context counts as a
+// context, judged the same. A context the closure
 // reads from a field or an element of a variable it captures counts, unless
 // it is fresh. So does a method called on a captured value that returns a
 // context, and a call that takes a captured value that holds a context the
@@ -123,11 +124,11 @@ func closureCapturesFreeVar(f *Flow, closure *ssa.Function, kinds *ctxkind.Class
 	}
 	return slices.ContainsFunc(closure.FreeVars, func(fv *ssa.FreeVar) bool {
 		switch k := r.kinds.Kind(fv.Type()); {
-		case k&ctxkind.Carrier != 0:
-			return true
-		case k&ctxkind.Context != 0:
+		case k&(ctxkind.Context|ctxkind.Implements) != 0:
+			// A carrier that is a context too is judged as a context, as
+			// carries judges a part.
 			return !closureIsFresh(f, fv)
-		case k&ctxkind.Implements != 0:
+		case k&ctxkind.Carrier != 0:
 			return true
 		}
 		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv) || r.waitsDone(fv)
@@ -205,15 +206,14 @@ func (r *closureReader) reads(v ssa.Value) bool {
 }
 
 // carries reports whether part, read from a captured value, is a carrier, or
-// a context that is not only ever fresh. The address of a context is judged
-// by the loads from it, unless it is used some other way.
+// a context that is not only ever fresh, as a free variable is judged. A
+// carrier that is a context too, or a type that implements one, is judged
+// as a context. The address of a context is judged by the loads from it,
+// unless it is used some other way.
 func (r *closureReader) carries(part ssa.Value) bool {
 	t := part.Type()
-	switch {
-	case r.kinds.Is(t, ctxkind.Carrier):
-		return true
-	case !r.kinds.Is(t, ctxkind.Context|ctxkind.Implements):
-		return false
+	if !r.kinds.Is(t, ctxkind.Context|ctxkind.Implements) {
+		return r.kinds.Is(t, ctxkind.Carrier)
 	}
 	if _, isPtr := t.Underlying().(*types.Pointer); isPtr {
 		return slices.ContainsFunc(*part.Referrers(), func(ref ssa.Instruction) bool {

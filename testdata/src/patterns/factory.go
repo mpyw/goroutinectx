@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -1041,4 +1042,93 @@ func logPanicErr(logCtx context.Context, f func() error) func() error {
 
 func noCtxWork() {
 	fmt.Println("no ctx")
+}
+
+// ===== Factory given a value that implements context.Context or holds one =====
+
+// idleWrapperWorker makes a worker that does not use w.
+func idleWrapperWorker(w ctxWrapper) func() error {
+	return func() error { return nil }
+}
+
+// idleWrapperTask makes a task that does not use w.
+func idleWrapperTask(w ctxWrapper) func() {
+	return func() {}
+}
+
+// idleServiceWorker makes a worker that does not use s.
+func idleServiceWorker(s *ctxService) func() {
+	return func() {}
+}
+
+// [GOOD]: Factory given a value that implements context.Context
+//
+// The value counts as a context, so the factory passes as one given ctx
+// does (#210).
+func goodFactoryContextImplGoroutine(ctx context.Context, w ctxWrapper) {
+	go idleWrapperTask(w)()
+}
+
+// [GOOD]: Factory given a value that implements context.Context
+//
+// The value counts as a context, so the factory passes as one given ctx
+// does (#210).
+func goodFactoryContextImplErrgroup(ctx context.Context, w ctxWrapper) {
+	g := new(errgroup.Group)
+	g.Go(idleWrapperWorker(w))
+	_ = g.Wait()
+}
+
+// [GOOD]: Factory given a struct that holds a context
+//
+// The struct counts as a context, as it does captured and given to a call
+// (#210).
+func goodFactoryHolderWaitGroup(ctx context.Context, s *ctxService) {
+	var wg sync.WaitGroup
+	wg.Go(idleServiceWorker(s))
+	wg.Wait()
+}
+
+// [GOOD]: Factory given a value that implements context.Context
+//
+// The value counts as a context, so the factory passes as one given ctx
+// does (#210).
+func goodFactoryContextImplSpawner(ctx context.Context, w ctxWrapper) {
+	g := new(errgroup.Group)
+	runWithGroup(g, idleWrapperWorker(w))
+	_ = g.Wait()
+}
+
+// [BAD]: Factory given a struct that holds no context
+//
+// A struct with no context field is not a context.
+func badFactoryPlainHolderErrgroup(ctx context.Context, p plainHolder) {
+	g := new(errgroup.Group)
+	g.Go(idlePlainWorker(p)) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// idlePlainWorker makes a worker that does not use p.
+func idlePlainWorker(p plainHolder) func() error {
+	return func() error { return nil }
+}
+
+// ===== Named function given a fresh context and a value that implements context.Context =====
+
+// counterCtx is a context.Context of its own, with no field.
+type counterCtx int
+
+func (counterCtx) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (counterCtx) Done() <-chan struct{}       { return nil }
+func (counterCtx) Err() error                  { return nil }
+func (counterCtx) Value(any) any               { return nil }
+
+func runWithCounter(_ context.Context, c counterCtx) { _ = c }
+
+// [GOOD]: Named function given a fresh context and a value that implements context.Context
+//
+// The value may be the context the function uses, so it is not taken as
+// given only a fresh context (#210).
+func goodNamedFuncFreshCtxAndContextImplGoroutine(ctx context.Context, c counterCtx) {
+	go runWithCounter(context.Background(), c)
 }

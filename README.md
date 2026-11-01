@@ -20,6 +20,8 @@ A parameter is a context when its type is one of these:
 
 Only an embedded `context.Context` counts. An interface that declares some or all of its methods itself is not a context.
 
+A parameter of a type that only implements `context.Context`, such as a struct that embeds one, does not make its function checked. Where a goroutine gets a value, such a value counts as a context: captured, as a parameter of the function the goroutine runs, or given to a factory. So does a struct that holds a context your code can have put there.
+
 ## Installation & Usage
 
 ### <a href="https://mise.jdx.dev/"><img src="https://mise.jdx.dev/logo.svg" height="28" alt=""></a> Using [mise](https://mise.jdx.dev/) (macOS/Linux/Windows)
@@ -209,14 +211,14 @@ func handler(ctx context.Context) {
 }
 ```
 
-A context made with [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) does not count, wherever the goroutine gets it.
+A context made with [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) does not count, wherever the goroutine gets it. This holds for a carrier that is a context too, and for an interface that has the methods of `context.Context`.
 
 A context the goroutine reads from a field or an element of a value it captures counts. So does a value whose type implements `context.Context`, such as a struct that embeds one. A method called on a captured value counts too when it returns a context, as `req.Context()` does. A call that takes a captured value that holds a context your code can have put there counts too, whether the value is the receiver, as in `s.run()`, or an argument, as in `handle(s)`. The callee is not looked into, the same as for `go s.run()` and `go handle(s)`. A captured value of an interface type, such as `var r Runner = ctxRunner{ctx}`, is judged by the values it can hold: `r.Run()` and `handle(r)` count when one of them holds a context. An interface whose value can't be traced, such as a parameter, a field or the result of a call, may hold one when the interface is declared in your module, so it counts too, the same as for `go r.Run()`. One of the standard library, such as `error`, `net.Conn` or `io.Reader`, does not count, so `go func() { conn.Close() }()` with a `net.Conn` parameter is reported. A context field counts when it is exported, or when it is declared in your package or another package of your module. When the driver does not tell which module, a field of any package outside the standard library counts. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported.
 
 A goroutine that takes a signal of the context, not the context itself, passes too. The signal can be captured or given as an argument, to a function literal or a named function. It is one of these:
 
 - The channel of `ctx.Done()`
-- The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`
+- The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`, or the same function of `golang.org/x/net/context`
 
 A signal of a context made from `context.Background()` or `TODO()` does not count. A channel that can't be followed, such as a parameter, does not count either:
 
@@ -425,7 +427,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-For [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), on a `Task` or a `CancelableTask`, the context argument must be derived: a deriver call, or a context `context.With*` makes from one. A task whose own function calls the deriver passes too:
+For [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), on a `Task` or a `CancelableTask`, the context argument must be derived: a deriver call, or a context that a `With*` function of `context` or `golang.org/x/net/context` makes from one. A task whose own function calls the deriver passes too:
 
 ```go
 func handler(ctx context.Context) {

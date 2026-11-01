@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	netcontext "golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -408,6 +409,88 @@ func badFreshCancelSpawnedGoroutine(ctx context.Context) {
 // does.
 func notCheckedParamCancelGoroutine(ctx context.Context, stop context.CancelFunc) {
 	go func() { waitSignal(); stop() }()
+}
+
+// ===== Cancel func of golang.org/x/net/context =====
+
+// [GOOD]: Cancel func of a context made from ctx by golang.org/x/net/context
+//
+// The With functions of x/net/context are those of context (#210).
+func goodCapturedXnetCancelGoroutine(ctx context.Context) {
+	_, cancel := netcontext.WithCancel(ctx)
+	go func() { waitSignal(); cancel() }()
+}
+
+// [GOOD]: Cancel func of a context made from ctx by golang.org/x/net/context
+//
+// The With functions of x/net/context are those of context (#210).
+func goodCapturedXnetCancelErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	_, cancel := netcontext.WithCancel(ctx)
+	g.Go(func() error { waitSignal(); cancel(); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Cancel func of a context made from ctx by golang.org/x/net/context
+//
+// The With functions of x/net/context are those of context (#210).
+func goodCapturedXnetCancelWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	_, cancel := netcontext.WithCancel(ctx)
+	wg.Go(func() { waitSignal(); cancel() })
+	wg.Wait()
+}
+
+// [GOOD]: Cancel func of a context made from ctx by golang.org/x/net/context
+//
+// The With functions of x/net/context are those of context (#210).
+func goodCapturedXnetCancelSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	_, cancel := netcontext.WithCancel(ctx)
+	runWithGroup(g, func() error { waitSignal(); cancel(); return nil })
+	_ = g.Wait()
+}
+
+// [BAD]: Cancel func of a fresh context made by golang.org/x/net/context
+//
+// The context it cancels is made from context.Background(), not ctx, as
+// for context.WithCancel (#210).
+func badCapturedXnetFreshCancelGoroutine(ctx context.Context) {
+	_, cancel := netcontext.WithCancel(netcontext.Background())
+	go func() { waitSignal(); cancel() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Cancel func of a fresh context made by golang.org/x/net/context
+//
+// The context it cancels is made from context.Background(), not ctx, as
+// for context.WithCancel (#210).
+func badCapturedXnetFreshCancelErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	_, cancel := netcontext.WithCancel(context.Background())
+	g.Go(func() error { waitSignal(); cancel(); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Cancel func of a fresh context made by golang.org/x/net/context
+//
+// The context it cancels is made from context.Background(), not ctx, as
+// for context.WithCancel (#210).
+func badCapturedXnetFreshCancelWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	_, cancel := netcontext.WithCancel(netcontext.TODO())
+	wg.Go(func() { waitSignal(); cancel() }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Cancel func of a fresh context made by golang.org/x/net/context
+//
+// The context it cancels is made from context.Background(), not ctx, as
+// for context.WithCancel (#210).
+func badCapturedXnetFreshCancelSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	_, cancel := netcontext.WithCancel(netcontext.Background())
+	runWithGroup(g, func() error { waitSignal(); cancel(); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
 }
 
 // doneWaiter holds a channel to wait on.

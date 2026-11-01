@@ -93,6 +93,7 @@ func TestIsCancelCall(t *testing.T) {
 		{name: "WithCancel", fn: fn(ctxPkg, "WithCancel", ctx, cancelFunc), want: true},
 		{name: "WithValue", fn: fn(ctxPkg, "WithValue", ctx), want: false},
 		{name: "second result not a func", fn: fn(ctxPkg, "WithOther", ctx, types.Typ[types.Int]), want: false},
+		{name: "x/net WithCancel", fn: fn(types.NewPackage("golang.org/x/net/context", "context"), "WithCancel", ctx, cancelFunc), want: true},
 		{name: "other package", fn: fn(types.NewPackage("other", "other"), "WithCancel", ctx, cancelFunc), want: false},
 	}
 	for _, tt := range tests {

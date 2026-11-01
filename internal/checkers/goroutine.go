@@ -89,12 +89,12 @@ func (c *GoroutineDerive) failure(e *env.Env, s *site.Site) string {
 	return ""
 }
 
-// goroutineDerivePolicy judges a closure by whether it takes a context or
-// a carrier ([ctxkind.Param]), or calls the deriver at its start. One that
+// goroutineDerivePolicy judges a closure by whether it takes a context, as
+// [ctxkind.Given] counts one, or calls the deriver at its start. One that
 // calls it only in defer fails with [flow.FailDeferOnly]. given are the
 // functions the go statement calls in its arguments, which count as called
-// at the start. A factory passes when it takes a context or a carrier, or
-// makes a closure taking one or calling the deriver.
+// at the start. A factory passes when it takes a context, or makes a
+// closure taking one or calling the deriver.
 type goroutineDerivePolicy struct {
 	kinds    *ctxkind.Classifier
 	derivers *deriver.Matcher
@@ -103,7 +103,7 @@ type goroutineDerivePolicy struct {
 
 // Literal judges a closure as [goroutineDerivePolicy] tells.
 func (p *goroutineDerivePolicy) Literal(fn *ssa.Function, _ flow.Site) flow.Verdict {
-	if p.kinds.HasParam(fn, ctxkind.Param) {
+	if p.kinds.HasParam(fn, ctxkind.Given) {
 		return flow.Pass
 	}
 	switch result := flow.ClosureCallsDeriver(fn, p.derivers, p.given...); {
@@ -127,8 +127,8 @@ func (*goroutineDerivePolicy) FactoryCall(*ssa.CallCommon) bool {
 
 // Factory passes a factory as [goroutineDerivePolicy] tells.
 func (p *goroutineDerivePolicy) Factory(fn *ssa.Function) bool {
-	return p.kinds.HasParam(fn, ctxkind.Param) || slices.ContainsFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
-		return p.kinds.HasParam(anon, ctxkind.Param) || flow.ClosureCallsDeriver(anon, p.derivers).FoundAtStart
+	return p.kinds.HasParam(fn, ctxkind.Given) || slices.ContainsFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
+		return p.kinds.HasParam(anon, ctxkind.Given) || flow.ClosureCallsDeriver(anon, p.derivers).FoundAtStart
 	})
 }
 

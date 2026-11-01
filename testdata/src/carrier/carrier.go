@@ -1,8 +1,12 @@
 package carrier
 
 import (
+	"context"
+
 	"github.com/labstack/echo/v4"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/example/reqctx"
 
 	"log/slog"
 )
@@ -213,4 +217,38 @@ func goodGoroutinePassesNamedIfaceCarrier(c echo.Context) {
 	go func(c myEcho) {
 		_ = c
 	}(c)
+}
+
+// ===== CARRIER THAT IS A CONTEXT TOO =====
+
+// [GOOD]: Goroutine captures a carrier that is a context, made from ctx
+//
+// A carrier that is a context.Context too counts when it holds ctx.
+func goodGoroutineContextCarrier(ctx context.Context) {
+	var rc reqctx.Context = ctx
+	go func() {
+		_ = rc
+	}()
+}
+
+// [BAD]: Goroutine captures a carrier that is a context, made fresh
+//
+// A carrier that is a context.Context too is judged as a context: one that
+// holds only context.Background() does not count (#210).
+func badGoroutineFreshContextCarrier(ctx context.Context) {
+	var rc reqctx.Context = context.Background()
+	go func() { // want `goroutine does not propagate context "ctx"`
+		_ = rc
+	}()
+}
+
+// [BAD]: Goroutine reads a carrier that is a context, made fresh, from a field
+//
+// A field read from a captured value is judged the same as a captured
+// variable of its type (#210).
+func badGoroutineFreshContextCarrierField(ctx context.Context) {
+	h := struct{ rc reqctx.Context }{rc: context.Background()}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		_ = h.rc
+	}()
 }
