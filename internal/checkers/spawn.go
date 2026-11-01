@@ -68,7 +68,7 @@ func (c *SpawnCallbackChecker) checkSingleArg(e *env.Env, ctxName string, call *
 	if args := spawnedCallArgs(e, call); args != nil {
 		v = args[idx]
 	}
-	if spawnedFuncPasses(e, call.Args[idx], v, spawnedContextResolver(e, c.derivers)) {
+	if spawnedFuncVerdict(e, call.Args[idx], v, newSpawnedContextPolicy(e, c.derivers)).Passes() {
 		return nil
 	}
 
@@ -129,7 +129,7 @@ func (c *SpawnerChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExp
 
 	// Report each failing func argument at its position.
 	args := spawnedCallArgs(e, call)
-	r := spawnedContextResolver(e, c.derivers)
+	p := newSpawnedContextPolicy(e, c.derivers)
 	var diags []analysis.Diagnostic
 	for i, arg := range call.Args {
 		if !spawnIsFuncArg(e.Pass, arg) {
@@ -139,7 +139,7 @@ func (c *SpawnerChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExp
 		if args != nil {
 			v = args[i]
 		}
-		if !spawnedFuncPasses(e, arg, v, r) {
+		if !spawnedFuncVerdict(e, arg, v, p).Passes() {
 			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
 		}
 	}

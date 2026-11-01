@@ -70,7 +70,7 @@
 // checks. [Flow.Returns] gives what a function returns with the sources of
 // each, for the checks that follow a factory.
 //
-// A question to a Flow, as any of these or [FuncResolver.Passes], has one bound
+// A question to a Flow, as any of these or [Judge], has one bound
 // on its work, which the questions it asks in turn share, so nested checks
 // do not multiply it. What a question finds is remembered for the pass,
 // unless a bound cut it short.
@@ -79,18 +79,16 @@
 //
 // [Program.GoAt] and [Program.CallAt] find the instruction of an AST go
 // statement or call, and [ResolvedArgs] lines its SSA arguments up with the
-// AST ones. [FuncResolver] then folds over the sources of a func-typed
-// value, and over what the factories it calls return, as Returns gives it,
-// to each function literal it can hold, and judges each one. Of a factory,
-// one value it returns passing is enough:
+// AST ones. [Judge] then folds over the sources of a func-typed value, and
+// over what the factories it calls return, as Returns gives it, to each
+// function literal it can hold, and asks a [Policy] about each one. The
+// verdict is the worst of the sources; of a factory, the best value it
+// returns counts:
 //
-//	r := &flow.FuncResolver{
-//	    Flow:    e.Flow,
-//	    Closure: func(fn *ssa.Function) bool { return e.Flow.ClosureCapturesContext(fn, e.Kinds, nil) },
-//	}
-//	ok := r.Passes(goInstr.Call.Value)
+//	ok := flow.Judge(e.Flow, policy, goInstr.Call.Value).Passes()
 //
-// A value it cannot follow passes, so that only what is resolved is reported.
+// A value it cannot follow is [Unknown], which passes, so that only what is
+// resolved is reported.
 // That includes a variable whose address is passed on, or a part written in
 // a closure, since the code there may write it.
 //

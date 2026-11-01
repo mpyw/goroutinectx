@@ -188,7 +188,7 @@ It also holds both tests for a context parameter. They differ on purpose:
 
 ### internal/flow/
 
-Follows values through the package's SSA form: the instruction of a go statement or a call (`Program.GoAt`, `Program.CallAt`), what a closure captures (`ClosureCapturesContext`), what it runs (`ClosureCallsDeriver`, `Runs`), what kind of function it is (`Classify`), and where a spawned function comes from (`FuncResolver`). It wraps `golang.org/x/tools/go/ssa`, which is imported as `ssa`.
+Follows values through the package's SSA form: the instruction of a go statement or a call (`Program.GoAt`, `Program.CallAt`), what a closure captures (`ClosureCapturesContext`), what it runs (`ClosureCallsDeriver`, `Runs`), what kind of function it is (`Classify`), and where a spawned function comes from, and how it is judged (`Judge`). It wraps `golang.org/x/tools/go/ssa`, which is imported as `ssa`.
 
 `Classify` is the one place that tells a function literal, a range-over-func body, a named function, a method, and the synthetic wrappers (bound method, thunk, promoted method) apart. It classifies an instantiation as its generic origin. A function or method of another package has no syntax, so it is of the external kind. The rule for a named function given only a fresh context takes an external function with no receiver too (#223). `Runs` is the one walk of what a function runs. Its options decide whether it goes into goroutines and into the closures a called factory returns:
 
@@ -204,22 +204,22 @@ The returns of a function are read in one place, in two ways. A factory is follo
 | Question | Gives | For |
 |----------|-------|-----|
 | `Flow.CapturedSources(v)` | What a variable a closure captures, or a part of a captured value, can hold: every value stored to it, as the closure may run after any store | The closure checks |
-| `Flow.Returns(fn)` | Each value `fn` returns as its first result, with its sources | `FuncResolver`, `ResolvedSliceElems` |
+| `Flow.Returns(fn)` | Each value `fn` returns as its first result, with its sources | `Judge`, `ResolvedSliceElems` |
 
 Every check that follows a value is a fold over these:
 
 | Check | Fold |
 |-------|------|
-| `FuncResolver.Passes` | Every source passes: a literal by `Closure`, a call by the factory rules. Of a factory, one of the values `Returns` gives passing is enough |
-| `FuncResolver.CapturedPasses` | `Passes` of each value `CapturedSources` gives, or true when they cannot all be followed |
+| `Judge` | The worst `Verdict` of the sources: a literal by `Policy.Literal`, a call by `Policy.Call` and then the factory rules. Of a factory, the best of the values `Returns` gives counts. `Unknown` counts as `Pass` |
+| `judgeCaptured` | `Judge` of each value `CapturedSources` gives, at `SiteCaptured`, or `Unknown` when they cannot all be followed |
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
 | `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `context.With*` call, and that context is not fresh |
-| `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured interface given to a call counts when one of the values `CapturedSources` and `Sources` give is a `MakeInterface` of a type that holds a context, or cannot be followed and is of an interface declared in the module (`DeclaredInModule`, #240). A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `FuncResolver.CapturedPasses` passes it, as if it were spawned directly |
+| `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured interface given to a call counts when one of the values `CapturedSources` and `Sources` give is a `MakeInterface` of a type that holds a context, or cannot be followed and is of an interface declared in the module (`DeclaredInModule`, #240). A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `judgeCaptured` passes it, as if it were spawned directly |
 | `Flow.IsWaiter` | The closure only waits (`WaitGroup.Wait`, `errgroup.Group.Wait`, `Cmd.Wait`, ...) and signals, with no loop. A send outside a select must be its only one. The channel must have room for it: every value `CapturedSources` gives has only `make(chan T, n)` sources, `n` a constant of at least 1, and the function of each makes at most `n` sends on it, its own or in the closures it gives the channel to, none in a loop (#230, #242) |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
 | gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives |
 
-**One bound per question.** A question to `Flow` (`Sources`, `CapturedSources`, `Returns`, `IsFreshContext`, `ClosureCapturesContext`, `FuncResolver.Passes`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a resolver judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
+**One bound per question.** A question to `Flow` (`Sources`, `CapturedSources`, `Returns`, `IsFreshContext`, `ClosureCapturesContext`, `Judge`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a policy judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
 
 It also tells whether a call gives only a fresh context (`GivesOnlyFreshContext`). An argument that `SignalsContext` accepts, as `ctx.Done()`, means it does not (#241).
 
@@ -342,12 +342,14 @@ func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Clas
 
 ### Higher-Order Function Support
 
-For patterns like `g.Go(fn)`, `g.Go(s.fn)` or `g.Go(fns["a"])`, the SSA value of the argument is followed back to each function literal it can hold, by `flow.FuncResolver`:
+For patterns like `g.Go(fn)`, `g.Go(s.fn)` or `g.Go(fns["a"])`, the SSA value of the argument is followed back to each function literal it can hold, and judged by a `flow.Policy`:
 
 ```go
-r := &flow.FuncResolver{Flow: e.Flow, Closure: func(fn *ssa.Function) bool { ... }}
-ok := r.Passes(value)
+p := newSpawnedContextPolicy(e, derivers)
+ok := flow.Judge(e.Flow, p, value).Passes()
 ```
+
+`Judge` gives a `Verdict`: `Pass`, `Fail`, `FailDeferOnly` (the deriver is called only in defer) or `Unknown`, which counts as `Pass`. It asks the policy in a fixed order: `Literal` for a function literal; `Call` for the result of a call, where `Unknown` leaves the call to the built-in rules (an interface method passes, then `FactoryCall`, then a call given a function that passes passes as a decorator, then what the callee returns is followed); and `Factory` for a function whose result is followed. The checkers have three policies: `spawnedContextPolicy` (goroutine, errgroup, waitgroup, conc, spawner), `goroutineDerivePolicy` (goroutinederive, which tells a deriver called only in defer in one pass) and `gotaskPolicy`.
 
 It takes the sources of the value from `Flow.Sources`, which goes through Phi nodes, loads of local variables and of their struct fields and constant-index elements, and map lookups at constant keys, and follows calls of factories through what `Flow.Returns` gives. Only the stores that reach the spawn count. A value it cannot follow passes, and so does a parameter, unless it is of a factory followed from a call that gives it no func that passes.
 

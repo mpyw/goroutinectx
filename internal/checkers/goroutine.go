@@ -35,33 +35,14 @@ func (c *Goroutine) CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []
 }
 
 func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
-	r := spawnedContextResolver(e, nil)
+	p := newSpawnedContextPolicy(e, nil)
 	if g := e.SSA.GoAt(stmt); g != nil && !g.Call.IsInvoke() {
 		if spawnedGivesNamedFuncOnlyFreshContext(e, &g.Call) {
 			return false
 		}
-		// A context parameter counts only when the go statement gives it a
-		// context other than a fresh context.Background() or TODO(), or
-		// gives another value that may hold a context.
-		args := g.Call.Args
-		onlyFresh := e.Flow.GivesOnlyFreshContext(&g.Call, e.Kinds)
-		captured := spawnedCapturedResolver(e, nil)
-		r.Closure = func(fn *ssa.Function) bool {
-			if captured.Closure(fn) || spawnedWaiterPasses(e, fn) {
-				return true
-			}
-			return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
-				i := slices.Index(fn.Params, p)
-				if !e.Kinds.Is(p.Type(), ctxkind.Param) {
-					// The channel of ctx.Done(), or a cancel func of a
-					// context made from ctx, ties the goroutine to ctx.
-					return i < len(args) && e.Flow.SignalsContext(args[i], e.Kinds)
-				}
-				return i >= len(args) || !onlyFresh || !e.Flow.IsFreshContext(args[i])
-			})
-		}
+		p = newSpawnedGoContextPolicy(e, &g.Call)
 	}
-	return spawnedFuncPasses(e, stmt.Call.Fun, goroutineSpawnedValue(e, stmt), r)
+	return spawnedFuncVerdict(e, stmt.Call.Fun, goroutineSpawnedValue(e, stmt), p).Passes()
 }
 
 // goroutineSpawnedValue gives the SSA value of the function stmt runs, or nil.
@@ -105,18 +86,18 @@ func (c *GoroutineDerive) failure(e *env.Env, stmt *ast.GoStmt) string {
 		return ""
 	}
 
-	v := goroutineSpawnedValue(e, stmt)
 	var given []*types.Func
 	if g := e.SSA.GoAt(stmt); g != nil {
 		given = goroutineArgCalls(&g.Call)
 	}
-	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e, given, true)) {
-		return ""
-	}
-	if spawnedFuncPasses(e, stmt.Call.Fun, v, c.resolver(e, given, false)) {
+	p := &goroutineDerivePolicy{kinds: e.Kinds, derivers: c.derivers, given: given}
+	switch spawnedFuncVerdict(e, stmt.Call.Fun, goroutineSpawnedValue(e, stmt), p) {
+	case flow.Fail:
+		return c.message()
+	case flow.FailDeferOnly:
 		return c.deferMessage()
 	}
-	return c.message()
+	return ""
 }
 
 func (c *GoroutineDerive) message() string {
@@ -127,30 +108,46 @@ func (c *GoroutineDerive) deferMessage() string {
 	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
-// resolver judges a closure by whether it takes a context or a carrier
-// ([ctxkind.Param]), or calls the deriver: at its start when atStart is set, or else
-// in defer too. given are the functions the go statement calls in its
-// arguments, which count as called at the start.
-func (c *GoroutineDerive) resolver(e *env.Env, given []*types.Func, atStart bool) *flow.FuncResolver {
-	return &flow.FuncResolver{
-		Flow: e.Flow,
-		Closure: func(fn *ssa.Function) bool {
-			if e.Kinds.HasParam(fn, ctxkind.Param) {
-				return true
-			}
-			result := flow.ClosureCallsDeriver(fn, c.derivers, given...)
-			return result.FoundAtStart || (!atStart && result.FoundOnlyInDefer)
-		},
-		Factory: func(fn *ssa.Function) bool { return c.factoryDerives(e.Kinds, fn) },
-	}
+// goroutineDerivePolicy judges a closure by whether it takes a context or
+// a carrier ([ctxkind.Param]), or calls the deriver at its start. One that
+// calls it only in defer fails with [flow.FailDeferOnly]. given are the
+// functions the go statement calls in its arguments, which count as called
+// at the start. A factory passes when it takes a context or a carrier, or
+// makes a closure taking one or calling the deriver.
+type goroutineDerivePolicy struct {
+	kinds    *ctxkind.Classifier
+	derivers *deriver.Matcher
+	given    []*types.Func
 }
 
-// factoryDerives passes a factory that takes a context or a carrier
-// ([ctxkind.Param]), or that makes a closure taking one or calling the
-// deriver.
-func (c *GoroutineDerive) factoryDerives(kinds *ctxkind.Classifier, fn *ssa.Function) bool {
-	return kinds.HasParam(fn, ctxkind.Param) || slices.ContainsFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
-		return kinds.HasParam(anon, ctxkind.Param) || flow.ClosureCallsDeriver(anon, c.derivers).FoundAtStart
+// Literal judges a closure as [goroutineDerivePolicy] tells.
+func (p *goroutineDerivePolicy) Literal(fn *ssa.Function, _ flow.Site) flow.Verdict {
+	if p.kinds.HasParam(fn, ctxkind.Param) {
+		return flow.Pass
+	}
+	switch result := flow.ClosureCallsDeriver(fn, p.derivers, p.given...); {
+	case result.FoundAtStart:
+		return flow.Pass
+	case result.FoundOnlyInDefer:
+		return flow.FailDeferOnly
+	}
+	return flow.Fail
+}
+
+// Call leaves every call to the built-in rules.
+func (*goroutineDerivePolicy) Call(*ssa.CallCommon) flow.Verdict {
+	return flow.Unknown
+}
+
+// FactoryCall follows every factory a call calls.
+func (*goroutineDerivePolicy) FactoryCall(*ssa.CallCommon) bool {
+	return false
+}
+
+// Factory passes a factory as [goroutineDerivePolicy] tells.
+func (p *goroutineDerivePolicy) Factory(fn *ssa.Function) bool {
+	return p.kinds.HasParam(fn, ctxkind.Param) || slices.ContainsFunc(fn.AnonFuncs, func(anon *ssa.Function) bool {
+		return p.kinds.HasParam(anon, ctxkind.Param) || flow.ClosureCallsDeriver(anon, p.derivers).FoundAtStart
 	})
 }
 
