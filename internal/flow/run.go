@@ -138,6 +138,8 @@ func runReturnedClosures(fn *ssa.Function) []*ssa.Function {
 
 // runCallee gives the function a call runs in place, an IIFE: a closure it
 // makes, or a function literal that captures nothing.
+//
+//declscope:shared // waiter.go goes into the IIFEs a waiter runs, as Runs does
 func runCallee(call *ssa.CallCommon) *ssa.Function {
 	if call.IsInvoke() {
 		return nil
