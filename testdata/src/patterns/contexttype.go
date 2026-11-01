@@ -953,3 +953,29 @@ func badGoParamDataFromCallGoroutine(ctx context.Context) {
 		}(r)
 	}
 }
+
+// newCtxService gives a struct that holds ctx.
+func newCtxService(ctx context.Context) *ctxService { return &ctxService{ctx: ctx} }
+
+// [GOOD]: Goroutine given, as an any, a struct a call made to hold ctx
+//
+// The call gives a struct that holds a context (#252).
+func goodGoParamHolderFromCallGoroutine(ctx context.Context) {
+	go func(v any) {
+		_ = v
+	}(newCtxService(ctx))
+}
+
+// [GOOD]: Goroutine given an interface looked up in a map that holds ctx
+//
+// The map is made with a runner that holds ctx (#252).
+func goodGoParamIfaceFromMapGoroutine(ctx context.Context) {
+	runners := map[string]runner{"a": ctxRunner{ctx}}
+	r, ok := runners["a"]
+	if !ok {
+		return
+	}
+	go func(r runner) {
+		r.Run()
+	}(r)
+}

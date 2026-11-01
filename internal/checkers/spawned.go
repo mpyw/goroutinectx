@@ -96,12 +96,8 @@ func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 		if p.e.Kinds.Is(param.Type(), ctxkind.Given) {
 			return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
 		}
-		if i >= len(args) {
-			return false
-		}
-		arg := args[i]
-		return p.e.Flow.SignalsContext(arg, p.e.Kinds) ||
-			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Kinds.InvolvesUnless(ctxkind.Given, p.goArgPartHoldsNoContext, arg))
+		return i < len(args) && (p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
+			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Kinds.InvolvesUnless(ctxkind.Given, p.goArgPartHoldsNoContext, args[i])))
 	})
 }
 
@@ -112,10 +108,9 @@ func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 //   - a context.Context made by a fresh context.Background() or TODO(), as
 //     [flow.Flow.IsFreshContext] tells;
 //   - the result of a call, of a type that is not of [ctxkind.Given] and not
-//     an interface or a func. Such a result is data the
-//     call made, as the brokers a call given ctx lists, not a holder of what
-//     the call was given. A call of many results is judged by each one taken
-//     from it.
+//     an interface or a func. Such a result is data the call made, as the
+//     brokers a call given ctx lists, not a holder of what the call was
+//     given. A call of many results is judged by each one taken from it.
 func (p *spawnedContextPolicy) goArgPartHoldsNoContext(v ssa.Value) bool {
 	if p.e.Kinds.Is(v.Type(), ctxkind.Context) {
 		return p.e.Flow.IsFreshContext(v)
