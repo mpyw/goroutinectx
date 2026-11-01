@@ -378,3 +378,64 @@ func badFuncChanPlainPhiToFactoryInClosureSpawner(ctx context.Context) {
 	}()
 	_ = g.Wait()
 }
+
+// ===== Factory result called in place in a closure =====
+
+// [GOOD]: Closure calls in place what a factory given a channel of funcs that use ctx returns
+//
+// It passes as go runFromChan(ch)() does (#300).
+func goodFuncChanCtxFactoryCalledInClosureGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	go func() {
+		runFromChan(ch)()
+	}()
+}
+
+// [GOOD]: Closure calls in place, from a nested closure, what a factory given a channel of funcs that use ctx returns
+//
+// A closure the goroutine runs in place is looked into too.
+func goodFuncChanCtxFactoryCalledInNestedClosureGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	go func() {
+		func() {
+			runFromChan(ch)()
+		}()
+	}()
+}
+
+// [GOOD]: Callback calls in place what a factory given a channel of funcs that use ctx returns
+func goodFuncChanCtxFactoryCalledInClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	g.Go(func() error {
+		return runFromChanErr(ch)()
+	})
+	_ = g.Wait()
+}
+
+// [BAD]: Closure calls in place what a factory given a channel of funcs without ctx returns
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainFactoryCalledInClosureGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		runFromChan(ch)()
+	}()
+}
+
+// [BAD]: Callback calls in place what a factory given a channel of funcs without ctx returns
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainFactoryCalledInClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		return runFromChanErr(ch)()
+	})
+	_ = g.Wait()
+}
