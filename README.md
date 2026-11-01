@@ -305,7 +305,7 @@ Besides the waits, it only does these:
 | It may | Note |
 | --- | --- |
 | Close a channel | Also in `defer` |
-| Send on a channel | Only when the send cannot block: the channel is made with `make(chan T, n)`, `n` a constant of at least 1, or the send is a case of a `select` with a `default` |
+| Send on a channel | Only when the send cannot block. Either the send is a case of a `select` with a `default`, or all of these hold: it is the goroutine's only send outside a `select`, the channel is made with `make(chan T, n)` for a constant `n` of at least 1, and there are at most `n` sends on the channel in all, counting every goroutine and closure, none in a loop |
 | Assign to a variable | As `err = cmd.Wait()` |
 | Return | As `return inner.Wait()` |
 | Branch | As `if err := cmd.Wait(); err != nil { ... }`. A loop is not allowed |
@@ -314,8 +314,9 @@ Anything else is reported as before: a call that is not a wait, as a log line af
 
 - **A receive** can wait for ever when nothing is sent. The goroutine could select on `ctx.Done()` instead.
 - **A send on an unbuffered channel** blocks for ever when the caller has returned on `ctx.Done()`. So does a send on a channel that can't be followed, such as a parameter.
+- **More senders than slots** block the same way. Two goroutines that send on a `make(chan error, 1)`, one goroutine that sends twice, or goroutines started in a loop all leave a send waiting after the first receive. A sender counts wherever it is: in a `go` statement, a callback, or a closure. A channel given to a call is not followed, so its sends are reported.
 
-The rule holds for a `go` statement and for the callback of `errgroup`, `sync.WaitGroup.Go`, conc and spawners. It does not change `-goroutine-deriver`: a goroutine must still call the deriver. Set [`-report-waiters`](#-report-waiters) to report these goroutines too.
+The rule holds for a `go` statement and for the callback of `errgroup`, `sync.WaitGroup.Go`, conc and spawners. It does not change `-goroutine-deriver`: a goroutine and a callback must still call the deriver, or a callback capture `ctx`. Set [`-report-waiters`](#-report-waiters) to report these goroutines too.
 
 ### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 

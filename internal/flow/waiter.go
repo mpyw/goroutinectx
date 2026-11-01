@@ -34,8 +34,8 @@ var waiterMethods = []funcspec.Spec{
 // least one wait of [waiterMethods], and otherwise only signals what it
 // waited for: it closes a channel, sends on a channel that cannot block it,
 // stores to a variable, or returns. It has no loop. A send cannot block when
-// the channel is made with a constant buffer, or when the send is a case of
-// a select with a default.
+// it is a case of a select with a default, or when it is the one send of fn
+// outside a select and the channel has room for it: see [waiterBuffered].
 //
 // A receive from a channel is not a wait here. A goroutine that receives can
 // select on ctx.Done() instead, and it leaks when nothing is ever sent. A
@@ -46,7 +46,7 @@ func (f *Flow) IsWaiter(fn *ssa.Function) bool {
 	if fn == nil || fn.Blocks == nil || waiterHasLoop(fn) {
 		return false
 	}
-	waits := 0
+	waits, sends := 0, 0
 	for _, b := range fn.Blocks {
 		for _, instr := range b.Instrs {
 			switch x := instr.(type) {
@@ -62,7 +62,8 @@ func (f *Flow) IsWaiter(fn *ssa.Function) bool {
 					return false
 				}
 			case *ssa.Send:
-				if !waiterBuffered(f, x.Chan) {
+				// A second send may find the slot the first one filled.
+				if sends++; sends > 1 || !waiterBuffered(f, x.Chan) {
 					return false
 				}
 			case *ssa.Select:
@@ -108,8 +109,11 @@ func waiterIsClose(call *ssa.CallCommon) bool {
 }
 
 // waiterBuffered reports whether every channel ch can be, read from a
-// variable the closure captures or made in it, is made with a constant
-// buffer of at least one.
+// variable the closure captures or made in it, has room for every send on
+// it (#242). Each is made with a constant buffer of at least one, and used
+// only where [waiterChanSends] follows it, with no more sends than its
+// buffer holds. So once the caller has stopped receiving, after one receive
+// or on ctx.Done(), no send can block.
 func waiterBuffered(f *Flow, ch ssa.Value) bool {
 	read := ch
 	if load, ok := ch.(*ssa.UnOp); ok && load.Op == token.MUL {
@@ -133,7 +137,114 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 				return true
 			}
 			n, exact := constant.Int64Val(constant.ToInt(size.Value))
-			return !exact || n < 1
+			if !exact || n < 1 {
+				return true
+			}
+			sends, ok := waiterChanSends(mc, false)
+			return !ok || int64(sends) > n
 		})
 	})
+}
+
+// waiterChanSends counts the sends on the channel v holds, or, when addr is
+// true, the channel in the variable v points to, in the function of v and
+// in each closure it is given to. A send in a select counts too, as it fills
+// the buffer all the same. ok is false when the channel may be used where
+// the sends cannot be counted: given to a call, stored anywhere but to its
+// own variable, or sent from or given to a closure that may run more than
+// once, as one in a loop is.
+func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
+	for _, instr := range *v.Referrers() {
+		n, ok := waiterChanUseSends(instr, v, addr)
+		if !ok {
+			return 0, false
+		}
+		sends += n
+	}
+	return sends, true
+}
+
+// waiterChanUseSends counts the sends instr makes on the channel of v, as
+// [waiterChanSends] does. When addr is true, v points to the variable of the
+// channel, and only a store to it, a load from it, and a closure that
+// captures it are followed.
+func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends int, ok bool) {
+	switch x := instr.(type) {
+	case *ssa.MakeClosure:
+		return waiterClosureSends(x, v, addr)
+	case *ssa.Store:
+		if addr {
+			// The variable is set. What it is set to is followed on its own.
+			return 0, x.Addr == v
+		}
+		if _, local := x.Addr.(*ssa.Alloc); local {
+			return waiterChanSends(x.Addr, true)
+		}
+	case *ssa.UnOp:
+		if addr {
+			return waiterChanSends(x, false)
+		}
+		return 0, x.Op == token.ARROW
+	case *ssa.Send:
+		// The channel sent on another one may be sent on anywhere.
+		return 1, !addr && x.Chan == v && !waiterInLoop(x.Block())
+	case *ssa.Select:
+		for _, s := range x.States {
+			switch {
+			case s.Send == v:
+				return 0, false
+			case s.Chan == v && s.Dir == types.SendOnly:
+				if waiterInLoop(x.Block()) {
+					return 0, false
+				}
+				sends++
+			}
+		}
+		return sends, true
+	case *ssa.Call:
+		if b, isBuiltin := x.Call.Value.(*ssa.Builtin); isBuiltin && !addr {
+			switch b.Name() {
+			case "close", "len", "cap":
+				return 0, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// waiterClosureSends counts the sends of the closure mk makes on the channel
+// of v, which mk binds, as [waiterChanSends] does. The closure must be made
+// and used once: outside a loop, and given to one go statement or call.
+func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int, ok bool) {
+	fn, isFunc := mk.Fn.(*ssa.Function)
+	i := slices.Index(mk.Bindings, v)
+	if !isFunc || i < 0 || i >= len(fn.FreeVars) || waiterInLoop(mk.Block()) {
+		return 0, false
+	}
+	uses := 0
+	for _, instr := range *mk.Referrers() {
+		if uses++; uses > 1 || waiterInLoop(instr.Block()) {
+			return 0, false
+		}
+	}
+	return waiterChanSends(fn.FreeVars[i], addr)
+}
+
+// waiterInLoop reports whether b may run more than once in its function: it
+// can be reached again from itself.
+func waiterInLoop(b *ssa.BasicBlock) bool {
+	seen := map[*ssa.BasicBlock]bool{}
+	stack := slices.Clone(b.Succs)
+	for len(stack) > 0 {
+		next := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if next == b {
+			return true
+		}
+		if !seen[next] {
+			seen[next] = true
+			stack = append(stack, next.Succs...)
+		}
+	}
+	return false
 }

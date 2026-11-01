@@ -82,6 +82,20 @@ func badCmdWaitSendGoroutine(ctx context.Context, cmd *exec.Cmd) error {
 	return <-errc
 }
 
+// [BAD]: Two senders, a buffer of two
+//
+// -report-waiters reports it.
+func badTwoSendersBufferTwoGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 2)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- a.Wait()
+	}()
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- b.Wait()
+	}()
+	return <-errc
+}
+
 // [BAD]: errgroup.Group.Wait, then return the error
 //
 // -report-waiters reports it.
