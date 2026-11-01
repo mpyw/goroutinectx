@@ -380,3 +380,111 @@ func goodDeriverInNestedRangeFunc(ctx context.Context, xss [][]int) {
 		}
 	}()
 }
+
+// ===== FUNC VALUES CALLED IN A CLOSURE (#299) =====
+
+// [GOOD]: The closure calls a captured func value that calls the deriver.
+//
+// It passes as go fn() does.
+func goodClosureCallsDerivingFuncValue(ctx context.Context) {
+	fn := func() {
+		ctx := apm.NewGoroutineContext(ctx)
+		_ = ctx
+	}
+	go func() {
+		fn()
+	}()
+}
+
+// [BAD]: The closure calls a captured func value that does not call the deriver.
+func badClosureCallsFuncValueNoDeriver(ctx context.Context) {
+	fn := func() {
+		_ = ctx
+	}
+	go func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		fn()
+	}()
+}
+
+// [GOOD]: The closure calls a func value from a field of a captured struct.
+func goodClosureCallsDerivingField(ctx context.Context) {
+	s := struct{ fn func() }{fn: func() {
+		ctx := apm.NewGoroutineContext(ctx)
+		_ = ctx
+	}}
+	go func() {
+		s.fn()
+	}()
+}
+
+// [GOOD]: The closure calls what a factory returns, which calls the deriver.
+func goodClosureCallsFactoryResult(ctx context.Context) {
+	makeWorker := func() func() {
+		return func() {
+			ctx := apm.NewGoroutineContext(ctx)
+			_ = ctx
+		}
+	}
+	go func() {
+		makeWorker()()
+	}()
+}
+
+// [BAD]: The closure calls what a factory returns, which does not call the deriver.
+func badClosureCallsFactoryResultNoDeriver(ctx context.Context) {
+	makeWorker := func() func() {
+		return func() {
+			_ = ctx
+		}
+	}
+	go func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		makeWorker()()
+	}()
+}
+
+// [BAD]: The closure calls a func value that calls the deriver only in defer.
+func badClosureCallsFuncValueDeferredDeriver(ctx context.Context) {
+	fn := func() {
+		defer apm.NewGoroutineContext(ctx)
+	}
+	go func() { // want "goroutine calls github.com/my-example-app/telemetry/apm.NewGoroutineContext in defer, but it should be called at goroutine start"
+		fn()
+	}()
+}
+
+// [BAD]: The closure defers a func value that calls the deriver.
+func badClosureDefersDerivingFuncValue(ctx context.Context) {
+	fn := func() {
+		ctx := apm.NewGoroutineContext(ctx)
+		_ = ctx
+	}
+	go func() { // want "goroutine calls github.com/my-example-app/telemetry/apm.NewGoroutineContext in defer, but it should be called at goroutine start"
+		defer fn()
+	}()
+}
+
+// [BAD]: The closure calls a func value that only calls itself again.
+//
+// Reaching the same closure again adds nothing.
+func badClosureCallsRecursiveFuncValue(ctx context.Context, n int) {
+	var fn func()
+	fn = func() {
+		_ = ctx
+		if n > 0 {
+			fn()
+		}
+	}
+	go func() { // want "goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context"
+		fn()
+	}()
+}
+
+// [LIMITATION]: The closure calls a func parameter.
+//
+// What the parameter holds is not known, so it passes, as go fn() does.
+func limitationClosureCallsFuncParam(ctx context.Context, fn func()) {
+	go func() {
+		_ = ctx
+		fn()
+	}()
+}

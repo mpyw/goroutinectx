@@ -79,7 +79,13 @@ func (c *GoroutineDerive) failure(e *env.Env, s *site.Site) string {
 	if call := s.Common(); call != nil {
 		given = goroutineArgCalls(call)
 	}
-	p := &goroutineDerivePolicy{kinds: e.Kinds, derivers: c.derivers, given: given}
+	p := &goroutineDerivePolicy{
+		flow:     e.Flow,
+		kinds:    e.Kinds,
+		derivers: c.derivers,
+		given:    given,
+		judging:  make(map[*ssa.Function]bool),
+	}
 	switch e.Index.Judge(e.Flow, p, s.Fn) {
 	case flow.Fail:
 		return fmt.Sprintf(messageGoroutineDerive, c.derivers.Original)
@@ -95,12 +101,17 @@ func (c *GoroutineDerive) failure(e *env.Env, s *site.Site) string {
 // goroutine still has to derive the context it reads from it (#256). One that
 // calls it only in defer fails with [flow.FailDeferOnly]. given are the
 // functions the go statement calls in its arguments, which count as called
-// at the start. A factory passes when it takes a context, or makes a
-// closure taking one or calling the deriver.
+// at the start. A func value the closure calls is judged the same, as if it
+// were spawned directly (#299). A factory passes when it takes a context,
+// or makes a closure taking one or calling the deriver.
 type goroutineDerivePolicy struct {
+	flow     *flow.Flow
 	kinds    *ctxkind.Classifier
 	derivers *deriver.Matcher
 	given    []*types.Func
+	// judging are the closures being judged, up the stack: one reached
+	// again through a func value it calls adds nothing, so it fails.
+	judging map[*ssa.Function]bool
 }
 
 // Literal judges a closure as [goroutineDerivePolicy] tells.
@@ -108,7 +119,12 @@ func (p *goroutineDerivePolicy) Literal(fn *ssa.Function, _ flow.Site) flow.Verd
 	if p.kinds.HasParam(fn, ctxkind.Captured) {
 		return flow.Pass
 	}
-	switch result := flow.ClosureCallsDeriver(fn, p.derivers, p.given...); {
+	if p.judging[fn] {
+		return flow.Fail
+	}
+	p.judging[fn] = true
+	defer delete(p.judging, fn)
+	switch result := p.flow.ClosureDerives(fn, p.derivers, p, p.given...); {
 	case result.FoundAtStart:
 		return flow.Pass
 	case result.FoundOnlyInDefer:

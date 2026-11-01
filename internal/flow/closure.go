@@ -543,8 +543,30 @@ type ClosureDerivation struct {
 // ClosureCallsDeriver checks if a closure calls any of the required deriver
 // functions. given are the functions called for it before it starts, as in
 // the arguments of the go statement that runs it; they count as called at
-// its start.
+// its start. A func value the closure calls is not looked into: ask
+// [Flow.ClosureDerives] for that.
 func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher, given ...*types.Func) ClosureDerivation {
+	return closureDerivation(nil, closure, matcher, nil, given)
+}
+
+// ClosureDerives checks if a closure calls any of the required deriver
+// functions, as [ClosureCallsDeriver] does, or calls a func value that
+// funcs passes as it would pass the same value spawned directly (#299): a
+// func value read from a variable the closure captures or from a part of
+// one, as fn() or s.fn() reads it, or the result of a call, as factory()()
+// or decorate(fn)() gives it, each judged at [SiteCaptured]. One called at
+// the start that passes, or cannot be followed, makes the closure call the
+// deriver at its start. One that fails with [FailDeferOnly], or passes
+// called only in defer, makes it call the deriver only in defer. A call of
+// a named function or of an interface method is not looked into. funcs may
+// be nil, and then no func value is.
+func (f *Flow) ClosureDerives(closure *ssa.Function, matcher *deriver.Matcher, funcs Policy, given ...*types.Func) ClosureDerivation {
+	return closureDerivation(f, closure, matcher, funcs, given)
+}
+
+// closureDerivation is [Flow.ClosureDerives], with funcs nil for
+// [ClosureCallsDeriver].
+func closureDerivation(f *Flow, closure *ssa.Function, matcher *deriver.Matcher, funcs Policy, given []*types.Func) ClosureDerivation {
 	if closure == nil || matcher.IsEmpty() {
 		return ClosureDerivation{FoundAtStart: true}
 	}
@@ -553,12 +575,15 @@ func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher, given 
 	for _, fn := range given {
 		calls = append(calls, closureDeriverCall{fn: fn})
 	}
+	var values []RunCall
 	for site := range Runs(closure, RunOptions{}) {
 		if site.isGo {
 			continue
 		}
 		if fn := ExtractCalledFunc(site.Call); fn != nil {
 			calls = append(calls, closureDeriverCall{fn: fn, inDefer: site.inDefer})
+		} else if closureCallsFuncValue(site.Call) {
+			values = append(values, site)
 		}
 	}
 
@@ -569,6 +594,18 @@ func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher, given 
 		}
 	}
 
+	deferOnly := false
+	if funcs != nil {
+		for _, site := range values {
+			switch v := judgeCaptured(f, funcs, site.Call.Value); {
+			case !site.inDefer && v.Passes():
+				return ClosureDerivation{FoundAtStart: true}
+			case v == FailDeferOnly, site.inDefer && v == Pass:
+				deferOnly = true
+			}
+		}
+	}
+
 	// Check if deriver is only in defer
 	for _, andGroup := range matcher.OrGroups {
 		if closureCallsGroup(calls, andGroup, true) {
@@ -576,7 +613,15 @@ func ClosureCallsDeriver(closure *ssa.Function, matcher *deriver.Matcher, given 
 		}
 	}
 
-	return ClosureDerivation{}
+	return ClosureDerivation{FoundOnlyInDefer: deferOnly}
+}
+
+// closureCallsFuncValue reports whether call calls a func value, not a
+// static callee, an interface method or a builtin. The iterator of a
+// range-over-func loop is left out, as [Runs] goes into its body.
+func closureCallsFuncValue(call *ssa.CallCommon) bool {
+	_, isBuiltin := call.Value.(*ssa.Builtin)
+	return !isBuiltin && !call.IsInvoke() && call.StaticCallee() == nil && runRangeBody(call) == nil
 }
 
 type closureDeriverCall struct {
