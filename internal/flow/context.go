@@ -28,9 +28,12 @@ func (f *Flow) IsFreshContext(v ssa.Value) bool {
 // [ctxkind.Given], and the parts [contextLeftOut] tells left out. A go
 // statement's argument for a parameter that is not a context counts so
 // (#252), and so does a call that makes a value a closure captures (#257).
+// A variable a closure captures, or a load of one, is followed to the
+// values it is made with, as a go statement inside a closure gives one
+// (#269).
 func (f *Flow) InvolvesContext(v ssa.Value, kinds *ctxkind.Classifier) bool {
 	defer f.ask()()
-	return kinds.InvolvesUnless(ctxkind.Given, func(part ssa.Value) bool { return contextLeftOut(f, part, kinds) }, v)
+	return kinds.InvolvesUnless(ctxkind.Given, func(part ssa.Value) bool { return contextLeftOut(f, part, kinds) }, f.CapturedValues(v)...)
 }
 
 // contextLeftOut reports whether part, a part of a value
