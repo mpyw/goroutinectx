@@ -2054,6 +2054,36 @@ _ = gotask.DoAllFnsSettled(
 </td>
 <td>✅️ <b>Passes.</b> The task function calls the deriver</td>
 </tr>
+<tr>
+<td>
+
+```go
+tasks := []func(context.Context) error{
+	func(ctx context.Context) error {
+		return doSomething(ctx)
+	},
+}
+_ = gotask.DoAllFnsSettled(ctx, tasks...)
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A slice expanded with <code>...</code> is judged by its elements when they can be traced</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	tasks []func(context.Context) error,
+) {
+	_ = gotask.DoAllFnsSettled(ctx, tasks...)
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The elements of a slice parameter cannot be traced, so it passes, as a func value that cannot be followed does</td>
+</tr>
 </tbody>
 </table>
 

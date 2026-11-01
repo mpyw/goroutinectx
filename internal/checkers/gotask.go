@@ -131,42 +131,48 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, s *site.Site, entry registry.E
 	return diags
 }
 
-// expandedArgDerives judges the slice of a variadic expansion, arg. The elements of a slice literal, of gotask.TasksFrom, or of the
-// slices a function returns are judged one by one. Otherwise a slice made by
-// a call, as lo.Map makes one, passes when calling one of the call's
-// callbacks gives a task function that derives, whether the call is written
-// in place or held in a variable, or when the call has no callback and its
-// callee cannot be followed (#301). A slice variable whose
-// elements are not traced, as a parameter, is reported. A slice SSA has no
-// value for passes, as nothing is known of it. A slice a closure captures is
-// judged by the slices stored to it: one a call makes is judged as the call
-// (#304), and the others pass.
+// expandedArgDerives judges the slice of a variadic expansion, arg, as
+// gotaskSliceDerives judges its SSA value. A slice SSA has no value for
+// passes, as nothing is known of it.
 func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *gotaskPolicy) bool {
-	v := spawned.Value
-	if v == nil {
+	if spawned.Value == nil {
 		return true
 	}
+	return gotaskSliceDerives(e, spawned.Value, p, map[*ssa.Phi]bool{})
+}
+
+// gotaskSliceDerives judges a slice of tasks or task functions, v. The
+// elements of a slice literal, of gotask.TasksFrom, or of the slices a
+// function returns are judged one by one. A slice a closure captures is
+// judged by the slices stored to it: one a call makes is judged as the call
+// (#304), and the others pass. Otherwise a slice made by a call, as lo.Map
+// makes one, passes when calling one of the call's callbacks gives a task
+// function that derives, whether the call is written in place or held in a
+// variable, or when the call has no callback and its callee cannot be
+// followed (#301). A slice a variable holds on several paths, a Phi, passes
+// when each slice it may hold does. Any other slice, as a parameter, passes,
+// as nothing is known of its elements, the same as a func value that cannot
+// be followed (#316).
+func gotaskSliceDerives(e *env.Env, v ssa.Value, p *gotaskPolicy, seen map[*ssa.Phi]bool) bool {
 	if elems, ok := gotaskSliceElems(e, v); ok {
 		return !slices.ContainsFunc(elems, func(elem ssa.Value) bool { return !p.passes(elem) })
 	}
 	if fv, captured := gotaskCapturedRead(v); captured {
 		return gotaskCapturedSliceDerives(e, fv, p)
 	}
-	if call, ok := v.(*ssa.Call); ok {
+	switch x := v.(type) {
+	case *ssa.Call:
 		// The SSA value is judged, not the form written, so a slice a
 		// variable holds is judged as the call that made it (#270).
-		return gotaskCallSliceDerives(e, call, p)
+		return gotaskCallSliceDerives(e, x, p)
+	case *ssa.Phi:
+		if seen[x] {
+			return true
+		}
+		seen[x] = true
+		return !slices.ContainsFunc(x.Edges, func(edge ssa.Value) bool { return !gotaskSliceDerives(e, edge, p, seen) })
 	}
-	ident, ok := ast.Unparen(spawned.Expr).(*ast.Ident)
-	if !ok {
-		return true
-	}
-	obj, ok := e.Pass.TypesInfo.ObjectOf(ident).(*types.Var)
-	if !ok {
-		return true
-	}
-	_, isSlice := obj.Type().Underlying().(*types.Slice)
-	return !isSlice
+	return true
 }
 
 // gotaskCapturedSliceDerives judges the slice a closure reads from fv, whose
