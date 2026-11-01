@@ -26,14 +26,18 @@ type Env struct {
 	Derivers *deriver.Matcher
 	// Spawners are the functions marked as spawners, and -external-spawner.
 	Spawners *spawner.Map
+	// ReportWaiters is -report-waiters: a goroutine that only waits and
+	// signals is judged as any other (#230).
+	ReportWaiters bool
 	// Flow follows SSA values back to where they come from, with one bound
 	// on the work of each question and what it found remembered for the
 	// pass.
 	Flow *flow.Flow
 }
 
-// New builds the Env of pass. carriers are -context-carriers.
-func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, derivers *deriver.Matcher, spawners *spawner.Map) *Env {
+// New builds the Env of pass. carriers are -context-carriers, and
+// reportWaiters is -report-waiters.
+func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, derivers *deriver.Matcher, spawners *spawner.Map, reportWaiters bool) *Env {
 	// module is the path of the analyzed package's module, or "" when the
 	// driver does not give it.
 	module := ""
@@ -47,5 +51,7 @@ func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, de
 		Derivers: derivers,
 		Spawners: spawners,
 		Flow:     flow.NewFlow(),
+
+		ReportWaiters: reportWaiters,
 	}
 }

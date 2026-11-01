@@ -32,6 +32,11 @@ func TestPluginDeriverAndCarriers(t *testing.T) {
 	analysistest.Run(t, testdata(t), a, "carrierderive")
 }
 
+func TestPluginReportWaiters(t *testing.T) {
+	a := buildAnalyzer(t, map[string]any{"report-waiters": true})
+	analysistest.Run(t, testdata(t), a, "reportwaiters")
+}
+
 func TestPluginTurnsCheckerOn(t *testing.T) {
 	a := buildAnalyzer(t, map[string]any{"spawnerlabel": true})
 	analysistest.Run(t, testdata(t), a, "spawnerlabel")

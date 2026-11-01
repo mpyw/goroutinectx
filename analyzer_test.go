@@ -37,6 +37,9 @@ func TestAnalyzer(t *testing.T) {
 		// The cases that every checker shares, side by side: the goroutine,
 		// errgroup, waitgroup and spawner variants of each.
 		{name: "patterns", pkgs: []string{"patterns"}},
+		// The goroutines that only wait and signal of patterns, reported
+		// (#230).
+		{name: "reportwaiters", cfg: goroutinectx.Config{ReportWaiters: true}, pkgs: []string{"reportwaiters"}},
 		{name: "patternsderive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"patternsderive"}},
 		// In module mode, a method of a captured value counts when its
 		// context field is unexported but of the analyzed module, and not
@@ -121,6 +124,17 @@ func TestFlags(t *testing.T) {
 		}
 	}
 	analysistest.Run(t, analysistest.TestData(), a, "carrierderive")
+}
+
+// TestFlagReportWaiters checks that -report-waiters reaches the run: the
+// reportwaiters fixture is reported only with it set (#230).
+func TestFlagReportWaiters(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
+	if err := a.Flags.Set("report-waiters", "true"); err != nil {
+		t.Fatal(err)
+	}
+	analysistest.Run(t, analysistest.TestData(), a, "reportwaiters")
 }
 
 // TestFlagRejectsShortName checks that a function or a carrier with no

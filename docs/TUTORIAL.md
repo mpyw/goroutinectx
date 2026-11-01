@@ -107,6 +107,30 @@ func handler(ctx context.Context) {
 }
 ```
 
+### Goroutines That Only Wait
+
+One kind of goroutine has no use for ctx: it only waits and then tells the caller. The caller selects on `ctx.Done()` itself, so the analyzer does not report it:
+
+```go
+func handler(ctx context.Context) {
+    var wg sync.WaitGroup
+    done := make(chan struct{})
+
+    // GOOD: it only waits, then closes a channel
+    go func() {
+        wg.Wait()
+        close(done)
+    }()
+
+    select {
+    case <-done:
+    case <-ctx.Done():
+    }
+}
+```
+
+The wait must be one that takes no context, such as `wg.Wait()` or `cmd.Wait()`. A receive from a channel does not count, since the goroutine could select on `ctx.Done()` there. A send after the wait must not block: an unbuffered channel blocks for ever when the caller has left on `ctx.Done()`. `-report-waiters` reports these goroutines too.
+
 ---
 
 ## Understanding Context Scope
