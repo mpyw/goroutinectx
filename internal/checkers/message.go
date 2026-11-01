@@ -29,9 +29,11 @@ const (
 	messageTaskVariadic = "%s() variadic argument should call goroutine deriver"
 	messageTaskArg      = "%s() %s argument should call goroutine deriver"
 	// messageLabelMissing takes the function's name and the API it calls,
-	// and messageLabelUnneeded the function's name.
-	messageLabelMissing  = "function %q should have //goroutinectx:spawner directive (calls %s with func argument)"
-	messageLabelUnneeded = "function %q has unnecessary //goroutinectx:spawner directive"
+	// and messageLabelMissingGo and messageLabelUnneeded the function's
+	// name.
+	messageLabelMissing   = "function %q should have //goroutinectx:spawner directive (calls %s with func argument)"
+	messageLabelMissingGo = "function %q should have //goroutinectx:spawner directive (runs func argument in go statement)"
+	messageLabelUnneeded  = "function %q has unnecessary //goroutinectx:spawner directive"
 )
 
 // messageContextFormat gives format, or withDeriver when derivers is not

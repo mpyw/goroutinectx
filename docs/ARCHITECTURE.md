@@ -133,6 +133,7 @@ Each directory of `testdata/src` is one fixture package. The settings each runs 
 | `spawnermarked/` | The facts `spawner.Analyzer` exports |
 | `spawnerlabel/` | The spawnerlabel checker |
 | `spawnerlabeldoc/` | spawnerlabel with the directive on any doc comment line |
+| `spawnerlabelexternal/` | spawnerlabel with `-external-spawner` |
 | `externalspawner/` | `-external-spawner` |
 | `generics/` | Generic functions, generic types and generic methods |
 | `genericsderive/` | The same for gotask, with a deriver |
@@ -254,6 +255,8 @@ Follows values through the package's SSA form: what a closure captures (`Closure
 | spawnerlabel | Yes | Yes |
 
 The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only, as `Flow.Returns` gives it, or through the result at one index, as `Flow.ReturnsAt` gives it. spawnerlabel takes a closure returned as any result.
+
+spawnerlabel asks the same `Flow` where each func value it runs in a goroutine comes from. A value from a func parameter of the function checked asks for the label. That is the parameter, a closure that captures it, or the result of a call given it. It reads captured values with `Flow.CapturedValues`, then `Flow.Sources`, and writes no walk of its own.
 
 `Flow` is the one engine that follows values, built once per pass and held by `env.Env`. `Flow.Sources(v)` gives the values `v` can come from, each with its kind (function literal, named function, method, call result, parameter, global, unknown), and whether the list is complete. It goes through Phi nodes, type changes, loads of local variables and of their parts, and map lookups at constant keys. It never looks through a call. Two other questions read what it does not:
 
@@ -510,7 +513,7 @@ Separating interfaces allows checkers to implement only what they need, avoiding
 
 **Decision:** Keep every checker and the table of them in one package, `internal/checkers`, one file per kind (`goroutine.go`, `spawn.go`, `gotask.go`, `spawnerlabel.go`), with the table `Defs` in `checkers.go`. The names are a package of their own, `internal/checkername`, which imports nothing.
 
-**Rationale:** The checkers judge spawned functions with the same policy (`spawned.go`) and the same report table (`message.go`). How a callee and its arguments are found is in `internal/site`. Split into packages, each would need those exported from a shared package. In one package, declscope keeps each file's helpers to that file, and the names carry the file (`gotaskIsConstructor`, `spawnedWaiterPasses`, `spawnerlabelHasFuncArgs`). spawnerlabel shares none of the helpers, but declscope gives it the same privacy a package would, so it needs no package of its own. The directive packages and the registry need only the names, so they import `checkername` and not the checkers, which import them.
+**Rationale:** The checkers judge spawned functions with the same policy (`spawned.go`) and the same report table (`message.go`). How a callee and its arguments are found is in `internal/site`. Split into packages, each would need those exported from a shared package. In one package, declscope keeps each file's helpers to that file, and the names carry the file (`gotaskIsConstructor`, `spawnedWaiterPasses`, `spawnerlabelFuncParams`). spawnerlabel shares none of the helpers, but declscope gives it the same privacy a package would, so it needs no package of its own. The directive packages and the registry need only the names, so they import `checkername` and not the checkers, which import them.
 
 ### 5. Multiple Context Parameter Support
 

@@ -17,6 +17,11 @@ type RunCall struct {
 	isGo bool //declscope:shared // closure.go skips go statements
 }
 
+// IsGo reports whether the call is a go statement.
+func (c RunCall) IsGo() bool {
+	return c.isGo
+}
+
 // RunOptions is which functions [Runs] goes into, past the IIFEs and the
 // range-over-func loop bodies it always goes into.
 type RunOptions struct {

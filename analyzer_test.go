@@ -93,6 +93,11 @@ func TestAnalyzer(t *testing.T) {
 			"github.com/example/workerpool.Run",
 		}}, pkgs: []string{"externalspawner"}},
 		{name: "spawnerlabel", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"spawnerlabel"}},
+		// -spawnerlabel with an external spawner, given a literal and a
+		// func parameter (#377).
+		{name: "spawnerlabelexternal", cfg: goroutinectx.Config{Checkers: label, ExternalSpawner: []string{
+			"github.com/example/workerpool.Run",
+		}}, pkgs: []string{"spawnerlabelexternal"}},
 		{name: "gotask", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"gotask"}},
 		// Generated files are skipped.
 		{name: "filefilter", pkgs: []string{"filefilter"}},

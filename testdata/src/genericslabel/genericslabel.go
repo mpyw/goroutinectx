@@ -34,10 +34,16 @@ type funcConstraint interface {
 	~func() | ~func() error
 }
 
-// GenRunUnion runs f, whose constraint is a union of func types.
+// genericHeld holds the funcs GenRunUnion and GenRunNested store, for a
+// goroutine to run later.
+var genericHeld []any
+
+// GenRunUnion stores f, whose constraint is a union of func types. The
+// label stays: f is a func param, and it escapes where the checker cannot
+// follow it.
 //
 //goroutinectx:spawner
-func GenRunUnion[F funcConstraint](f F) { _ = f }
+func GenRunUnion[F funcConstraint](f F) { genericHeld = append(genericHeld, f) }
 
 // GenNotFunc takes a type parameter that is not a func, so its label is
 // unnecessary.
@@ -50,15 +56,27 @@ type nestedFuncConstraint interface {
 	funcConstraint
 }
 
-// GenRunNested runs f, whose constraint embeds a func-only one.
+// GenRunNested stores f, whose constraint embeds a func-only one.
 //
 //goroutinectx:spawner
-func GenRunNested[F nestedFuncConstraint](f F) { _ = f }
+func GenRunNested[F nestedFuncConstraint](f F) { genericHeld = append(genericHeld, f) }
 
 // GenRunExact runs f, whose constraint is the exact func type.
 //
 //goroutinectx:spawner
-func GenRunExact[F interface{ func() }](f F) { _ = f }
+func GenRunExact[F interface{ func() }](f F) { go f() }
+
+// GenOnlyCalls calls f, whose type is a type parameter, in place, so its
+// label is unnecessary (#377).
+//
+//goroutinectx:spawner
+func GenOnlyCalls[F ~func()](f F) { f() } // want `function "GenOnlyCalls" has unnecessary //goroutinectx:spawner directive`
+
+// callsGenRun passes its func param to a generic spawner.
+func callsGenRun(fn func()) { GenRun(fn) } // want `function "callsGenRun" should have //goroutinectx:spawner directive \(calls GenRun with func argument\)`
+
+// callsGenRunLiteral passes its own literal to a generic spawner (#377).
+func callsGenRunLiteral() { GenRun(func() {}) }
 
 // GenNotFuncUnion takes a type parameter that may be a func or an int, so
 // its label is unnecessary.
