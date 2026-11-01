@@ -580,6 +580,38 @@ go func() {
 <td>
 
 ```go
+ctxs := []context.Context{
+	context.Background(),
+}
+waitAll(ctxs)
+go func() {
+	waitAll(ctxs)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The slice holds only a fresh context. A call given only the slice, as <code>waitAll(ctxs)</code> here, in a second goroutine or in another closure, has no context to put in it, so it does not change this</td>
+</tr>
+<tr>
+<td>
+
+```go
+ctxs := []context.Context{
+	context.Background(),
+}
+fill(ctxs, ctx)
+go func() {
+	waitAll(ctxs)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A call given <code>ctx</code> too may put it in the slice. So may a closure that captures <code>ctx</code>, or a method of an interface</td>
+</tr>
+<tr>
+<td>
+
+```go
 m := map[string]context.Context{
 	"a": context.Background(),
 }
@@ -860,7 +892,7 @@ go func(j *Job) {
 ```
 
 </td>
-<td>❌️ <b>Reported.</b> A struct, a pointer to one, or a slice of them that holds only fresh contexts does not count. A struct written in a way that is not followed, as by a method given its address, counts</td>
+<td>❌️ <b>Reported.</b> A struct, a pointer to one, or a slice of them that holds only fresh contexts does not count. A struct written in a way that is not followed, as by a method given its address and a context, counts. A method given no context, as <code>j.reset()</code>, does not change this</td>
 </tr>
 <tr>
 <td>
