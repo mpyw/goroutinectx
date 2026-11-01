@@ -6,8 +6,8 @@ import "golang.org/x/sync/errgroup"
 
 //line fake.tmpl:1
 //goroutinectx:ignore spawnerlabel
-func goodIgnoredBelowLine(g *errgroup.Group) {
-	g.Go(func() error { return nil })
+func goodIgnoredBelowLine(g *errgroup.Group, task func() error) {
+	g.Go(task)
 }
 
 //line a.tmpl:10
@@ -18,6 +18,6 @@ var ignoreTarget = 1
 // the ignore belongs to ignoreTarget.
 //
 //line b.tmpl:11
-func badIgnoreCollision(g *errgroup.Group) { // want `function "badIgnoreCollision" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
-	g.Go(func() error { return nil })
+func badIgnoreCollision(g *errgroup.Group, task func() error) { // want `function "badIgnoreCollision" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g.Go(task)
 }

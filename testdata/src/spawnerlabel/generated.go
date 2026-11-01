@@ -4,10 +4,10 @@ package spawnerlabel
 
 import "golang.org/x/sync/errgroup"
 
-// generatedSpawn calls errgroup.Group.Go with a func argument, but the file
+// generatedSpawn passes its func param to errgroup.Group.Go, but the file
 // is generated, so it is not checked.
-func generatedSpawn() {
+func generatedSpawn(task func() error) {
 	g := new(errgroup.Group)
-	g.Go(func() error { return nil })
+	g.Go(task)
 	_ = g.Wait()
 }

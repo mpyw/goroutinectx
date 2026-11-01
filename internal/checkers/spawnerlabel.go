@@ -3,7 +3,9 @@ package checkers
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
@@ -35,33 +37,20 @@ func (*SpawnerlabelChecker) Name() checkername.Name {
 	return checkername.Spawnerlabel
 }
 
-// spawnerlabelCall contains information about a detected spawn call.
+// spawnerlabelCall is a call that runs a func parameter of the function
+// checked in a goroutine.
 type spawnerlabelCall struct {
-	methodName string // e.g., "errgroup.Group.Go", "sync.WaitGroup.Go", "gotask.DoAll"
+	// methodName is the API called, as "errgroup.Group.Go", or "" for a go
+	// statement.
+	methodName string
 }
 
-// spawnerlabelHasFuncParams checks if a function has func-typed parameters.
-func spawnerlabelHasFuncParams(fn *types.Func) bool {
-	sig, ok := fn.Type().(*types.Signature)
-	if !ok {
-		return false
+// message gives the report of the function named name.
+func (c *spawnerlabelCall) message(name string) string {
+	if c.methodName == "" {
+		return fmt.Sprintf(messageLabelMissingGo, name)
 	}
-
-	params := sig.Params()
-	for param := range params.Variables() {
-		paramType := param.Type()
-
-		// Handle variadic parameters: ...func() is represented as []func()
-		if slice, ok := paramType.(*types.Slice); ok {
-			paramType = slice.Elem()
-		}
-
-		if spawnerlabelIsFuncType(paramType) {
-			return true
-		}
-	}
-
-	return false
+	return fmt.Sprintf(messageLabelMissing, name, c.methodName)
 }
 
 // spawnerlabelIsFuncType reports whether t is a func type, or a type
@@ -134,26 +123,32 @@ func (c *SpawnerlabelChecker) Check(pass *analysis.Pass, skipFiles map[string]bo
 	return diags
 }
 
-// checkFunction checks a single function declaration.
+// checkFunction checks a single function declaration. A function needs the
+// label when a func value it runs in a goroutine, or passes to a spawner,
+// comes from one of its own func parameters. A marked function that runs
+// none of them so, and only calls them in place or leaves them unused,
+// does not.
 func (c *SpawnerlabelChecker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl) []analysis.Diagnostic {
 	fn := c.getFuncObject(pass, fnDecl)
-	if fn == nil {
+	ssaFn := spawnerlabelSSAFunc(c.ssaProg, fnDecl)
+	if fn == nil || ssaFn == nil {
 		return nil
 	}
 
 	isMarked := c.spawners.IsSpawner(fn)
-	spawnInfo := c.findSpawnCall(fnDecl)
+	params := spawnerlabelFuncParams(ssaFn)
+	spawnInfo := c.findSpawnCall(ssaFn, params)
 
 	// Check for missing label
 	if !isMarked && spawnInfo != nil {
 		return []analysis.Diagnostic{{
 			Pos:     fnDecl.Name.Pos(),
-			Message: fmt.Sprintf(messageLabelMissing, fnDecl.Name.Name, spawnInfo.methodName),
+			Message: spawnInfo.message(fnDecl.Name.Name),
 		}}
 	}
 
 	// Check for unnecessary label
-	if isMarked && spawnInfo == nil && !spawnerlabelHasFuncParams(fn) {
+	if isMarked && spawnInfo == nil && spawnerlabelOnlyCalled(params) {
 		return []analysis.Diagnostic{{
 			Pos:     fnDecl.Name.Pos(),
 			Message: fmt.Sprintf(messageLabelUnneeded, fnDecl.Name.Name),
@@ -169,43 +164,56 @@ func (c *SpawnerlabelChecker) getFuncObject(pass *analysis.Pass, fnDecl *ast.Fun
 	return fn
 }
 
-// findSpawnCall searches for spawn calls using SSA analysis. It goes into the
-// closures the function runs: IIFEs, closures called through a variable, the
-// goroutines it starts, and the closures a call returns when that result is
-// called. A closure only made, and never run here, does not count.
-func (c *SpawnerlabelChecker) findSpawnCall(fnDecl *ast.FuncDecl) *spawnerlabelCall {
-	ssaFn := spawnerlabelSSAFunc(c.ssaProg, fnDecl)
-	if ssaFn == nil {
+// findSpawnCall searches fn for a call that runs one of params in a
+// goroutine. It goes into the closures the function runs: IIFEs, closures
+// called through a variable, the goroutines it starts, and the closures a
+// call returns when that result is called. A closure only made, and never
+// run here, does not count.
+func (c *SpawnerlabelChecker) findSpawnCall(fn *ssa.Function, params map[ssa.Value]bool) *spawnerlabelCall {
+	if len(params) == 0 {
 		return nil
 	}
-
-	for site := range flow.Runs(ssaFn, flow.RunOptions{Goroutines: true, Returned: true, Flow: c.flow}) {
-		if info := c.spawnCallInfoOf(site.Call); info != nil {
+	o := &spawnerlabelOrigin{flow: c.flow, params: params, seen: make(map[ssa.Value]bool)}
+	for site := range flow.Runs(fn, flow.RunOptions{Goroutines: true, Returned: true, Flow: c.flow}) {
+		if info := c.spawnCallInfoOf(site, o); info != nil {
 			return info
 		}
 	}
 	return nil
 }
 
-// spawnCallInfoOf reports the API a call spawns through, or nil.
-func (c *SpawnerlabelChecker) spawnCallInfoOf(call *ssa.CallCommon) *spawnerlabelCall {
+// spawnCallInfoOf reports the API a call runs a func parameter in a
+// goroutine through, or nil. A go statement counts with the value it runs
+// and the arguments it passes.
+func (c *SpawnerlabelChecker) spawnCallInfoOf(site flow.RunCall, o *spawnerlabelOrigin) *spawnerlabelCall {
+	call := site.Call
+	if site.IsGo() {
+		if (!call.IsInvoke() && o.fromParam(call.Value)) || o.anyArg(call, 0) {
+			return &spawnerlabelCall{}
+		}
+		return nil
+	}
+
 	// Get the called function
 	calledFn := flow.ExtractCalledFunc(call)
 	if calledFn == nil {
 		return nil
 	}
 
-	// Check against registry
+	// Check against registry. A task API, as DoAsync, runs its receiver,
+	// so every argument counts.
 	if entry, ok := registry.Match(calledFn); ok {
-		// For spawnerlabel, we need func arguments. Task APIs (e.g.,
-		// DoAsync) always spawn.
-		if spawnerlabelHasFuncArgs(call, entry.CallbackArgIdx) || entry.AlwaysSpawns {
+		start := entry.CallbackArgIdx
+		if entry.AlwaysSpawns {
+			start = 0
+		}
+		if o.anyArg(call, start) {
 			return &spawnerlabelCall{methodName: entry.Spec.FullName()}
 		}
 	}
 
 	// Check if calling a spawner-marked function
-	if c.spawners.IsSpawner(calledFn) && spawnerlabelHasFuncArgs(call, 0) {
+	if c.spawners.IsSpawner(calledFn) && o.anyArg(call, 0) {
 		return &spawnerlabelCall{methodName: calledFn.Name()}
 	}
 
@@ -230,24 +238,118 @@ func spawnerlabelSSAFunc(p *flow.Program, decl *ast.FuncDecl) *ssa.Function {
 	return nil
 }
 
-// spawnerlabelHasFuncArgs reports whether call has an argument of a func
-// type, or of a slice of one, at startIdx or after.
-func spawnerlabelHasFuncArgs(call *ssa.CallCommon, startIdx int) bool {
-	args := call.Args
-	if startIdx < 0 || startIdx >= len(args) {
-		return false
+// spawnerlabelFuncParams gives the func parameters of fn: those of a func
+// type, of a slice of one as a variadic ...func() is, or of a type
+// parameter that allows only func types. The receiver is not one.
+func spawnerlabelFuncParams(fn *ssa.Function) map[ssa.Value]bool {
+	params := fn.Params
+	if fn.Signature.Recv() != nil && len(params) > 0 {
+		params = params[1:]
 	}
+	funcs := make(map[ssa.Value]bool)
+	for _, p := range params {
+		t := p.Type()
+		if slice, ok := t.Underlying().(*types.Slice); ok {
+			t = slice.Elem()
+		}
+		if spawnerlabelIsFuncType(t) {
+			funcs[p] = true
+		}
+	}
+	return funcs
+}
 
-	for i := startIdx; i < len(args); i++ {
-		underlying := args[i].Type().Underlying()
-		if _, isFunc := underlying.(*types.Signature); isFunc {
+// spawnerlabelOnlyCalled reports whether each of params is only called in
+// place, or not used at all. Any other use, as storing it or passing it on,
+// may run it in a goroutine the checker cannot see.
+func spawnerlabelOnlyCalled(params map[ssa.Value]bool) bool {
+	for p := range params {
+		for _, ref := range *p.Referrers() {
+			switch r := ref.(type) {
+			case *ssa.DebugRef:
+				continue
+			case *ssa.Call:
+				if r.Call.Value == p && !slices.Contains(r.Call.Args, p) {
+					continue
+				}
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// spawnerlabelOrigin tells whether a value comes from one of the func
+// parameters of the function checked.
+type spawnerlabelOrigin struct {
+	flow   *flow.Flow
+	params map[ssa.Value]bool
+	// seen are the values asked of, so that a cycle of closures ends.
+	seen map[ssa.Value]bool
+}
+
+// anyArg reports whether an argument of call, at start or after, comes from
+// a func parameter, or an element of one of a slice.
+func (o *spawnerlabelOrigin) anyArg(call *ssa.CallCommon, start int) bool {
+	for i := start; i < len(call.Args); i++ {
+		arg := call.Args[i]
+		if o.fromParam(arg) {
 			return true
 		}
-		if slice, ok := underlying.(*types.Slice); ok {
-			if _, isFunc := slice.Elem().Underlying().(*types.Signature); isFunc {
+		if _, isSlice := arg.Type().Underlying().(*types.Slice); !isSlice {
+			continue
+		}
+		elems, _ := o.flow.ResolvedSliceElems(arg)
+		if slices.ContainsFunc(elems, o.fromParam) {
+			return true
+		}
+	}
+	return false
+}
+
+// fromParam reports whether v comes from a func parameter: it is one, or an
+// element of one, or a closure that captures one, or the result of a call
+// of one or given one. It follows v as [flow.Flow.CapturedValues] and
+// [flow.Flow.Sources] do.
+func (o *spawnerlabelOrigin) fromParam(v ssa.Value) bool {
+	if o.seen[v] {
+		return false
+	}
+	o.seen[v] = true
+	for _, x := range o.flow.CapturedValues(v) {
+		if o.params[x] {
+			return true
+		}
+		// An element of a slice parameter, as range over fns reads.
+		if load, ok := x.(*ssa.UnOp); ok && load.Op == token.MUL {
+			if elem, ok := load.X.(*ssa.IndexAddr); ok && o.fromParam(elem.X) {
 				return true
 			}
 		}
+		sources, _ := o.flow.Sources(x)
+		if slices.ContainsFunc(sources, o.fromSource) {
+			return true
+		}
+	}
+	return false
+}
+
+// fromSource reports whether s comes from a func parameter, as fromParam
+// tells it.
+func (o *spawnerlabelOrigin) fromSource(s flow.Source) bool {
+	switch s.Kind {
+	case flow.SourceParam:
+		return o.params[s.Value]
+	case flow.SourceLiteral:
+		// A literal that captures nothing is a function, not a closure.
+		mc, isClosure := s.Value.(*ssa.MakeClosure)
+		if !isClosure {
+			return false
+		}
+		return slices.ContainsFunc(mc.Fn.(*ssa.Function).FreeVars, func(fv *ssa.FreeVar) bool { return o.fromParam(fv) })
+	case flow.SourceCall:
+		call := &s.Call().Call
+		return o.fromParam(call.Value) || o.anyArg(call, 0)
 	}
 	return false
 }

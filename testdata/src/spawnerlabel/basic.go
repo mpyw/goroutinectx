@@ -12,8 +12,15 @@ import (
 
 // ===== MISSING LABEL - SHOULD REPORT =====
 
-// [BAD]: Missing label - calls errgroup.Group.Go with func arg
-func missingLabelErrgroup() { // want `function "missingLabelErrgroup" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+// [BAD]: Missing label - passes its func param to errgroup.Group.Go
+func missingLabelErrgroup(task func() error) { // want `function "missingLabelErrgroup" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	g.Go(task)
+	_ = g.Wait()
+}
+
+// [GOOD]: Passes its own literal to errgroup.Group.Go (#377)
+func goodErrgroupLiteral() {
 	g := new(errgroup.Group)
 	g.Go(func() error {
 		fmt.Println("work")
@@ -22,8 +29,15 @@ func missingLabelErrgroup() { // want `function "missingLabelErrgroup" should ha
 	_ = g.Wait()
 }
 
-// [BAD]: Missing label - calls errgroup.Group.TryGo with func arg
-func missingLabelErrgroupTryGo() { // want `function "missingLabelErrgroupTryGo" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.TryGo with func argument\)`
+// [BAD]: Missing label - passes its func param to errgroup.Group.TryGo
+func missingLabelErrgroupTryGo(task func() error) { // want `function "missingLabelErrgroupTryGo" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.TryGo with func argument\)`
+	g := new(errgroup.Group)
+	g.TryGo(task)
+	_ = g.Wait()
+}
+
+// [GOOD]: Passes its own literal to errgroup.Group.TryGo (#377)
+func goodErrgroupTryGoLiteral() {
 	g := new(errgroup.Group)
 	g.TryGo(func() error {
 		fmt.Println("work")
@@ -32,8 +46,13 @@ func missingLabelErrgroupTryGo() { // want `function "missingLabelErrgroupTryGo"
 	_ = g.Wait()
 }
 
-// [BAD]: Missing label - calls gotask.DoAllFnsSettled with func arg
-func missingLabelGotaskDoAll(ctx context.Context) { // want `function "missingLabelGotaskDoAll" should have //goroutinectx:spawner directive \(calls gotask\.DoAllFnsSettled with func argument\)`
+// [BAD]: Missing label - passes its func param to gotask.DoAllFnsSettled
+func missingLabelGotaskDoAll(ctx context.Context, fn func(context.Context) error) { // want `function "missingLabelGotaskDoAll" should have //goroutinectx:spawner directive \(calls gotask\.DoAllFnsSettled with func argument\)`
+	gotask.DoAllFnsSettled(ctx, fn)
+}
+
+// [GOOD]: Passes its own literal to gotask.DoAllFnsSettled (#377)
+func goodGotaskDoAllLiteral(ctx context.Context) {
 	gotask.DoAllFnsSettled(ctx,
 		func(ctx context.Context) error {
 			_ = ctx
@@ -42,8 +61,15 @@ func missingLabelGotaskDoAll(ctx context.Context) { // want `function "missingLa
 	)
 }
 
-// [BAD]: Missing label - calls gotask.Task.DoAsync
-func missingLabelGotaskDoAsync(ctx context.Context) { // want `function "missingLabelGotaskDoAsync" should have //goroutinectx:spawner directive \(calls gotask\.Task\.DoAsync with func argument\)`
+// [BAD]: Missing label - runs a task made of its func param with DoAsync
+func missingLabelGotaskDoAsync(ctx context.Context, fn func(context.Context) error) { // want `function "missingLabelGotaskDoAsync" should have //goroutinectx:spawner directive \(calls gotask\.Task\.DoAsync with func argument\)`
+	task := gotask.NewTask(fn)
+	ch := make(chan error)
+	task.DoAsync(ctx, ch)
+}
+
+// [GOOD]: Runs a task made of its own literal with DoAsync (#377)
+func goodGotaskDoAsyncLiteral(ctx context.Context) {
 	task := gotask.NewTask(func(ctx context.Context) error {
 		_ = ctx
 		return nil
@@ -52,8 +78,15 @@ func missingLabelGotaskDoAsync(ctx context.Context) { // want `function "missing
 	task.DoAsync(ctx, ch)
 }
 
-// [BAD]: Missing label - indirect spawner call (errgroup wrapper)
-func missingLabelIndirectSpawner() { // want `function "missingLabelIndirectSpawner" should have //goroutinectx:spawner directive \(calls runWithGroup with func argument\)`
+// [BAD]: Missing label - passes its func param to a marked spawner
+func missingLabelIndirectSpawner(fn func() error) { // want `function "missingLabelIndirectSpawner" should have //goroutinectx:spawner directive \(calls runWithGroup with func argument\)`
+	g := new(errgroup.Group)
+	runWithGroup(g, fn)
+	_ = g.Wait()
+}
+
+// [GOOD]: Passes its own literal to a marked spawner (#377)
+func goodIndirectSpawnerLiteral() {
 	g := new(errgroup.Group)
 	runWithGroup(g, func() error {
 		fmt.Println("work")
@@ -86,17 +119,33 @@ func unnecessaryLabelNoFuncArg() { // want `function "unnecessaryLabelNoFuncArg"
 	_ = g.Wait() // No Go() call
 }
 
-// ===== SHOULD NOT REPORT =====
-
-// [GOOD]: Properly labeled function with spawn call
+// [BAD]: Unnecessary label - spawns only its own literal (#377)
 //
 //goroutinectx:spawner
-func goodProperlyLabeled() {
+func unnecessaryLabelOwnLiteral() { // want `function "unnecessaryLabelOwnLiteral" has unnecessary //goroutinectx:spawner directive`
 	g := new(errgroup.Group)
 	g.Go(func() error {
 		fmt.Println("work")
 		return nil
 	})
+	_ = g.Wait()
+}
+
+// [BAD]: Unnecessary label - has a func param, but never uses it
+//
+//goroutinectx:spawner
+func unnecessaryLabelUnusedParam(fn func()) { // want `function "unnecessaryLabelUnusedParam" has unnecessary //goroutinectx:spawner directive`
+	_ = fn
+}
+
+// ===== SHOULD NOT REPORT =====
+
+// [GOOD]: Properly labeled function that forwards its func param
+//
+//goroutinectx:spawner
+func goodProperlyLabeled(task func() error) {
+	g := new(errgroup.Group)
+	g.Go(task)
 	_ = g.Wait()
 }
 
@@ -105,23 +154,23 @@ func goodNoLabelNoSpawn() {
 	fmt.Println("just a regular function")
 }
 
-// [GOOD]: Function with func param, no spawn call, has label
+// [GOOD]: Function with func param that it stores, has label
 //
 //goroutinectx:spawner
 func goodFuncParamWithLabel(fn func()) {
-	// This could spawn in a subtype/mock/etc - label is justified
-	_ = fn
+	// It may run later, where the checker cannot see - label is kept
+	pending = append(pending, fn)
 }
+
+// pending holds the funcs goodFuncParamWithLabel stores.
+var pending []func()
 
 // [GOOD]: Ignore directive on missing label
 //
 //goroutinectx:ignore
-func goodIgnoreDirective() {
+func goodIgnoreDirective(task func() error) {
 	g := new(errgroup.Group)
-	g.Go(func() error {
-		fmt.Println("work")
-		return nil
-	})
+	g.Go(task)
 	_ = g.Wait()
 }
 
@@ -129,12 +178,10 @@ func goodIgnoreDirective() {
 // Go doesn't have abstract methods, but external funcs have no body
 
 // [GOOD]: Spawner inside nested closure - only outermost function matters
-func goodNestedSpawnInClosure() {
+func goodNestedSpawnInClosure(task func() error) {
 	fn := func() {
 		g := new(errgroup.Group)
-		g.Go(func() error {
-			return nil
-		})
+		g.Go(task)
 		_ = g.Wait()
 	}
 	_ = fn // Not actually calling, just assigning
@@ -147,21 +194,26 @@ type SpawnerType struct{}
 
 // [GOOD]: Method with spawner label
 //
-// Method with spawner label and spawn call
+// Method with spawner label that forwards its func param
 //
 //goroutinectx:spawner
-func (s *SpawnerType) SpawnWork() {
+func (s *SpawnerType) SpawnWork(task func() error) {
 	g := new(errgroup.Group)
-	g.Go(func() error {
-		return nil
-	})
+	g.Go(task)
 	_ = g.Wait()
 }
 
 // [BAD]: Method with spawner label
 //
 // Method missing spawner label
-func (s *SpawnerType) MissingLabelMethod() { // want `function "MissingLabelMethod" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+func (s *SpawnerType) MissingLabelMethod(task func() error) { // want `function "MissingLabelMethod" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	g := new(errgroup.Group)
+	g.Go(task)
+	_ = g.Wait()
+}
+
+// [GOOD]: Method that spawns its own literal (#377)
+func (s *SpawnerType) goodMethodLiteral() {
 	g := new(errgroup.Group)
 	g.Go(func() error {
 		return nil
