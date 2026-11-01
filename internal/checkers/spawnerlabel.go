@@ -127,7 +127,8 @@ func (c *SpawnerlabelChecker) Check(pass *analysis.Pass, skipFiles map[string]bo
 // label when a func value it runs in a goroutine, or passes to a spawner,
 // comes from one of its own func parameters. A marked function that runs
 // none of them so, and only calls them in place or leaves them unused,
-// does not.
+// does not. Only a function with the directive itself gets that report. A
+// match of -external-spawner, as for code the user cannot edit, does not.
 func (c *SpawnerlabelChecker) checkFunction(pass *analysis.Pass, fnDecl *ast.FuncDecl) []analysis.Diagnostic {
 	fn := c.getFuncObject(pass, fnDecl)
 	ssaFn := spawnerlabelSSAFunc(c.ssaProg, fnDecl)
@@ -136,6 +137,7 @@ func (c *SpawnerlabelChecker) checkFunction(pass *analysis.Pass, fnDecl *ast.Fun
 	}
 
 	isMarked := c.spawners.IsSpawner(fn)
+	hasDirective := c.spawners.HasDirective(fn)
 	params := spawnerlabelFuncParams(ssaFn)
 	spawnInfo := c.findSpawnCall(ssaFn, params)
 
@@ -148,7 +150,7 @@ func (c *SpawnerlabelChecker) checkFunction(pass *analysis.Pass, fnDecl *ast.Fun
 	}
 
 	// Check for unnecessary label
-	if isMarked && spawnInfo == nil && spawnerlabelOnlyCalled(params) {
+	if hasDirective && spawnInfo == nil && spawnerlabelOnlyCalled(params) {
 		return []analysis.Diagnostic{{
 			Pos:     fnDecl.Name.Pos(),
 			Message: fmt.Sprintf(messageLabelUnneeded, fnDecl.Name.Name),
@@ -257,17 +259,95 @@ func spawnerlabelFuncParams(fn *ssa.Function) map[ssa.Value]bool {
 
 // spawnerlabelOnlyCalled reports whether each of params is only called in
 // place, or not used at all. Any other use, as storing it or passing it on,
-// may run it in a goroutine the checker cannot see.
+// may run it in a goroutine the checker cannot see. So may a call that
+// gives back a func, as in a field, a map or a channel, or one given a
+// func, as the yield of a range over a func.
 func spawnerlabelOnlyCalled(params map[ssa.Value]bool) bool {
 	for p := range params {
 		for _, ref := range *p.Referrers() {
 			call, ok := ref.(*ssa.Call)
-			if !ok || call.Call.Value != p || slices.Contains(call.Call.Args, p) {
+			if !ok || call.Call.Value != p || spawnerlabelMayHoldFunc(call.Type(), nil) {
 				return false
+			}
+			for _, arg := range call.Call.Args {
+				if spawnerlabelMayHoldFunc(arg.Type(), nil) {
+					return false
+				}
 			}
 		}
 	}
 	return true
+}
+
+// spawnerlabelMayHoldFunc reports whether a value of type t may hold a
+// func: t is a func type, or an interface with no methods, or a type that
+// is made of one, as a struct field, an element or a pointer. seen ends a
+// cycle of named types.
+func spawnerlabelMayHoldFunc(t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	if seen == nil {
+		seen = make(map[types.Type]bool)
+	}
+	seen[t] = true
+	switch u := t.Underlying().(type) {
+	case *types.Signature:
+		return true
+	case *types.Interface:
+		return u.NumMethods() == 0
+	case *types.Pointer:
+		return spawnerlabelMayHoldFunc(u.Elem(), seen)
+	case *types.Slice:
+		return spawnerlabelMayHoldFunc(u.Elem(), seen)
+	case *types.Array:
+		return spawnerlabelMayHoldFunc(u.Elem(), seen)
+	case *types.Chan:
+		return spawnerlabelMayHoldFunc(u.Elem(), seen)
+	case *types.Map:
+		return spawnerlabelMayHoldFunc(u.Key(), seen) || spawnerlabelMayHoldFunc(u.Elem(), seen)
+	case *types.Struct:
+		for i := range u.NumFields() {
+			if spawnerlabelMayHoldFunc(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	case *types.Tuple:
+		for i := range u.Len() {
+			if spawnerlabelMayHoldFunc(u.At(i).Type(), seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// spawnerlabelCarriesFunc reports whether a variable of type t, captured by
+// a closure, counts as a func that may run: a func, a slice of funcs, or a
+// task a registered API, as gotask.Task.DoAsync, runs. A pointer, as a
+// variable captured by reference is, counts as what it points to. A value
+// of another type, as a string a func parameter returned, does not.
+func spawnerlabelCarriesFunc(t types.Type) bool {
+	if ptr, ok := t.Underlying().(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	if slice, ok := t.Underlying().(*types.Slice); ok {
+		t = slice.Elem()
+	}
+	return spawnerlabelIsFuncType(t) || spawnerlabelIsTask(t)
+}
+
+// spawnerlabelIsTask reports whether t, or a pointer to it, has a method
+// that runs its receiver in a goroutine, as gotask.Task.DoAsync does.
+func spawnerlabelIsTask(t types.Type) bool {
+	ms := types.NewMethodSet(types.NewPointer(t))
+	for i := range ms.Len() {
+		fn, _ := ms.At(i).Obj().(*types.Func)
+		if entry, ok := registry.Match(fn); ok && entry.AlwaysSpawns {
+			return true
+		}
+	}
+	return false
 }
 
 // spawnerlabelOrigin tells whether a value comes from one of the func
@@ -342,12 +422,16 @@ func (o *spawnerlabelOrigin) fromSource(s flow.Source) bool {
 	case flow.SourceParam:
 		return o.params[s.Value]
 	case flow.SourceLiteral:
-		// A literal that captures nothing is a function, not a closure.
+		// A literal that captures nothing is a function, not a closure. Of
+		// what it captures, only a func may run: a string or an int a func
+		// parameter returned does not.
 		mc, isClosure := s.Value.(*ssa.MakeClosure)
 		if !isClosure {
 			return false
 		}
-		return slices.ContainsFunc(mc.Fn.(*ssa.Function).FreeVars, func(fv *ssa.FreeVar) bool { return o.fromParam(fv) })
+		return slices.ContainsFunc(mc.Fn.(*ssa.Function).FreeVars, func(fv *ssa.FreeVar) bool {
+			return spawnerlabelCarriesFunc(fv.Type()) && o.fromParam(fv)
+		})
 	case flow.SourceCall:
 		call := &s.Call().Call
 		return o.fromParam(call.Value) || o.anyArg(call, 0)
