@@ -878,9 +878,13 @@ func resolvedPathCovers(q, p []int) (covers, partial bool) {
 
 // resolvedLookups gives the values a lookup of a constant key can read from
 // a map made in its function: the values the updates of that key that reach
-// it store. ok is false for any other lookup, and for a map that is used in
-// any way but a lookup or an update at a constant key, as when it is passed
-// on or captured.
+// it store. A map made in a function around it, that a closure captures
+// (#302), is read the same, with the updates a load of a captured variable
+// sees ([resolvedScanFromClosure]): those that reach the closure's run, for
+// one that runs at once, or else every one that reaches its creation or
+// comes after it. ok is false for any other lookup, and for a map that is
+// used in any way but a lookup or an update at a constant key, as when it
+// is passed on, or a closure captures it and does more than look it up.
 func resolvedLookups(l *ssa.Lookup, w resolvedWalk) ([]ssa.Value, bool) {
 	key, ok := l.Index.(*ssa.Const)
 	if l.CommaOk || !ok || key.Value == nil || w.exhausted() {
@@ -896,10 +900,7 @@ func resolvedLookups(l *ssa.Lookup, w resolvedWalk) ([]ssa.Value, bool) {
 
 	var values []ssa.Value
 	for _, v := range maps {
-		m, ok := v.(*ssa.MakeMap)
-		if !ok || m.Parent() != l.Parent() || !resolvedMapOnlyUpdated(m) {
-			return nil, false
-		}
+		m, _ := v.(*ssa.MakeMap)
 		take := func(instr ssa.Instruction) bool {
 			u, ok := instr.(*ssa.MapUpdate)
 			if !ok || u.Map != m {
@@ -912,13 +913,29 @@ func resolvedLookups(l *ssa.Lookup, w resolvedWalk) ([]ssa.Value, bool) {
 			values = resolvedAppendNew(values, u.Value)
 			return true
 		}
-		resolvedScanBack(l, m, take)
+		if m == nil || !resolvedMapOnlyUpdated(m) || !resolvedLookupScan(l, m, take) {
+			return nil, false
+		}
 	}
 	return values, true
 }
 
+// resolvedLookupScan visits the updates of m that the lookup l can see:
+// those that reach it in m's function, or, in a closure of a function around
+// it, those [resolvedScanFromClosure] visits. It reports false when it cannot
+// tell.
+func resolvedLookupScan(l *ssa.Lookup, m *ssa.MakeMap, take func(ssa.Instruction) bool) bool {
+	if m.Parent() == l.Parent() {
+		resolvedScanBack(l, m, take)
+		return true
+	}
+	return resolvedScanFromClosure(l, m, take)
+}
+
 // resolvedMapOnlyUpdated reports whether the map m is only looked up, and
-// updated at constant keys.
+// updated at constant keys. It may be stored to a variable that closures
+// capture, as long as the variable is only looked up through
+// ([resolvedMapVarOnlyLooked]).
 func resolvedMapOnlyUpdated(m *ssa.MakeMap) bool {
 	for _, ref := range *m.Referrers() {
 		switch r := ref.(type) {
@@ -930,10 +947,59 @@ func resolvedMapOnlyUpdated(m *ssa.MakeMap) bool {
 			if r.X != m {
 				return false
 			}
+		case *ssa.Store:
+			a, isAlloc := r.Addr.(*ssa.Alloc)
+			if !isAlloc || r.Val != m || !resolvedMapVarOnlyLooked(a) {
+				return false
+			}
 		case *ssa.DebugRef:
 		default:
 			return false
 		}
 	}
 	return true
+}
+
+// resolvedMapVarOnlyLooked reports whether v, a variable a map is stored to
+// or a free variable that captures one, is stored to only once, as the map
+// is, and every value loaded from it is only looked up, in its function or
+// in a closure that captures it, out through each closure in turn (#302).
+// The updates of the map are then all made to the map itself.
+func resolvedMapVarOnlyLooked(v ssa.Value) bool {
+	// The one store of the map, to the variable itself: a closure stores
+	// to none.
+	stores := 0
+	_, isAlloc := v.(*ssa.Alloc)
+	for _, ref := range *v.Referrers() {
+		switch r := ref.(type) {
+		case *ssa.Store:
+			stores++
+			if !isAlloc || r.Addr != v || stores > 1 {
+				return false
+			}
+		case *ssa.UnOp:
+			if r.Op != token.MUL || !resolvedMapOnlyLooked(r) {
+				return false
+			}
+		case *ssa.MakeClosure:
+			fn := r.Fn.(*ssa.Function)
+			for i, b := range r.Bindings {
+				if b == v && !resolvedMapVarOnlyLooked(fn.FreeVars[i]) {
+					return false
+				}
+			}
+		case *ssa.DebugRef:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// resolvedMapOnlyLooked reports whether the map m is only looked up.
+func resolvedMapOnlyLooked(m ssa.Value) bool {
+	return !slices.ContainsFunc(*m.Referrers(), func(ref ssa.Instruction) bool {
+		l, ok := ref.(*ssa.Lookup)
+		return !ok || l.X != m
+	})
 }
