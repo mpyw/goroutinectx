@@ -101,7 +101,7 @@ A goroutine passes when it uses the context.
 
 | Method | Command | Needs |
 | --- | --- | --- |
-| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/goroutinectx@0.15.0"` | Nothing. Installs the prebuilt binary |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/goroutinectx@0.16.0"` | Nothing. Installs the prebuilt binary |
 | `go tool` | `go get -tool github.com/mpyw/goroutinectx/cmd/goroutinectx@latest` | Go 1.27+ |
 | `go install` | `go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest` | Go 1.27+ |
 | Release archive | See below | Nothing |
@@ -114,7 +114,7 @@ goroutinectx ./...
 > Building goroutinectx from source requires Go 1.27 or later.
 
 > [!CAUTION]
-> In CI, use a fixed version tag, such as `@v0.15.0`. Do not use `@latest`. A fixed tag protects you from supply chain attacks.
+> In CI, use a fixed version tag, such as `@v0.16.0`. Do not use `@latest`. A fixed tag protects you from supply chain attacks.
 
 <details>
 <summary>More ways to install and run: mise, <code>go tool</code>, <code>go run</code>, a release archive, golangci-lint, or a Go program</summary>
@@ -123,7 +123,7 @@ goroutinectx ./...
 
 ```toml
 [tools]
-"github:mpyw/goroutinectx" = "0.15.0"
+"github:mpyw/goroutinectx" = "0.16.0"
 ```
 
 As a tool dependency in `go.mod`:
@@ -142,7 +142,7 @@ go run github.com/mpyw/goroutinectx/cmd/goroutinectx@latest ./...
 To install from a release archive on [GitHub Releases](https://github.com/mpyw/goroutinectx/releases), download it and check it against the published checksums:
 
 ```bash
-VERSION=0.15.0
+VERSION=0.16.0
 OS=linux    # or darwin
 ARCH=amd64  # or arm64
 REPO=https://github.com/mpyw/goroutinectx
@@ -164,7 +164,7 @@ version: v2.15.0  # the golangci-lint release to build
 plugins:
   - module: github.com/mpyw/goroutinectx
     import: github.com/mpyw/goroutinectx/plugin
-    version: v0.15.0
+    version: v0.16.0
 ```
 
 Turn it on in `.golangci.yml`. The keys under `settings` are the names of the [flags](#flags). A key that is not set keeps its default value. An unknown key stops the run:
