@@ -90,9 +90,13 @@
 // Checks that //goroutinectx:spawner labels the functions that spawn, and
 // only those. It runs with -spawnerlabel.
 //
-// A function needs the label when it calls a supported API, such as
-// errgroup.Group.Go, with a func argument, or calls another spawner with one,
-// or calls gotask's DoAsync:
+// A function needs the label when a func value it runs in a goroutine comes
+// from one of its own func parameters (#377, #378). It runs a value in a
+// goroutine with a go statement, or by passing it to a supported API, such
+// as errgroup.Group.Go, to a marked spawner, or to an external spawner. The
+// value comes from a parameter when it is the parameter, an element of a
+// variadic one, a closure that captures it, or the result of a call given
+// it. Flow.CapturedValues and Flow.Sources follow it there:
 //
 //	func runTask(task func() error) { // should have //goroutinectx:spawner
 //	    g := new(errgroup.Group)
@@ -100,19 +104,27 @@
 //	    _ = g.Wait()
 //	}
 //
+//	func runWork() { // passes: its own literal
+//	    g := new(errgroup.Group)
+//	    g.Go(func() error { return nil })
+//	    _ = g.Wait()
+//	}
+//
 // The calls made in the closures the function runs count too: IIFEs, a
 // closure called through a variable, the goroutines it starts, and the
 // closures a call returns when that result is called. A closure it only
-// makes, and does not run, does not count. A go statement on its own, as
-// go fn(), is not such a call.
+// makes, and does not run, does not count. A factory's own parameter, bound
+// in the closure it returns, is not followed to the factory's call.
 //
-// A labeled function needs it only while it makes such a call or takes a
-// func parameter, the arguments the spawner checker checks. A type parameter
-// whose constraint allows only func types, as F ~func() does, is one:
+// A labeled function does not need it when it runs none of its func
+// parameters in a goroutine, and each is only called in place or unused. A
+// type parameter whose constraint allows only func types, as F ~func()
+// does, is a func parameter. One used in any other way, as sent on a
+// channel, may run where the checker cannot see, so the label stays:
 //
 //	//goroutinectx:spawner // unnecessary
-//	func simpleHelper() {
-//	    fmt.Println("hello")
+//	func withCallback(cb func()) {
+//	    cb()
 //	}
 //
 // It runs over the whole pass, after the per-node checkers:

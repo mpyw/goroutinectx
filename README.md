@@ -244,7 +244,7 @@ a, err := goroutinectx.New(goroutinectx.Config{
 | [`waitgroup`](#waitgroup) | 🟢 On | A callback of `sync.WaitGroup.Go` that does not use the context |
 | [`conc`](#conc) | 🟢 On | A callback of [conc](https://pkg.go.dev/github.com/sourcegraph/conc) that does not use the context |
 | [`spawner`](#spawner) | 🟢 On | A func argument of a [spawner](#goroutinectxspawner) that does not use the context |
-| [`spawnerlabel`](#spawnerlabel) | 🔴 Off | A spawner without `//goroutinectx:spawner`. Also the directive where it is not needed |
+| [`spawnerlabel`](#spawnerlabel) | 🔴 Off | A function that runs its func parameter in a goroutine, without `//goroutinectx:spawner`. Also the directive where it is not needed |
 | [`goroutinederive`](#goroutinederive) | With [`-goroutine-deriver`](#-goroutine-deriver) | A goroutine that does not call the deriver |
 | [`gotask`](#gotask) | With [`-goroutine-deriver`](#-goroutine-deriver) | A task of [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) that does not call the deriver |
 
@@ -1321,6 +1321,16 @@ runAsync(g, func() error {
 
 This checker is off by default. Turn it on with `-spawnerlabel`. It checks that every spawner has `//goroutinectx:spawner`. It also checks that no other function has it.
 
+A function needs the directive when it runs one of its own func parameters in a goroutine. These count as running it in a goroutine:
+
+- a `go` statement,
+- a callback of `errgroup`, `sync.WaitGroup.Go` or conc,
+- a func argument of a marked spawner, or of an [`-external-spawner`](#-external-spawner) function.
+
+The value run counts when it comes from a func parameter. It can be the parameter itself, or a closure that calls or captures the parameter. A literal, a named function or a local variable of the function's own does not count.
+
+A function with the directive is reported when it needs none. That is so when it runs no func parameter in a goroutine, and each one is only called in place or not used. A func parameter that goes where the checker cannot follow, as to a channel, keeps the directive.
+
 <table>
 <thead>
 <tr><th>Code</th><th>Verdict</th></tr>
@@ -1338,7 +1348,48 @@ func runTask(task func() error) {
 ```
 
 </td>
-<td>❌️ <b>Reported.</b> It passes a func argument to a spawn call, but it does not have the directive</td>
+<td>❌️ <b>Reported.</b> It passes its own func parameter to <code>g.Go</code>, but it does not have the directive</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runWork() {
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		return doWork()
+	})
+	_ = g.Wait()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It passes its own literal. No func argument of a caller runs in a goroutine</td>
+</tr>
+</tbody>
+</table>
+
+<details>
+<summary>All cases (12)</summary>
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+func runTask(task func() error) {
+	g := new(errgroup.Group)
+	g.Go(task)
+	_ = g.Wait()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> It passes its own func parameter to <code>g.Go</code>, but it does not have the directive</td>
 </tr>
 <tr>
 <td>
@@ -1359,6 +1410,114 @@ func runTask(task func() error) {
 <td>
 
 ```go
+func runWork() {
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		return doWork()
+	})
+	_ = g.Wait()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It passes its own literal. No func argument of a caller runs in a goroutine</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runAsync(cb func()) {
+	go cb()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A <code>go</code> statement runs its func parameter</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runAsync(cb func()) {
+	go func() {
+		cb()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The goroutine runs a closure that calls the parameter</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runLater(cb func()) {
+	spawn(func() {
+		cb()
+	})
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> It passes a closure that calls the parameter. Capturing the parameter is enough</td>
+</tr>
+<tr>
+<td>
+
+```go
+func withCallback(cb func()) {
+	spawn(func() {})
+	cb()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It has a func parameter, but runs it in place. The spawned literal does not use it</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runWork() {
+	spawn(work)
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A named function of its own is not a func argument of a caller</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runWork() {
+	f := func() {}
+	spawn(f)
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The variable holds its own literal</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:spawner
+func withCallback(cb func()) {
+	spawn(func() {})
+	cb()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The directive is not needed. It only calls <code>cb</code> in place</td>
+</tr>
+<tr>
+<td>
+
+```go
 //goroutinectx:spawner
 func simpleHelper() {
 	fmt.Println("hello")
@@ -1366,10 +1525,25 @@ func simpleHelper() {
 ```
 
 </td>
-<td>❌️ <b>Reported.</b> The directive is not needed. The function spawns nothing, and has no func parameter</td>
+<td>❌️ <b>Reported.</b> The directive is not needed. The function has no func parameter</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:spawner
+func (p *Pool) Submit(f func()) {
+	p.queue <- f
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The parameter escapes to a channel. The checker cannot see where it runs, so the directive stays</td>
 </tr>
 </tbody>
 </table>
+
+</details>
 
 ## `goroutinederive`
 
