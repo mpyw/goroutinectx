@@ -155,7 +155,7 @@ type Env struct {
     Pass     *analysis.Pass
     SSA      *flow.Program
     Index    *site.Index         // each go statement and call as a site, and each function literal's SSA function
-    Kinds    *ctxkind.Classifier // what counts as a context: carriers, module
+    Kinds    *ctxkind.Classifier // what counts as a context: carriers, package, module
     Derivers *deriver.Matcher    // nil when -goroutine-deriver is not set
     Spawners *spawner.Map
     Flow     *flow.Flow          // follows values, one bound per question, remembered for the pass
@@ -171,24 +171,37 @@ Tells what counts as a context, with the carriers, the `context.Context` interfa
 | `Context` | `context.Context`, an interface that embeds it, or a type parameter constrained by one |
 | `Carrier` | A type of `-context-carriers` |
 | `Implements` | A type that implements `context.Context`, as a struct that embeds one does |
-| `Holds` | A struct with a field of one of these kinds that the analyzed code can set (#191) |
+| `Holds` | A struct, or a pointer to one, with a field of one of these kinds that the analyzed code can set (#191) |
 
-Each caller names the set it counts. The sets do not agree yet (#210 step 2):
+Each caller names the set it counts (#210). A value a goroutine gets counts by a wide set, so that when in doubt, nothing is reported. What puts a function under check is the narrow set, since checking more functions means more reports:
 
 | Threshold | Kinds | Used by |
 |-----------|-------|---------|
-| `Param` | `Context`, `Carrier` | `HasParam`, `ParamNames`, `Involves`, `MayHold`; the goroutine checker's test of a closure's parameters |
+| `Param` | `Context`, `Carrier` | `ParamNames`: the runner, to find the functions whose goroutines are checked, and the name in the message |
 | `Captured` | `Context`, `Carrier`, `Implements` | `Flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields |
+| `Given` | `Captured` and `Holds` | `HasParam` for a spawned closure and a factory, a parameter of the closure a go statement runs, `Involves` for the arguments of a factory, `MayHold` for the other arguments of a call given a fresh context |
 | `Context` | `Context` | `flow.GivesOnlyFreshContext`, for the fresh argument; `IsWithCall`, for the first parameter |
+
+These differences are kept on purpose:
+
+| Difference | Why |
+|------------|-----|
+| `ParamNames` uses `Param`, not `Given` | A handler that takes a type that only implements `context.Context`, as `*gin.Context`, or a struct with a context field, would be checked, which means new reports. Such a type is often not the context to pass on |
+| A captured value is `Captured`, a call's argument `Holds` too | A captured struct that holds a context counts only when it is given to a call, as the receiver or an argument (`callsWithHolder`). A struct captured and not given anywhere does not use its context |
+| `GivesOnlyFreshContext` tests the fresh argument with `Context` | Only a `context.Context` can be fresh: `IsFreshContext` follows a value back to a `Background()` or `TODO()` call. Any other argument is tested with `MayHold(Given)` |
+
+A captured context, carrier or value of `Implements`, and a part read from one, are judged alike: a carrier that is a context too, and an `Implements` value, count unless they hold only a fresh context. A carrier that is not a context counts as it is.
+
+`Holds` judges a field for the analyzed package and its module. For a closure of another package, as one a factory returns, `From` adds that package. A wrapper SSA makes has no package, so only the analyzed package and its module count.
 
 It also holds both tests for a context parameter. They differ on purpose:
 
 | Method | Reads | Blank parameter (`_ context.Context`) | Receiver | Used by |
 |--------|-------|---------------------------------------|----------|---------|
-| `HasParam` | SSA parameters | Counts | Counts | The checkers, for spawned closures and factories |
-| `ParamNames` | Syntax of a declaration or literal | Left out | Left out | The runner, to find the enclosing context and its name |
+| `HasParam` | SSA parameters | Counts | Counts | The checkers, for spawned closures and factories. `_` and a receiver are given a value, so they count |
+| `ParamNames` | Syntax of a declaration or literal | Left out | Left out | The runner, to find the enclosing context and its name. A message cannot name `_`, and the receiver is not in the `FuncType` |
 
-`IsFreshCall` tells `Background` and `TODO` of `context` and `golang.org/x/net/context`. `IsWithCall` tells the `With*` functions of `context`, which the gotask checker follows back to a deriver.
+`IsFreshCall` tells `Background` and `TODO` of `context` and `golang.org/x/net/context`. `IsWithCall` tells the `With*` functions of both, which the gotask checker follows back to a deriver and `IsCancelCall` takes the cancel funcs of. The `With*` functions of `golang.org/x/net/context` call those of `context`.
 
 ### internal/site/
 
@@ -221,7 +234,7 @@ Every check that follows a value is a fold over these:
 | `Judge` | The worst `Verdict` of the sources: a literal by `Policy.Literal`, a call by `Policy.Call` and then the factory rules. Of a factory, the best of the values `Returns` gives counts. `Unknown` counts as `Pass` |
 | `judgeCaptured` | `Judge` of each value `CapturedSources` gives, at `SiteCaptured`, or `Unknown` when they cannot all be followed |
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
-| `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `context.With*` call, and that context is not fresh |
+| `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `With*` call of `context` or `golang.org/x/net/context`, and that context is not fresh |
 | `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured interface given to a call counts when one of the values `CapturedSources` and `Sources` give is a `MakeInterface` of a type that holds a context, or cannot be followed and is of an interface declared in the module (`DeclaredInModule`, #240). A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `judgeCaptured` passes it, as if it were spawned directly |
 | `Flow.IsWaiter` | The closure only waits (`WaitGroup.Wait`, `errgroup.Group.Wait`, `Cmd.Wait`, ...) and signals, with no loop. A send outside a select must be its only one. The channel must have room for it: every value `CapturedSources` gives has only `make(chan T, n)` sources, `n` a constant of at least 1, and the function of each makes at most `n` sends on it, its own or in the closures it gives the channel to, none in a loop (#230, #242) |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |

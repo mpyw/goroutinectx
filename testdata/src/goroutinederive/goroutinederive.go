@@ -35,6 +35,22 @@ func notCheckedOwnContextParam(ctx context.Context) {
 	}(ctx)
 }
 
+// [NOTCHECKED]: Basic - has own param that implements context.Context.
+//
+// A parameter whose type implements context.Context counts as a context
+// parameter, as it does for the closure checkers (#210).
+func notCheckedOwnContextImplParam(ctx context.Context) {
+	go func(w ctxWrapper) {
+		_ = w
+	}(ctxWrapper{Context: ctx})
+}
+
+// ctxWrapper is a context with a value of its own.
+type ctxWrapper struct {
+	context.Context
+	user string
+}
+
 // [NOTCHECKED]: Basic - named function call (not checked).
 //
 // Named function call pattern is not checked for deriver.

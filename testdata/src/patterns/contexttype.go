@@ -652,3 +652,155 @@ func limitationOwnMethodsCtxIfaceGoroutine(ctx ownMethods) {
 	go func() {
 	}()
 }
+
+// ===== Captured value with the methods of context.Context =====
+
+// [GOOD]: Captured value with the methods of context.Context, made from ctx
+//
+// A value whose type implements context.Context counts as a context.
+func goodCapturedOwnMethodsGoroutine(ctx context.Context) {
+	var c ownMethods = ctx
+	go func() { _ = c }()
+}
+
+// [GOOD]: Captured value with the methods of context.Context, made from ctx
+//
+// A value whose type implements context.Context counts as a context.
+func goodCapturedOwnMethodsErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var c ownMethods = ctx
+	g.Go(func() error { _ = c; return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Captured value with the methods of context.Context, made from ctx
+//
+// A value whose type implements context.Context counts as a context.
+func goodCapturedOwnMethodsWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var c ownMethods = ctx
+	wg.Go(func() { _ = c })
+	wg.Wait()
+}
+
+// [GOOD]: Captured value with the methods of context.Context, made from ctx
+//
+// A value whose type implements context.Context counts as a context.
+func goodCapturedOwnMethodsSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var c ownMethods = ctx
+	runWithGroup(g, func() error { _ = c; return nil })
+	_ = g.Wait()
+}
+
+// [BAD]: Captured value with the methods of context.Context, made fresh
+//
+// It holds only context.Background(), so it is judged as a context.Context
+// that holds one is, and as a field of this type is (#210).
+func badCapturedOwnMethodsFreshGoroutine(ctx context.Context) {
+	var c ownMethods = context.Background()
+	go func() { _ = c }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured value with the methods of context.Context, made fresh
+//
+// It holds only context.Background(), so it is judged as a context.Context
+// that holds one is, and as a field of this type is (#210).
+func badCapturedOwnMethodsFreshErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var c ownMethods = context.Background()
+	g.Go(func() error { _ = c; return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured value with the methods of context.Context, made fresh
+//
+// It holds only context.Background(), so it is judged as a context.Context
+// that holds one is, and as a field of this type is (#210).
+func badCapturedOwnMethodsFreshWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var c ownMethods = context.TODO()
+	wg.Go(func() { _ = c }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Captured value with the methods of context.Context, made fresh
+//
+// It holds only context.Background(), so it is judged as a context.Context
+// that holds one is, and as a field of this type is (#210).
+func badCapturedOwnMethodsFreshSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var c ownMethods = context.Background()
+	runWithGroup(g, func() error { _ = c; return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Field with the methods of context.Context, made fresh
+//
+// A field read from a captured value is judged the same as a captured
+// variable of its type.
+func badCapturedOwnMethodsFieldFreshGoroutine(ctx context.Context) {
+	h := struct{ c ownMethods }{c: context.Background()}
+	go func() { _ = h.c }() // want `goroutine does not propagate context "ctx"`
+}
+
+// ===== Spawned function that takes a value that implements context.Context =====
+
+//goroutinectx:spawner
+func runWithWrapper(fn func(ctxWrapper)) {
+	go fn(ctxWrapper{Context: context.Background()})
+}
+
+//goroutinectx:spawner
+func runWithService(fn func(*ctxService)) {
+	go fn(&ctxService{ctx: context.Background()})
+}
+
+// [GOOD]: Goroutine given a value that implements context.Context
+//
+// The parameter counts as a context, as the same value captured does
+// (#210).
+func goodGoParamContextImplGoroutine(ctx context.Context, w ctxWrapper) {
+	go func(w ctxWrapper) {
+		_ = w.user
+	}(w)
+}
+
+// [GOOD]: Goroutine given a struct that holds a context
+//
+// The parameter counts as a context, as the same value captured and given
+// to a call does (#210).
+func goodGoParamHolderGoroutine(ctx context.Context, s *ctxService) {
+	go func(s *ctxService) {
+		_ = s
+	}(s)
+}
+
+// [GOOD]: Spawner func argument that takes a value that implements context.Context
+//
+// The func argument takes a context, as one that takes a context.Context
+// does (#210).
+func goodSpawnerParamContextImplSpawner(ctx context.Context) {
+	runWithWrapper(func(w ctxWrapper) {
+		_ = w.user
+	})
+}
+
+// [GOOD]: Spawner func argument that takes a struct that holds a context
+//
+// The func argument takes a context, as one that takes a context.Context
+// does (#210).
+func goodSpawnerParamHolderSpawner(ctx context.Context) {
+	runWithService(func(s *ctxService) {
+		_ = s
+	})
+}
+
+// [BAD]: Goroutine given a struct that holds no context
+//
+// A struct with no context field is not a context.
+func badGoParamPlainHolderGoroutine(ctx context.Context, p plainHolder) {
+	go func(p plainHolder) { // want `goroutine does not propagate context "ctx"`
+		_ = p.name
+	}(p)
+}

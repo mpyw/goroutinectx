@@ -19,6 +19,8 @@ const (
 	newrelicDeriver = "github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+" +
 		"github.com/newrelic/go-agent/v3/newrelic.NewContext"
 	echoCarrier = "github.com/labstack/echo/v4.Context"
+	// reqCarrier is a carrier that is a context.Context too.
+	reqCarrier = "github.com/example/reqctx.Context"
 )
 
 // TestAnalyzer runs each fixture package with the settings it is written
@@ -61,7 +63,7 @@ func TestAnalyzer(t *testing.T) {
 		// Mixed: (Transaction.NewGoroutine AND NewContext) OR
 		// apm.NewGoroutineContext.
 		{name: "goroutinederivemixed", cfg: goroutinectx.Config{GoroutineDeriver: newrelicDeriver + "," + apmDeriver}, pkgs: []string{"goroutinederivemixed"}},
-		{name: "carrier", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier}}, pkgs: []string{"carrier"}},
+		{name: "carrier", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier, reqCarrier}}, pkgs: []string{"carrier"}},
 		{name: "carrierderive", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier}, GoroutineDeriver: apmDeriver}, pkgs: []string{"carrierderive"}},
 		{name: "spawner", pkgs: []string{"spawner"}},
 		// Spawner directives across packages (#89) and on any doc comment

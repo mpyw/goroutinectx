@@ -4,6 +4,8 @@
 package env
 
 import (
+	"go/types"
+
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/mpyw/goroutinectx/internal/carrier"
@@ -23,8 +25,8 @@ type Env struct {
 	// Index gives each go statement and call as a site, and each function
 	// literal's SSA function.
 	Index *site.Index
-	// Kinds tells what counts as a context, with -context-carriers and the
-	// module of the analyzed package.
+	// Kinds tells what counts as a context, with -context-carriers, the
+	// analyzed package and its module.
 	Kinds *ctxkind.Classifier
 	// Derivers is -goroutine-deriver, nil when it is not set.
 	Derivers *deriver.Matcher
@@ -45,14 +47,18 @@ func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, de
 	// module is the path of the analyzed package's module, or "" when the
 	// driver does not give it.
 	module := ""
-	if pass != nil && pass.Module != nil {
-		module = pass.Module.Path
+	var pkg *types.Package
+	if pass != nil {
+		pkg = pass.Pkg
+		if pass.Module != nil {
+			module = pass.Module.Path
+		}
 	}
 	return &Env{
 		Pass:     pass,
 		SSA:      prog,
 		Index:    site.NewIndex(pass, prog),
-		Kinds:    ctxkind.New(prog.Program, carriers, module),
+		Kinds:    ctxkind.New(prog.Program, carriers, module, pkg),
 		Derivers: derivers,
 		Spawners: spawners,
 		Flow:     flow.NewFlow(),

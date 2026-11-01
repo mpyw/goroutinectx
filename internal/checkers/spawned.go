@@ -59,7 +59,7 @@ func newSpawnedGoContextPolicy(e *env.Env, call *ssa.CallCommon) *spawnedContext
 func (p *spawnedContextPolicy) Literal(fn *ssa.Function, site flow.Site) flow.Verdict {
 	spawned := site == flow.SiteSpawned
 	switch {
-	case spawned && p.goCall == nil && p.e.Kinds.HasParam(fn, ctxkind.Param),
+	case spawned && p.goCall == nil && p.e.Kinds.HasParam(fn, ctxkind.Given),
 		p.e.Flow.ClosureCapturesContext(fn, p.e.Kinds, p),
 		!p.derivers.IsEmpty() && flow.ClosureCallsDeriver(fn, p.derivers).FoundAtStart,
 		spawned && p.derivers.IsEmpty() && spawnedWaiterPasses(p.e, fn),
@@ -70,13 +70,14 @@ func (p *spawnedContextPolicy) Literal(fn *ssa.Function, site flow.Site) flow.Ve
 }
 
 // goParamsPass reports whether a parameter of fn ties it to ctx, as goCall
-// gives it: a context other than a fresh one, the channel of ctx.Done(), or
-// a cancel func of a context made from ctx.
+// gives it: a context other than a fresh one, as [ctxkind.Given] counts
+// one, the channel of ctx.Done(), or a cancel func of a context made from
+// ctx.
 func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
 	return slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool {
 		i := slices.Index(fn.Params, param)
-		if !p.e.Kinds.Is(param.Type(), ctxkind.Param) {
+		if !p.e.Kinds.Is(param.Type(), ctxkind.Given) {
 			return i < len(args) && p.e.Flow.SignalsContext(args[i], p.e.Kinds)
 		}
 		return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
@@ -92,14 +93,16 @@ func (p *spawnedContextPolicy) Call(call *ssa.CallCommon) flow.Verdict {
 	return flow.Unknown
 }
 
-// FactoryCall passes a factory given a context other than a fresh one.
+// FactoryCall passes a factory given a context other than a fresh one, as
+// [ctxkind.Given] counts one.
 func (p *spawnedContextPolicy) FactoryCall(call *ssa.CallCommon) bool {
-	return p.e.Kinds.Involves(ctxkind.Param, call.Args...) && !p.e.Flow.GivesOnlyFreshContext(call, p.e.Kinds)
+	return p.e.Kinds.Involves(ctxkind.Given, call.Args...) && !p.e.Flow.GivesOnlyFreshContext(call, p.e.Kinds)
 }
 
-// Factory passes a factory that takes a context.
+// Factory passes a factory that takes a context, as [ctxkind.Given] counts
+// one.
 func (p *spawnedContextPolicy) Factory(fn *ssa.Function) bool {
-	return p.e.Kinds.HasParam(fn, ctxkind.Param)
+	return p.e.Kinds.HasParam(fn, ctxkind.Given)
 }
 
 // spawnedWaiterPasses passes a closure that only waits and signals, as

@@ -31,22 +31,34 @@ const (
 	// Implements is a type that, past its pointers, implements
 	// context.Context, as a struct that embeds one does.
 	Implements
-	// Holds is a struct with a field the analyzed code can set that is
-	// Captured or Holds, by value. A struct it points to is not looked into.
-	// The field must be exported, or declared in the package given to
-	// [Classifier.From], or in a package of the module.
+	// Holds is a struct, or a pointer to one, with a field the analyzed code
+	// can set that is Captured, or a struct that is Holds by value. A struct
+	// a field points to is not looked into. The field must be exported, or
+	// declared in the analyzed package, the package given to
+	// [Classifier.From], or a package of the module.
 	Holds
 )
 
-// The thresholds the callers pick. They do not agree yet (#210).
+// The thresholds the callers pick (#210). A value a goroutine gets counts
+// by the wide sets, Captured and Given, as when in doubt a goroutine is not
+// reported. What puts a function under check is the narrow set, Param, as
+// checking more functions means more reports.
 const (
-	// Param is what a parameter, an argument or an operand counts as: a
-	// context or a carrier.
+	// Param is what a parameter of a function must be for the goroutines in
+	// it to be checked against it, and named in a report: a context or a
+	// carrier. A type that only implements context.Context, as a
+	// *gin.Context does, is left out, so a handler that takes one is not
+	// checked.
 	Param = Context | Carrier
 	// Captured is what a value a closure captures or reads counts as, and
 	// what a method called on one must return: also a type that implements
 	// context.Context.
 	Captured = Context | Carrier | Implements
+	// Given is what a parameter of a spawned function or a factory, or an
+	// argument given to one, counts as: what Captured counts, and a struct
+	// that holds one, as a closure that gives a captured value to a call
+	// counts it ([Holds]).
+	Given = Captured | Holds
 )
 
 const (
@@ -63,19 +75,22 @@ type Classifier struct {
 	iface *types.Interface
 	// module is the path of the analyzed package's module, or "".
 	module string
-	// from is the package whose code Holds is judged for, or nil.
+	// pkg is the analyzed package, or nil.
+	pkg *types.Package
+	// from is the package of the code Holds is judged for, or nil.
 	from *types.Package
 }
 
 // New builds the Classifier of a pass. prog is its SSA program, carriers are
-// -context-carriers, and module is the path of the analyzed package's
-// module, or "" when the driver does not give it.
-func New(prog *ssa.Program, carriers []carrier.Carrier, module string) *Classifier {
-	return &Classifier{carriers: carriers, iface: contextInterface(prog), module: module}
+// -context-carriers, module is the path of the analyzed package's module,
+// or "" when the driver does not give it, and pkg is the analyzed package.
+func New(prog *ssa.Program, carriers []carrier.Carrier, module string, pkg *types.Package) *Classifier {
+	return &Classifier{carriers: carriers, iface: contextInterface(prog), module: module, pkg: pkg}
 }
 
-// From gives c judging Holds for code in pkg, nil for code of no package, as
-// a wrapper SSA makes.
+// From gives c judging Holds for code in pkg too, as a closure of another
+// package that a factory returns. pkg is nil for code of no package, as a
+// wrapper SSA makes, which is judged for the analyzed package alone.
 func (c *Classifier) From(pkg *types.Package) *Classifier {
 	from := *c
 	from.from = pkg
@@ -103,7 +118,7 @@ func (c *Classifier) is(t types.Type, k Kind, seen map[types.Type]bool) bool {
 	return (k&Context != 0 && isContext(t)) ||
 		(k&Carrier != 0 && carrier.IsCarrierType(t, c.carriers)) ||
 		(k&Implements != 0 && c.implements(t)) ||
-		(k&Holds != 0 && c.holds(t, seen))
+		(k&Holds != 0 && c.holds(typeutil.UnwrapPointer(t), seen))
 }
 
 // HasParam reports whether fn has a parameter of a kind in k. It reads the
@@ -256,8 +271,9 @@ func (c *Classifier) implements(t types.Type) bool {
 }
 
 // holds reports whether t is a struct with a field the analyzed code can
-// set that is Captured or Holds. Only such a field counts, so the unexported
-// context of a *testing.T or an *http.Request does not (#191).
+// set that is Captured, or a struct that holds one. Only such a field
+// counts, so the unexported context of a *testing.T or an *http.Request
+// does not (#191).
 func (c *Classifier) holds(t types.Type, seen map[types.Type]bool) bool {
 	if seen == nil {
 		seen = make(map[types.Type]bool)
@@ -271,7 +287,7 @@ func (c *Classifier) holds(t types.Type, seen map[types.Type]bool) bool {
 		return false
 	}
 	for f := range st.Fields() {
-		if c.canSet(f) && c.is(f.Type(), Captured|Holds, seen) {
+		if c.canSet(f) && (c.Is(f.Type(), Captured) || c.holds(f.Type(), seen)) {
 			return true
 		}
 	}
@@ -279,7 +295,8 @@ func (c *Classifier) holds(t types.Type, seen map[types.Type]bool) bool {
 }
 
 // canSet reports whether the analyzed code can set the field f: it is
-// exported, or declared in the package of From or a package of the module.
+// exported, or declared in the analyzed package, the package of From or a
+// package of the module.
 // When the module is not known, a field outside the standard library may be
 // of the module, so it counts, as a report there could be false.
 func (c *Classifier) canSet(f *types.Var) bool {
@@ -288,7 +305,8 @@ func (c *Classifier) canSet(f *types.Var) bool {
 }
 
 // DeclaredInModule reports whether t is a named type, or an alias of one,
-// declared in the package of From or a package of the module, as a field
+// declared in the analyzed package, the package of From or a package of
+// the module, as a field
 // is judged for Holds (#191). When the module is not known, a type outside
 // the standard library may be of the module, so it counts. A type with no
 // package, as error or any, does not. An interface of such a type that
@@ -308,10 +326,11 @@ func (c *Classifier) DeclaredInModule(t types.Type) bool {
 	return obj.Pkg() != nil && c.ofModule(obj.Pkg())
 }
 
-// ofModule reports whether pkg is the package of From or a package of the
-// module, or, when the module is not known, outside the standard library.
+// ofModule reports whether pkg is the analyzed package, the package of From
+// or a package of the module, or, when the module is not known, outside the
+// standard library. pkg is not nil.
 func (c *Classifier) ofModule(pkg *types.Package) bool {
-	if pkg == c.from {
+	if pkg == c.pkg || pkg == c.from {
 		return true
 	}
 	path := pkg.Path()
@@ -325,24 +344,30 @@ func (c *Classifier) ofModule(pkg *types.Package) bool {
 // golang.org/x/net/context: a call of it gives a context that carries
 // nothing of the caller's.
 func IsFreshCall(fn *types.Func) bool {
-	return fn != nil && fn.Pkg() != nil &&
-		(fn.Pkg().Path() == contextPkgPath || fn.Pkg().Path() == xnetPkgPath) &&
-		(fn.Name() == "Background" || fn.Name() == "TODO")
+	return fn != nil && isContextPkg(fn.Pkg()) && (fn.Name() == "Background" || fn.Name() == "TODO")
 }
 
-// IsWithCall reports whether fn is a function of package context, not
-// golang.org/x/net/context, that makes a context from the Context it is
-// given first, as context.WithCancel and context.WithValue do.
+// isContextPkg reports whether pkg is context or golang.org/x/net/context.
+func isContextPkg(pkg *types.Package) bool {
+	return pkg != nil && (pkg.Path() == contextPkgPath || pkg.Path() == xnetPkgPath)
+}
+
+// IsWithCall reports whether fn is a function of package context or
+// golang.org/x/net/context that makes a context from the Context it is
+// given first, as context.WithCancel and context.WithValue do. The With
+// functions of x/net/context call those of context, as [IsFreshCall] takes
+// its Background and TODO.
 func IsWithCall(fn *types.Func) bool {
 	sig, ok := fn.Type().(*types.Signature)
-	return ok && fn.Pkg() != nil && fn.Pkg().Path() == contextPkgPath && strings.HasPrefix(fn.Name(), "With") &&
+	return ok && isContextPkg(fn.Pkg()) && strings.HasPrefix(fn.Name(), "With") &&
 		sig.Recv() == nil && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())
 }
 
-// IsCancelCall reports whether fn is a function of package context that
-// makes a context from the Context it is given first, as [IsWithCall]
-// tells, and gives a func that cancels it second: WithCancel,
-// WithCancelCause, WithTimeout, WithDeadline and their Cause forms.
+// IsCancelCall reports whether fn is a function of package context or
+// golang.org/x/net/context that makes a context from the Context it is
+// given first, as [IsWithCall] tells, and gives a func that cancels it
+// second: WithCancel, WithCancelCause, WithTimeout, WithDeadline and their
+// Cause forms.
 func IsCancelCall(fn *types.Func) bool {
 	if fn == nil || !IsWithCall(fn) {
 		return false

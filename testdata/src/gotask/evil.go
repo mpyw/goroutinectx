@@ -4,6 +4,8 @@ package gotask
 import (
 	"context"
 
+	netcontext "golang.org/x/net/context"
+
 	"github.com/my-example-app/telemetry/apm"
 	gotask "github.com/siketyan/gotask/v2"
 )
@@ -561,6 +563,25 @@ func goodDoAsyncDerivedWithCancel(ctx context.Context) {
 func goodDoAsyncDerivedWithValue(ctx context.Context) {
 	task := gotask.NewTask(func(ctx context.Context) error { return nil })
 	task.DoAsync(context.WithValue(apm.NewGoroutineContext(ctx), gotaskCtxKey{}, 1), nil)
+}
+
+// [GOOD]: DoAsync given a derived ctx wrapped by golang.org/x/net/context
+//
+// The With functions of x/net/context are those of context, so a context
+// made from a derived one is derived too (#210).
+func goodDoAsyncDerivedXnetWithCancel(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	dctx, cancel := netcontext.WithCancel(apm.NewGoroutineContext(ctx))
+	defer cancel()
+	task.DoAsync(dctx, nil)
+}
+
+// [BAD]: DoAsync given ctx wrapped by golang.org/x/net/context, not derived
+//
+// Wrapping ctx does not derive it.
+func badDoAsyncXnetWrappedNotDerived(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error { return nil })
+	task.DoAsync(netcontext.WithValue(ctx, gotaskCtxKey{}, 1), nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
 
 // [BAD]: DoAsync given ctx wrapped by WithValue, not derived

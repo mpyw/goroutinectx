@@ -33,7 +33,7 @@ func TestClosureCapturesContextFuncs(t *testing.T) {
 
 	pkg := buildClosurePackage(t, closureParamSrc)
 	closure := pkg.Func("run").AnonFuncs[0]
-	kinds := ctxkind.New(pkg.Prog, nil, "")
+	kinds := ctxkind.New(pkg.Prog, nil, "", pkg.Pkg)
 
 	flow := NewFlow()
 	if flow.ClosureCapturesContext(closure, kinds, nil) {
@@ -69,7 +69,7 @@ func TestClosureCapturesContextCycle(t *testing.T) {
 	t.Parallel()
 
 	pkg := buildClosurePackage(t, closureCycleSrc)
-	kinds := ctxkind.New(pkg.Prog, nil, "")
+	kinds := ctxkind.New(pkg.Prog, nil, "", pkg.Pkg)
 	anon := pkg.Func("h").AnonFuncs
 	bf, a, use := anon[0], anon[1], anon[2]
 
@@ -108,7 +108,7 @@ func TestClosureChainIsLinear(t *testing.T) {
 			t.Parallel()
 
 			pkg := buildClosurePackage(t, closureChainSource(tt.n, tt.captures))
-			kinds := ctxkind.New(pkg.Prog, nil, "")
+			kinds := ctxkind.New(pkg.Prog, nil, "", pkg.Pkg)
 			flow := NewFlow()
 			asked := 0
 			p := &judgeTestPolicy{}
@@ -165,4 +165,39 @@ func buildClosurePackage(t *testing.T, src string) *ssa.Package {
 		t.Fatal(err)
 	}
 	return pkg
+}
+
+// closureBoundHolderSrc runs a method value whose receiver has an
+// unexported context, through a variable a closure captures.
+const closureBoundHolderSrc = `package p
+
+import "context"
+
+type svc struct{ ctx context.Context }
+
+func (s *svc) run() {}
+
+func h(s *svc) {
+	f := s.run
+	go func() { f() }()
+}
+`
+
+// TestClosureCapturesContextBoundHolder checks that the wrapper of a method
+// value, which SSA gives no package, judges Holds for the analyzed package:
+// a field the analyzed package declares can be set by its code, even when
+// the module is not known and its path looks like one of the standard
+// library (#210).
+func TestClosureCapturesContextBoundHolder(t *testing.T) {
+	t.Parallel()
+
+	pkg := buildClosurePackage(t, closureBoundHolderSrc)
+	closure := pkg.Func("h").AnonFuncs[0]
+
+	if !NewFlow().ClosureCapturesContext(closure, ctxkind.New(pkg.Prog, nil, "", pkg.Pkg), nil) {
+		t.Error("the method value of a receiver with a context of the analyzed package does not count")
+	}
+	if NewFlow().ClosureCapturesContext(closure, ctxkind.New(pkg.Prog, nil, "", nil), nil) {
+		t.Error("with no analyzed package, an unexported field of a package that looks standard counts")
+	}
 }
