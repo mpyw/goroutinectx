@@ -2172,6 +2172,21 @@ task.DoAsync(ctx, errChan)
 </td>
 <td>✅️ <b>Passes.</b> The task's own function calls the deriver</td>
 </tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	task gotask.Task[error],
+) {
+	task.DoAsync(ctx, errChan)
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The function of a task parameter cannot be traced, so it passes, as a factory that cannot be followed does. So does a <code>*gotask.Task</code> parameter</td>
+</tr>
 </tbody>
 </table>
 

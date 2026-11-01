@@ -300,7 +300,10 @@ func (*gotaskPolicy) Factory(*ssa.Function) bool {
 
 // taskDerives reports whether every task v can be wraps a function that
 // calls the deriver, as Call judges it, or as factoryDerives judges a task
-// another function returns. A task traced to nothing does not.
+// another function returns. A task that cannot be followed passes, as a
+// parameter, or a load through a pointer the function is given, the same as
+// a factory that cannot be followed does (#326). A task traced to nothing
+// does not.
 // DoAsync of a CancelableTask runs the Task it embeds. Each task is judged
 // once, and a task made from itself, as t = t.Cancelable() in a loop, by
 // what else it can be.
@@ -313,7 +316,10 @@ func (p *gotaskPolicy) taskDerives(v ssa.Value) bool {
 	}
 	p.judged[v] = true
 	sources, complete := p.e.Flow.Sources(v)
-	derives := complete && len(sources) > 0 && !slices.ContainsFunc(sources, func(s flow.Source) bool {
+	derives := !complete || len(sources) > 0 && !slices.ContainsFunc(sources, func(s flow.Source) bool {
+		if s.Kind == flow.SourceParam {
+			return false
+		}
 		if f, ok := s.Value.(*ssa.Field); ok && gotaskIsTaskType(f.X.Type()) {
 			return !p.taskDerives(f.X)
 		}
