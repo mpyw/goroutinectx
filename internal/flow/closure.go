@@ -481,7 +481,12 @@ func closureCallsOnlyFresh(f *Flow, v ssa.Value, kinds *ctxkind.Classifier, thro
 // loaded from the variable SSA spills param to ([spilledUses], #322). A
 // slice, an array, a map or a channel of funcs whose elements the closure
 // runs counts when the funcs arg holds pass, as [closureElemsPass] judges
-// them, as the elements of the same value captured would (#325).
+// them, as the elements of the same value captured would (#325). A slice,
+// an array, a map, a channel or a pointer of contexts, as
+// [closureHoldsContexts] tells one, that the closure reads a context from
+// counts when the contexts arg holds may not be fresh, as
+// [closureContextElemsPass] judges them, as the same value captured would
+// (#338).
 func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, kinds *ctxkind.Classifier, funcs Policy) bool {
 	defer f.ask()()
 	t := param.Type()
@@ -495,6 +500,11 @@ func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, ki
 		r.funcs, r.root, r.seen = funcs, param, make(map[ssa.Value]bool)
 		runs := slices.ContainsFunc(uses, func(u ssa.Value) bool { return r.reads(u, false) })
 		return runs && closureElemsPass(f, funcs, arg)
+	}
+	if closureHoldsContexts(r.kinds, t, 0) {
+		r.root, r.seen = param, make(map[ssa.Value]bool)
+		reads := slices.ContainsFunc(uses, func(u ssa.Value) bool { return r.reads(u, false) })
+		return reads && closureContextElemsPass(f, r.kinds, arg)
 	}
 	if !types.IsInterface(t) || kinds.Is(t, ctxkind.Captured) {
 		return false
@@ -525,6 +535,69 @@ func closureHoldsFuncs(t types.Type) bool {
 	}
 	_, isFunc := elem.Underlying().(*types.Signature)
 	return isFunc
+}
+
+// closureHoldsContextsDepth bounds how deep [closureHoldsContexts] looks,
+// as a type may hold itself, as type L []L does.
+const closureHoldsContextsDepth = 8
+
+// closureHoldsContexts reports whether t is a slice, an array, a map, a
+// channel or a pointer whose elements are contexts or carriers, as
+// [ctxkind.Captured] counts one, or are such values in turn, as
+// [][]context.Context is. A pointer to a context alone is left to the
+// argument rules, as it is [ctxkind.Given] already.
+func closureHoldsContexts(kinds *ctxkind.Classifier, t types.Type, depth int) bool {
+	var elem types.Type
+	switch u := t.Underlying().(type) {
+	case *types.Slice:
+		elem = u.Elem()
+	case *types.Array:
+		elem = u.Elem()
+	case *types.Map:
+		elem = u.Elem()
+	case *types.Chan:
+		elem = u.Elem()
+	case *types.Pointer:
+		elem = u.Elem()
+	default:
+		return false
+	}
+	if kinds.Is(elem, ctxkind.Captured) {
+		return true
+	}
+	return depth < closureHoldsContextsDepth && closureHoldsContexts(kinds, elem, depth+1)
+}
+
+// closureContextElemsPass reports whether the contexts v holds, v being a
+// context or a value [closureHoldsContexts] tells, may not be fresh, as a
+// captured value of the same contexts would be judged. A context passes
+// unless [Flow.IsFreshContext] tells it is fresh. The
+// elements of a slice made from a local array, as
+// [Flow.ResolvedSliceElems] gives them, pass when one of them does. A map,
+// a channel or a variable made by the analyzed function, with make, a
+// literal or new, does not pass for that alone: what is put there is judged
+// by the arguments' rules, as [Flow.InvolvesContext]. Any other value
+// cannot be followed, as a parameter, a field or the result of a call, so
+// it passes.
+func closureContextElemsPass(f *Flow, kinds *ctxkind.Classifier, v ssa.Value) bool {
+	t := v.Type()
+	if kinds.Is(t, ctxkind.Context|ctxkind.Implements) {
+		return !f.IsFreshContext(v)
+	}
+	switch t.Underlying().(type) {
+	case *types.Slice, *types.Array:
+		if elems, ok := f.ResolvedSliceElems(v); ok {
+			return slices.ContainsFunc(elems, func(e ssa.Value) bool { return closureContextElemsPass(f, kinds, e) })
+		}
+	}
+	sources, complete := f.Sources(v)
+	return !complete || slices.ContainsFunc(sources, func(s Source) bool {
+		switch s.Value.(type) {
+		case *ssa.MakeMap, *ssa.MakeChan, *ssa.Alloc:
+			return false
+		}
+		return true
+	})
 }
 
 // closureElemsPass reports whether the funcs v, a slice, an array, a map
