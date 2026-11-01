@@ -27,9 +27,8 @@ type Index struct {
 // NewIndex builds the Index of pass, whose SSA program is prog.
 //
 // An instruction is indexed in the innermost function whose syntax holds its
-// position: a call in the expression of a range-over-func loop is in the
-// syntax of the loop's body, so SSA's instruction for it, which is in the
-// function around the loop, is not indexed.
+// position. The syntax of the yield function of a range-over-func loop is
+// only the loop's body: see [siteSyntax].
 func NewIndex(pass *analysis.Pass, prog *flow.Program) *Index {
 	x := &Index{
 		pass:  pass,
@@ -50,7 +49,7 @@ func NewIndex(pass *analysis.Pass, prog *flow.Program) *Index {
 // as a node must start to be in it.
 func (x *Index) add(fn *ssa.Function, lo token.Pos, seen map[*ssa.Function]bool) {
 	seen[fn] = true
-	syntax := fn.Syntax()
+	syntax := siteSyntax(fn)
 	if lit, ok := syntax.(*ast.FuncLit); ok {
 		if _, found := x.lits[lit]; !found {
 			x.lits[lit] = fn
@@ -58,7 +57,7 @@ func (x *Index) add(fn *ssa.Function, lo token.Pos, seen map[*ssa.Function]bool)
 	}
 	var anons []ast.Node
 	for _, anon := range fn.AnonFuncs {
-		if s := anon.Syntax(); s != nil {
+		if s := siteSyntax(anon); s != nil {
 			anons = append(anons, s)
 			x.add(anon, s.Pos(), seen)
 		}
@@ -90,6 +89,18 @@ func (x *Index) add(fn *ssa.Function, lo token.Pos, seen map[*ssa.Function]bool)
 			}
 		}
 	}
+}
+
+// siteSyntax gives the syntax fn's instructions are made from. SSA gives the
+// yield function of a range-over-func loop the whole *ast.RangeStmt as its
+// syntax, but the function around the loop evaluates the range expression
+// (#254). So the yield function covers only the loop's body.
+func siteSyntax(fn *ssa.Function) ast.Node {
+	syntax := fn.Syntax()
+	if rng, ok := syntax.(*ast.RangeStmt); ok {
+		return rng.Body
+	}
+	return syntax
 }
 
 // FuncLit gives the SSA function of lit, or nil.

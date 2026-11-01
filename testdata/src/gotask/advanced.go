@@ -472,3 +472,72 @@ func goodRangeFuncCallsDeriver(ctx context.Context, xs []int) {
 		return nil
 	})
 }
+
+// [GOOD]: Variadic call in the range expression of a range-over-func loop
+//
+// The function around the loop makes the call, so its tasks are traced as in
+// a plain statement (#254).
+func goodRangeFuncExprVariadic(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		},
+	}
+	for r := range slices.Values(gotask.DoAllFnsSettled(ctx, fns...)) {
+		_ = r
+	}
+}
+
+// [BAD]: Variadic call in the range expression of a range-over-func loop, without deriver
+func badRangeFuncExprVariadic(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+	for r := range slices.Values(gotask.DoAllFnsSettled(ctx, fns...)) { // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+		_ = r
+	}
+}
+
+// [GOOD]: Range expression of a range-over-func loop in a range-over-func loop body
+func goodRangeFuncExprNested(ctx context.Context, xs []int) {
+	for x := range slices.Values(xs) {
+		fns := []func(context.Context) error{
+			func(ctx context.Context) error {
+				_ = apm.NewGoroutineContext(ctx)
+				return nil
+			},
+		}
+		for r := range slices.Values(gotask.DoAllFnsSettled(ctx, fns...)) {
+			_, _ = x, r
+		}
+	}
+}
+
+// [BAD]: Range expression of a range-over-func loop in a range-over-func loop body, without deriver
+func badRangeFuncExprNested(ctx context.Context, xs []int) {
+	for x := range slices.Values(xs) {
+		fns := []func(context.Context) error{
+			func(ctx context.Context) error { return nil },
+		}
+		for r := range slices.Values(gotask.DoAllFnsSettled(ctx, fns...)) { // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+			_, _ = x, r
+		}
+	}
+}
+
+// ===== Unreachable code =====
+
+// [GOOD]: Variadic call in unreachable code
+//
+// SSA has no instruction for it, so the slice has no value to judge.
+func goodVariadicUnreachable(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		},
+	}
+	panic(fns)
+	_ = gotask.DoAllFnsSettled(ctx, fns...)
+}
