@@ -103,7 +103,8 @@
 //
 // One scanner reads the returns of a function, in two ways. A factory is
 // followed through the first result of each return only, as [Flow.Returns]
-// gives it, while spawnerlabel takes a closure returned as any result. The two are kept apart so that
+// gives it, or through the result at one index, as [Flow.ReturnsAt] gives
+// it for a task extracted from a tuple, while spawnerlabel takes a closure returned as any result. The two are kept apart so that
 // neither report changes.
 //
 // # Fresh Contexts

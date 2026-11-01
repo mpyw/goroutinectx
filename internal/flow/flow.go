@@ -194,7 +194,8 @@ func (f *Flow) CapturedValues(v ssa.Value) []ssa.Value {
 	return vs
 }
 
-// Return is a value a function returns, as [Flow.Returns] gives it.
+// Return is a value a function returns, as [Flow.Returns] and
+// [Flow.ReturnsAt] give it.
 type Return struct {
 	// Value is the value returned.
 	Value ssa.Value
@@ -208,8 +209,15 @@ type Return struct {
 // looks through a call, so a check that follows a call to what it gives,
 // as of a factory, asks this. A function with no body gives nothing.
 func (f *Flow) Returns(fn *ssa.Function) []Return {
+	return f.ReturnsAt(fn, int(returnedFirst))
+}
+
+// ReturnsAt gives what fn returns as its result at index, as [Flow.Returns]
+// gives the first: what an [ssa.Extract] of a call of fn at index can give,
+// as t of t, err := mk() (#290).
+func (f *Flow) ReturnsAt(fn *ssa.Function, index int) []Return {
 	defer f.ask()()
-	values := returns(fn, returnedFirst)
+	values := returns(fn, returnedResults(index))
 	returned := make([]Return, len(values))
 	for i, v := range values {
 		sources, _ := f.Sources(v)

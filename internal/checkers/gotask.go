@@ -260,13 +260,13 @@ func (p *gotaskPolicy) taskDerives(v ssa.Value) bool {
 		if f, ok := s.Value.(*ssa.Field); ok && gotaskIsTaskType(f.X.Type()) {
 			return !p.taskDerives(f.X)
 		}
-		call, ok := s.Value.(*ssa.Call)
-		if !ok {
+		call := s.Call()
+		if call == nil {
 			return true
 		}
 		v := p.Call(call.Common())
 		if v == flow.Unknown {
-			return !p.factoryDerives(call.Common())
+			return !p.factoryDerives(call.Common(), gotaskResultIndex(s.Value))
 		}
 		return !v.Passes()
 	})
@@ -274,11 +274,21 @@ func (p *gotaskPolicy) taskDerives(v ssa.Value) bool {
 	return derives
 }
 
+// gotaskResultIndex gives which result of its call v is: the index of an
+// extract of a tuple, as t of t, err := mk() (#290), or 0.
+func gotaskResultIndex(v ssa.Value) int {
+	if x, ok := v.(*ssa.Extract); ok {
+		return x.Index
+	}
+	return 0
+}
+
 // factoryDerives reports whether every task a call of a factory, a function
-// that is not of gotask, can give derives, as taskDerives judges each value
-// the factory returns (#287). What cannot be followed passes, as a func
-// value of a parameter or a function with no body does.
-func (p *gotaskPolicy) factoryDerives(call *ssa.CallCommon) bool {
+// that is not of gotask, can give as its result at index derives, as
+// taskDerives judges each value the factory returns there (#287, #290).
+// What cannot be followed passes, as a func value of a parameter or a
+// function with no body does.
+func (p *gotaskPolicy) factoryDerives(call *ssa.CallCommon, index int) bool {
 	callees, complete := p.e.Flow.Sources(call.Value)
 	if !complete {
 		return true
@@ -292,7 +302,7 @@ func (p *gotaskPolicy) factoryDerives(call *ssa.CallCommon) bool {
 			// An instantiation of a generic factory has no body of its own.
 			fn = fn.Origin()
 		}
-		return slices.ContainsFunc(p.e.Flow.Returns(fn), func(r flow.Return) bool {
+		return slices.ContainsFunc(p.e.Flow.ReturnsAt(fn, index), func(r flow.Return) bool {
 			return !p.taskDerives(r.Value)
 		})
 	})

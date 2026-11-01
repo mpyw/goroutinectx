@@ -250,7 +250,7 @@ Follows values through the package's SSA form: what a closure captures (`Closure
 | Deriver check (`ClosureCallsDeriver`) | No | No |
 | spawnerlabel | Yes | Yes |
 
-The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only, as `Flow.Returns` gives it. spawnerlabel takes a closure returned as any result.
+The returns of a function are read in one place, in two ways. A factory is followed through the first result of each return only, as `Flow.Returns` gives it, or through the result at one index, as `Flow.ReturnsAt` gives it. spawnerlabel takes a closure returned as any result.
 
 `Flow` is the one engine that follows values, built once per pass and held by `env.Env`. `Flow.Sources(v)` gives the values `v` can come from, each with its kind (function literal, named function, method, call result, parameter, global, unknown), and whether the list is complete. It goes through Phi nodes, type changes, loads of local variables and of their parts, and map lookups at constant keys. It never looks through a call. Two other questions read what it does not:
 
@@ -258,6 +258,7 @@ The returns of a function are read in one place, in two ways. A factory is follo
 |----------|-------|-----|
 | `Flow.CapturedSources(v)` | What a variable a closure captures, or a part of a captured value, can hold: every value stored to it, as the closure may run after any store | The closure checks |
 | `Flow.Returns(fn)` | Each value `fn` returns as its first result, with its sources | `Judge`, `ResolvedSliceElems` |
+| `Flow.ReturnsAt(fn, i)` | Each value `fn` returns as its result at index `i`, with its sources | gotask `taskDerives` |
 
 Every check that follows a value is a fold over these:
 
@@ -270,7 +271,7 @@ Every check that follows a value is a fold over these:
 | `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value (a field, an element of a slice, a map or a channel, a range over one, or a type assertion, #253), counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured interface given to a call counts when one of the values `CapturedSources` and `Sources` give is a `MakeInterface` of a type that holds a context, or cannot be followed and is of an interface declared in the module (`DeclaredInModule`, #240). A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `judgeCaptured` passes it, as if it were spawned directly |
 | `Flow.IsWaiter` | The closure only waits (`WaitGroup.Wait`, `errgroup.Group.Wait`, `Cmd.Wait`, ...) and signals, with no loop. A function literal it calls or defers in place is judged as part of it (#282). A send outside a select must be its only one. The channel must have room for it: every value `CapturedSources` gives has only `make(chan T, n)` sources, `n` a constant of at least 1, and the function of each makes at most `n` sends on it, its own or in the closures it gives the channel to, none in a loop. Each such closure is run once: by a go statement, a direct or deferred call, or a `Go` of errgroup, `sync.WaitGroup` or conc (#230, #242, #255) |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
-| gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives, a factory's task by what it returns |
+| gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives, a factory's task by what it returns at the task's index |
 
 **One bound per question.** A question to `Flow` (`Sources`, `CapturedSources`, `Returns`, `IsFreshContext`, `ClosureCapturesContext`, `Judge`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a policy judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
 

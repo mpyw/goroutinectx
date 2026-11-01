@@ -888,3 +888,56 @@ func badFactoryTwoReturns(ctx context.Context, deriving bool) {
 	task := factoryEitherTask(deriving)
 	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
 }
+
+// ===== TASK FROM A FACTORY THAT RETURNS TWO VALUES (#290) =====
+
+func factoryDerivingTaskTuple() (gotask.Task[error], error) {
+	return gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	}), nil
+}
+
+func factoryPlainTaskTuple() (gotask.Task[error], error) {
+	return gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	}), nil
+}
+
+func factoryDerivingTaskSecond() (error, gotask.Task[error]) {
+	return nil, gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})
+}
+
+// [GOOD]: Task from a factory that returns it with an error, calling deriver
+//
+// The task is judged by the result at its index.
+func goodFactoryTaskTuple(ctx context.Context) {
+	task, err := factoryDerivingTaskTuple()
+	if err != nil {
+		return
+	}
+	task.DoAsync(ctx, nil)
+}
+
+// [GOOD]: Task from a factory that returns it second, after an error
+//
+// The first result is the error, which is not the task's.
+func goodFactoryTaskSecond(ctx context.Context) {
+	err, task := factoryDerivingTaskSecond()
+	if err != nil {
+		return
+	}
+	task.DoAsync(ctx, nil)
+}
+
+// [BAD]: Task from a factory that returns it with an error, without deriver
+func badFactoryTaskTuple(ctx context.Context) {
+	task, err := factoryPlainTaskTuple()
+	if err != nil {
+		return
+	}
+	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
