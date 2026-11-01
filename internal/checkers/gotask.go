@@ -144,8 +144,8 @@ func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *
 // gotaskSliceDerives judges a slice of tasks or task functions, v. The
 // elements of a slice literal, of gotask.TasksFrom, or of the slices a
 // function returns are judged one by one. A slice a closure captures is
-// judged by the slices stored to it: one a call makes is judged as the call
-// (#304), and the others pass. Otherwise a slice made by a call, as lo.Map
+// judged by the slices stored to it, each as this judges it (#304, #320).
+// Otherwise a slice made by a call, as lo.Map
 // makes one, passes when calling one of the call's callbacks gives a task
 // function that derives, whether the call is written in place or held in a
 // variable, or when the call has no callback and its callee cannot be
@@ -158,7 +158,7 @@ func gotaskSliceDerives(e *env.Env, v ssa.Value, p *gotaskPolicy, seen map[*ssa.
 		return !slices.ContainsFunc(elems, func(elem ssa.Value) bool { return !p.passes(elem) })
 	}
 	if fv, captured := gotaskCapturedRead(v); captured {
-		return gotaskCapturedSliceDerives(e, fv, p)
+		return gotaskCapturedSliceDerives(e, fv, p, seen)
 	}
 	switch x := v.(type) {
 	case *ssa.Call:
@@ -176,15 +176,15 @@ func gotaskSliceDerives(e *env.Env, v ssa.Value, p *gotaskPolicy, seen map[*ssa.
 }
 
 // gotaskCapturedSliceDerives judges the slice a closure reads from fv, whose
-// elements are not traced, by the slices stored to it. One a call makes is
-// judged as the call, as gotaskCallSliceDerives judges it (#304). Any other,
-// or one that cannot be followed, passes, as nothing is known of what the
-// closure reads (#263).
-func gotaskCapturedSliceDerives(e *env.Env, fv *ssa.FreeVar, p *gotaskPolicy) bool {
+// elements are not traced, by the slices stored to it, each as
+// gotaskSliceDerives judges it, as the edges of a Phi are: one a call makes
+// is judged as the call (#304), and one known not to derive is reported
+// (#320). When they cannot all be followed, it passes, as nothing is known
+// of what the closure reads (#263).
+func gotaskCapturedSliceDerives(e *env.Env, fv *ssa.FreeVar, p *gotaskPolicy, seen map[*ssa.Phi]bool) bool {
 	sources, complete := e.Flow.CapturedSources(fv)
 	return !complete || !slices.ContainsFunc(sources, func(s flow.Source) bool {
-		call, ok := s.Value.(*ssa.Call)
-		return ok && !gotaskCallSliceDerives(e, call, p)
+		return !gotaskSliceDerives(e, s.Value, p, seen)
 	})
 }
 

@@ -731,6 +731,46 @@ func badExpandedPhiParamOrLiteral(ctx context.Context, tasks []func(context.Cont
 	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
 }
 
+// [BAD]: A closure's captured slice that holds a slice parameter or a slice that does not derive, expanded
+//
+// Each slice stored to the captured variable is judged as the same variable
+// outside the closure is: the slice literal is judged by its elements (#320).
+func badCapturedPhiParamOrLiteral(ctx context.Context, tasks []func(context.Context) error) {
+	if tasks == nil {
+		tasks = []func(context.Context) error{
+			func(ctx context.Context) error { return nil },
+		}
+	}
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+	}()
+}
+
+// [GOOD]: A closure's captured slice that holds a slice parameter or a slice that derives, expanded
+//
+// The slice parameter passes, and the slice literal is judged by its
+// elements (#320).
+func goodCapturedPhiParamOrLiteral(ctx context.Context, tasks []func(context.Context) error) {
+	if tasks == nil {
+		tasks = []func(context.Context) error{
+			func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+		}
+	}
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, tasks...)
+	}()
+}
+
+// [GOOD]: A closure's captured slice parameter, expanded
+//
+// Nothing is known of its elements, so it passes, as outside the closure
+// (#316, #320).
+func goodCapturedParam(ctx context.Context, tasks []func(context.Context) error) {
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, tasks...)
+	}()
+}
+
 // [GOOD]: A variable that holds one of two slices that derive, expanded
 //
 // Each slice the variable may hold is judged by its elements.
