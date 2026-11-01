@@ -135,6 +135,78 @@ func goodAnyRecvMethodFreshCtxGoroutine(ctx context.Context) {
 	go anyRecv{v: ctx}.wait(context.Background())
 }
 
+// ===== Method value given a fresh context (#323) =====
+
+// [BAD]: Method value of an empty struct given a fresh context
+//
+// The method value holds a receiver that can hold no context, so the method
+// does not get ctx, the same as when it is called directly.
+func badEmptyRecvMethodValueFreshCtxGoroutine(ctx context.Context) {
+	run := emptyRecv{}.wait
+	go run(context.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Method value of a pointer to an empty struct through a Phi given a fresh context
+//
+// Each value the Phi joins is a method value whose receiver can hold no
+// context.
+func badEmptyRecvPtrMethodValuePhiFreshCtxGoroutine(ctx context.Context) {
+	run := (&emptyRecv{}).wait
+	if freshMethodFlag {
+		run = basicRecv{name: "a"}.wait
+	}
+	go run(context.TODO()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Factory method value of an empty struct given a fresh context
+//
+// The receiver can hold no context, so the func the method returns does not
+// get ctx.
+func badEmptyRecvFactoryMethodValueFreshCtxErrgroup(ctx context.Context) {
+	mk := emptyRecv{}.makeErr
+	g := new(errgroup.Group)
+	g.Go(mk(context.Background())) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Method value of an empty struct given ctx
+//
+// The method is given ctx.
+func goodEmptyRecvMethodValueCtxGoroutine(ctx context.Context) {
+	run := emptyRecv{}.wait
+	go run(ctx)
+}
+
+// [GOOD]: Method value of a struct with a context field given a fresh context
+//
+// The method may get ctx from the receiver the method value holds.
+func goodCtxRecvMethodValueFreshCtxGoroutine(ctx context.Context) {
+	run := (&ctxRecv{ctx: ctx}).wait
+	go run(context.Background())
+}
+
+// [GOOD]: Method value of an empty struct or a struct with a context field through a Phi given a fresh context
+//
+// One of the receivers the Phi joins may hold ctx.
+func goodMixedRecvMethodValuePhiFreshCtxGoroutine(ctx context.Context) {
+	run := emptyRecv{}.wait
+	if freshMethodFlag {
+		run = (&ctxRecv{ctx: ctx}).wait
+	}
+	go run(context.Background())
+}
+
+// [GOOD]: Method value of an interface given a fresh context
+//
+// The value behind the interface may hold ctx.
+func goodIfaceMethodValueFreshCtxGoroutine(ctx context.Context) {
+	var w interface{ wait(context.Context) } = &ctxRecv{ctx: ctx}
+	run := w.wait
+	go run(context.Background())
+}
+
+var freshMethodFlag bool
+
 type emptyRecv struct{}
 
 func (emptyRecv) wait(ctx context.Context) { <-ctx.Done() }

@@ -525,7 +525,7 @@ go Worker{}.run(context.Background())
 ```
 
 </td>
-<td>❌️ <b>Reported.</b> The receiver cannot hold a context. It is an empty struct, or a struct of basic types</td>
+<td>❌️ <b>Reported.</b> The receiver cannot hold a context. It is an empty struct, or a struct of basic types. A method value, as <code>run := Worker{}.run</code>, is judged the same way</td>
 </tr>
 <tr>
 <td>

@@ -145,9 +145,11 @@ func spawnedWaiterPasses(e *env.Env, fn *ssa.Function) bool {
 // given only a fresh context does not get ctx. The receiver of a method is
 // one of the arguments, so a method is reported only when its receiver
 // cannot hold a context, as an empty struct or a struct of basic types
-// cannot (#274). A closure is left alone, as it may capture one. The
-// function called may be a value that can be only named functions, as
-// [flow.Flow.Sources] follows it through a Phi (#305).
+// cannot (#274). A method value, as run := r.work, is its method, judged
+// by the receiver it holds by the same rule (#323). A closure is left
+// alone, as it may capture one. The function called may be a value that
+// can be only named functions, as [flow.Flow.Sources] follows it through a
+// Phi (#305).
 //
 //declscope:shared // goroutine.go judges a named function a go statement calls alike
 func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) bool {
@@ -155,15 +157,24 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 		return false
 	}
 	sources, complete := e.Flow.Sources(call.Value)
-	if !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s flow.Source) bool { return !spawnedIsNamedFunc(s.Value) }) {
+	if !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s flow.Source) bool { return !spawnedIsNamedFunc(e, s.Value) }) {
 		return false
 	}
 	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
 }
 
 // spawnedIsNamedFunc reports whether v is a named function or method,
-// generic or not, of the analyzed package or of another.
-func spawnedIsNamedFunc(v ssa.Value) bool {
+// generic or not, of the analyzed package or of another, or a method value
+// whose receiver cannot hold a context, as
+// [flow.Flow.GivesOnlyFreshContext] judges an argument.
+func spawnedIsNamedFunc(e *env.Env, v ssa.Value) bool {
+	if mc, ok := v.(*ssa.MakeClosure); ok {
+		fn, _ := mc.Fn.(*ssa.Function)
+		return flow.Classify(fn) == flow.ClassifiedBound &&
+			!slices.ContainsFunc(mc.Bindings, func(recv ssa.Value) bool {
+				return e.Kinds.MayHold(recv, ctxkind.Given) || e.Flow.SignalsContext(recv, e.Kinds)
+			})
+	}
 	fn, ok := v.(*ssa.Function)
 	if !ok {
 		return false
