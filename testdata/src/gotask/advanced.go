@@ -77,6 +77,13 @@ func badLoMapVariableWithoutDeriver(ctx context.Context) {
 	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
 }
 
+// [GOOD]: nil expanded
+//
+// nil gives no task, so nothing is run without the deriver.
+func goodNilExpanded(ctx context.Context) {
+	_ = gotask.DoAllFnsSettled[ProcessedProduct](ctx, nil...)
+}
+
 // ===== More complex patterns =====
 
 // [GOOD]: lo.Map callback returning gotask.NewTask
