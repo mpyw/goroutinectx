@@ -159,7 +159,7 @@ func (j *judgement) source(s Source) Verdict {
 	case SourceLiteral:
 		return j.p.Literal(s.Func(), j.site)
 	case SourceParam:
-		if j.f.called[s.Value.Parent()] == 0 {
+		if len(j.f.called[s.Value.Parent()]) == 0 {
 			return Unknown
 		}
 		return Fail
@@ -207,8 +207,8 @@ func (j *judgement) call(call *ssa.CallCommon) Verdict {
 				// ones the decorated function reaches (#271).
 				fn = fn.Origin()
 			}
-			j.f.called[fn]++
-			defer func() { j.f.called[fn]-- }()
+			j.f.called[fn] = append(j.f.called[fn], call)
+			defer func() { j.f.called[fn] = j.f.called[fn][:len(j.f.called[fn])-1] }()
 		}
 	}
 	return judgeBetter(decorated, j.result(callees, 1))

@@ -1177,6 +1177,21 @@ go func() {
 </td>
 <td>❌️ <b>Reported.</b> A named function given only a fresh context does not get <code>ctx</code>, the same as for <code>go worker(context.Background())</code></td>
 </tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	jobs chan func(),
+) {
+	go runFrom(jobs)()
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> What is sent on a channel parameter cannot be traced, as when the goroutine receives from <code>jobs</code> itself. A map parameter is the same</td>
+</tr>
 </tbody>
 </table>
 

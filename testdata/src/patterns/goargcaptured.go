@@ -439,3 +439,101 @@ func badFuncChanPlainFactoryCalledInClosureErrgroup(ctx context.Context) {
 	})
 	_ = g.Wait()
 }
+
+// ===== Parameter of funcs given to a factory (#327) =====
+
+// [GOOD]: Channel parameter of funcs given to a factory
+//
+// What is sent on the channel cannot be followed, as when the goroutine
+// receives from it itself (#327).
+func goodFuncChanParamToFactoryGoroutine(ctx context.Context, ch chan func()) {
+	go runFromChan(ch)()
+}
+
+// [GOOD]: Channel parameter of funcs given to a factory
+//
+// What is sent on the channel cannot be followed (#327).
+func goodFuncChanParamToFactoryErrgroup(ctx context.Context, ch chan func()) {
+	g := new(errgroup.Group)
+	g.Go(runFromChanErr(ch))
+	_ = g.Wait()
+}
+
+// [GOOD]: Channel parameter of funcs given to a factory
+//
+// What is sent on the channel cannot be followed (#327).
+func goodFuncChanParamToFactoryWaitGroup(ctx context.Context, ch chan func()) {
+	var wg sync.WaitGroup
+	wg.Go(runFromChan(ch))
+	wg.Wait()
+}
+
+// [GOOD]: Channel parameter of funcs given to a factory
+//
+// What is sent on the channel cannot be followed (#327).
+func goodFuncChanParamToFactorySpawner(ctx context.Context, ch chan func()) {
+	g := new(errgroup.Group)
+	runWithGroup(g, runFromChanErr(ch))
+	_ = g.Wait()
+}
+
+// [GOOD]: Map parameter of funcs given to a factory
+//
+// What is in the map cannot be followed (#327).
+func goodFuncMapParamToFactoryGoroutine(ctx context.Context, m map[string]func()) {
+	go runFromMap(m)()
+}
+
+// [GOOD]: Map parameter of funcs given to a factory
+//
+// What is in the map cannot be followed (#327).
+func goodFuncMapParamToFactoryErrgroup(ctx context.Context, m map[string]func()) {
+	g := new(errgroup.Group)
+	g.Go(runFromMapErr(m))
+	_ = g.Wait()
+}
+
+// [GOOD]: Channel parameter of funcs given to a factory, the result in a variable
+//
+// The variable holds what the factory returns (#327).
+func goodFuncChanParamToFactoryVarGoroutine(ctx context.Context, ch chan func()) {
+	run := runFromChan(ch)
+	go run()
+}
+
+// [GOOD]: Closure calls in place what a factory given a channel parameter returns
+//
+// It passes as go runFromChan(ch)() does (#300, #327).
+func goodFuncChanParamFactoryCalledInClosureGoroutine(ctx context.Context, ch chan func()) {
+	go func() {
+		runFromChan(ch)()
+	}()
+}
+
+// [BAD]: Channel of funcs without ctx given to a factory, the result in a variable
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainToFactoryVarGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	run := runFromChan(ch)
+	go run() // want `goroutine does not propagate context "ctx"`
+}
+
+// runFromAny gives a func that runs the func v holds.
+func runFromAny(v any) func() { return func() { v.(func())() } }
+
+// [GOOD]: Func that uses ctx, as an any given to a factory
+//
+// The factory is given a value built from ctx.
+func goodFuncAnyCtxToFactoryGoroutine(ctx context.Context) {
+	go runFromAny(func() { use(ctx) })()
+}
+
+// [BAD]: Func without ctx, as an any given to a factory
+//
+// The func the factory's closure asserts is the one the call gives, which
+// uses no context.
+func badFuncAnyPlainToFactoryGoroutine(ctx context.Context) {
+	go runFromAny(func() {})() // want `goroutine does not propagate context "ctx"`
+}
