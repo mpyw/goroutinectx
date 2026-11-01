@@ -1,7 +1,6 @@
 package flow
 
 import (
-	"go/token"
 	"go/types"
 	"slices"
 
@@ -35,43 +34,6 @@ func (f *Flow) IsFreshContext(v ssa.Value) bool {
 func (f *Flow) InvolvesContext(v ssa.Value, kinds *ctxkind.Classifier) bool {
 	defer f.ask()()
 	return kinds.InvolvesUnless(ctxkind.Given, func(part ssa.Value) bool { return contextLeftOut(f, part, kinds) }, f.CapturedValues(v)...)
-}
-
-// contextCapturedMax bounds the values [Flow.CapturedValues] gives.
-const contextCapturedMax = 64
-
-// CapturedValues gives v, and for a free variable, or a load of one, the
-// values it is captured with, through each closure it is captured by in
-// turn (#269). A value that cannot be followed is left out.
-func (f *Flow) CapturedValues(v ssa.Value) []ssa.Value {
-	defer f.ask()()
-	vs := []ssa.Value{v}
-	seen := map[ssa.Value]bool{v: true}
-	for i := 0; i < len(vs) && len(vs) < contextCapturedMax; i++ {
-		x := vs[i]
-		if load, ok := x.(*ssa.UnOp); ok && load.Op == token.MUL {
-			x = load.X
-		}
-		fv, ok := x.(*ssa.FreeVar)
-		if !ok {
-			continue
-		}
-		values, _ := resolvedCaptured(f, fv)
-		if _, byRef := fv.Type().Underlying().(*types.Pointer); byRef {
-			// The variable itself, so that what is put into a value
-			// loaded from it counts, as ch <- f does to a captured ch.
-			if binding, ok := resolvedBinding(fv); ok {
-				values = append(values, binding)
-			}
-		}
-		for _, c := range values {
-			if !seen[c] {
-				seen[c] = true
-				vs = append(vs, c)
-			}
-		}
-	}
-	return vs
 }
 
 // contextLeftOut reports whether part, a part of a value
