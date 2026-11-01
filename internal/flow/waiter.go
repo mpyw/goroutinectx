@@ -262,7 +262,8 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 // own variable, or sent from or given to a closure that may run more than
 // once, as one in a loop is. Closures joined by a Phi and run where it is
 // run are alternatives: only one of them runs, so the most sends of one of
-// them count, not their sum (#298).
+// them count, not their sum (#298). So are closures run at sites that
+// exclude each other, as [waiterMostSends] counts them (#350).
 func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
 	// alternatives holds the most sends of the closures run at each site.
 	alternatives := make(map[ssa.Instruction]int)
@@ -281,10 +282,86 @@ func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
 		}
 		sends += n
 	}
-	for _, n := range alternatives {
+	return sends + waiterMostSends(alternatives), true
+}
+
+// waiterMostSends gives the most sends the closures run at the sites of
+// alternatives can make in one run of the functions holding the sites. Each
+// site runs at most once, being outside a loop, and only when its block is
+// reached. So the sites that run in one function lie on one path, each
+// reaching the next, as [waiterReaches] tells, and the most sends of such a
+// chain count, as if c { go f() } else { go g() } runs f or g (#350). The
+// counts of the functions are added up.
+func waiterMostSends(alternatives map[ssa.Instruction]int) int {
+	// most holds the most sends of a chain from each site.
+	most := make(map[ssa.Instruction]int, len(alternatives))
+	var chain func(site ssa.Instruction) int
+	chain = func(site ssa.Instruction) int {
+		if n, done := most[site]; done {
+			return n
+		}
+		next := 0
+		for other := range alternatives {
+			if other != site && waiterReaches(site, other) {
+				next = max(next, chain(other))
+			}
+		}
+		most[site] = alternatives[site] + next
+		return most[site]
+	}
+	// first holds the most sends of a chain in each function.
+	first := make(map[*ssa.Function]int)
+	for site := range alternatives {
+		fn := site.Parent()
+		first[fn] = max(first[fn], chain(site))
+	}
+	sends := 0
+	for _, n := range first {
 		sends += n
 	}
-	return sends, true
+	return sends
+}
+
+// waiterReaches reports whether b may run after a in one run of their
+// function: b comes later in the block of a, or its block can be reached
+// from that of a. Neither is in a loop, so at most one of them reaches the
+// other.
+func waiterReaches(a, b ssa.Instruction) bool {
+	if a.Parent() != b.Parent() {
+		return false
+	}
+	if a.Block() == b.Block() {
+		instrs := a.Block().Instrs
+		return slices.Index(instrs, a) < slices.Index(instrs, b)
+	}
+	seen := map[*ssa.BasicBlock]bool{}
+	stack := slices.Clone(a.Block().Succs)
+	for len(stack) > 0 {
+		next := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if next == b.Block() {
+			return true
+		}
+		if !seen[next] {
+			seen[next] = true
+			stack = append(stack, next.Succs...)
+		}
+	}
+	return false
+}
+
+// waiterExclusive reports whether at most one of sites runs in one run of
+// the function holding them: each two are the same site, or neither
+// reaches the other, as [waiterReaches] tells (#350).
+func waiterExclusive(sites []ssa.Instruction) bool {
+	for i, a := range sites {
+		for _, b := range sites[i+1:] {
+			if a != b && (a.Parent() != b.Parent() || waiterReaches(a, b) || waiterReaches(b, a)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // waiterChanUseSends counts the sends instr makes on the channel of v, as
@@ -437,7 +514,10 @@ func waiterStoresAgain(refs []ssa.Instruction, ref ssa.Instruction) bool {
 // one load, or several, each in another of those closures, when all of them
 // run at one site, so that only one of them runs, as
 // run := func() { send() }; if c { run = func() { send() } }; go run()
-// runs send once (#345). sited is as [waiterRunSiteFrom] has it.
+// runs send once (#345), or at sites that exclude each other, as
+// [waiterExclusive] tells, as if c { go func() { send() }() } else
+// { go func() { send() }() } runs send once (#350). sited is as
+// [waiterRunSiteFrom] has it.
 func waiterSpilledLoads(st *ssa.Store, v ssa.Value, sited map[*ssa.MakeClosure]bool) ([]*ssa.UnOp, bool) {
 	loads, binders, ok := spilledLoads(st, true)
 	if !ok || st.Val != v || len(loads) == 0 || slices.ContainsFunc(loads, func(load *ssa.UnOp) bool { return waiterInLoop(load.Block()) }) {
@@ -457,7 +537,7 @@ func waiterSpilledLoads(st *ssa.Store, v ssa.Value, sited map[*ssa.MakeClosure]b
 	if len(loads) == 1 {
 		return loads, true
 	}
-	if slices.ContainsFunc(sites, func(site ssa.Instruction) bool { return site != sites[0] }) {
+	if !waiterExclusive(sites) {
 		return nil, false
 	}
 	loaded := make(map[*ssa.Function]bool)
