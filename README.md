@@ -310,7 +310,7 @@ Besides the waits, it only does these:
 | It may | Note |
 | --- | --- |
 | Close a channel | Also in `defer` |
-| Send on a channel | Only when the send cannot block. Either the send is a case of a `select` with a `default`, or all of these hold: it is the goroutine's only send outside a `select`, the channel is made with `make(chan T, n)` for a constant `n` of at least 1, and there are at most `n` sends on the channel in all, counting every goroutine and closure, none in a loop. A closure that sends or starts a sender must run once: by a `go` statement, a direct call, or a `Go` of `errgroup`, `sync.WaitGroup` or conc. A closure given to any other call, such as a spawner, may run more than once |
+| Send on a channel | Only when the send cannot block. Either the send is a case of a `select` with a `default`, or all of these hold: it is the goroutine's only send outside a `select`, the channel is made with `make(chan T, n)` for a constant `n` of at least 1, and there are at most `n` sends on the channel in all, counting every goroutine and closure, none in a loop. A closure that sends or starts a sender must run once: by a `go` statement, a direct or deferred call, or a `Go` of `errgroup`, `sync.WaitGroup` or conc. A closure given to any other call, such as a spawner, may run more than once |
 | Assign to a variable | As `err = cmd.Wait()` |
 | Return | As `return inner.Wait()` |
 | Branch | As `if err := cmd.Wait(); err != nil { ... }`. A loop is not allowed |

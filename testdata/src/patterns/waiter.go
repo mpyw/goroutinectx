@@ -612,6 +612,44 @@ func badClosureCalledTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
 	}
 }
 
+// [GOOD]: A deferred closure starts the sender
+//
+// A deferred call runs the closure once.
+func goodClosureDeferredGoroutine(ctx context.Context, cmd *exec.Cmd) {
+	errc := make(chan error, 1)
+	defer func() {
+		select {
+		case <-errc:
+		case <-ctx.Done():
+		}
+	}()
+	defer func() {
+		go func() {
+			errc <- cmd.Wait()
+		}()
+	}()
+}
+
+// [BAD]: A closure held as an interface starts the sender
+//
+// The closure is not followed through the interface, so it may run more
+// than once.
+func badClosureAsInterfaceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	var start any = func() {
+		go func() { // want `goroutine does not propagate context "ctx"`
+			errc <- cmd.Wait()
+		}()
+	}
+	start.(func())()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // waiterRunTwice runs f twice.
 func waiterRunTwice(f func()) { f(); f() }
 

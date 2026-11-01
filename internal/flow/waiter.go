@@ -247,10 +247,11 @@ var waiterOnceSpawns = []funcspec.Spec{
 }
 
 // waiterRunsOnce reports whether instr runs the closure mk makes at most
-// once: as the function of a go statement or of a direct call, or as the
-// func given to one of [waiterOnceSpawns]. Any other call given the closure
-// may run it any number of times (#255), as a channel given to a call may be
-// sent on any number of times.
+// once: as the function of a go statement or of a direct or deferred call,
+// or as the func given to one of [waiterOnceSpawns]. Any other call given
+// the closure may run it any number of times (#255), as a channel given to a
+// call may be sent on any number of times. So may any other use, as a
+// conversion to an interface.
 func waiterRunsOnce(instr ssa.Instruction, mk *ssa.MakeClosure) bool {
 	var call *ssa.CallCommon
 	switch x := instr.(type) {
@@ -258,14 +259,13 @@ func waiterRunsOnce(instr ssa.Instruction, mk *ssa.MakeClosure) bool {
 		call = &x.Call
 	case *ssa.Call:
 		call = &x.Call
+	case *ssa.Defer:
+		call = &x.Call
 	default:
 		return false
 	}
 	if !slices.Contains(call.Args, ssa.Value(mk)) {
 		return call.Value == mk
-	}
-	if call.IsInvoke() || call.Value == mk {
-		return false
 	}
 	fn := ExtractCalledFunc(call)
 	return fn != nil && slices.ContainsFunc(waiterOnceSpawns, func(s funcspec.Spec) bool { return s.Matches(fn) })
