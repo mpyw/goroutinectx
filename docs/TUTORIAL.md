@@ -129,7 +129,7 @@ func handler(ctx context.Context) {
 }
 ```
 
-The wait must be one that takes no context, such as `wg.Wait()` or `cmd.Wait()`. A receive from a channel does not count, since the goroutine could select on `ctx.Done()` there. A send after the wait must not block: an unbuffered channel blocks for ever when the caller has left on `ctx.Done()`. `-report-waiters` reports these goroutines too.
+The wait must be one that takes no context, such as `wg.Wait()` or `cmd.Wait()`. A receive from a channel does not count, since the goroutine could select on `ctx.Done()` there. A send after the wait must not block: an unbuffered channel blocks for ever when the caller has left on `ctx.Done()`, and so does a buffered one with more sends than slots, such as two goroutines that send on `make(chan error, 1)`. `-report-waiters` reports these goroutines too.
 
 ---
 

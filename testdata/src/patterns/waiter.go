@@ -317,6 +317,267 @@ func badWaitParamSendGoroutine(ctx context.Context, cmd *exec.Cmd, errc chan err
 	}()
 }
 
+// ===== Senders that share a buffer =====
+
+// [GOOD]: Two senders, a buffer of two
+//
+// Each send has a slot, so neither blocks.
+func goodTwoSendersBufferTwoGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 2)
+	go func() {
+		errc <- a.Wait()
+	}()
+	go func() {
+		errc <- b.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Two senders, a buffer of two
+//
+// Each send has a slot, so neither blocks.
+func goodTwoSendersBufferTwoErrgroup(ctx context.Context, a, b *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 2)
+	g.Go(func() error {
+		errc <- a.Wait()
+		return nil
+	})
+	g.Go(func() error {
+		errc <- b.Wait()
+		return nil
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A sender and a receiver that share a buffer of one
+//
+// A goroutine that only receives takes no slot.
+func goodSenderAndReceiverGoroutine(ctx context.Context, cmd *exec.Cmd) {
+	errc := make(chan error, 1)
+	go func() {
+		errc <- cmd.Wait()
+	}()
+	go func() {
+		select {
+		case <-errc:
+		case <-ctx.Done():
+		}
+	}()
+}
+
+// [GOOD]: Two senders, one of them in a select with a default
+//
+// The send in the select cannot block.
+func goodSelectSendNeighborGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 2)
+	go func() {
+		errc <- a.Wait()
+	}()
+	go func() {
+		err := b.Wait()
+		select {
+		case errc <- err:
+		default:
+		}
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Two senders, a buffer of one
+//
+// After the first receive, or on ctx.Done(), the second send blocks for ever
+// (#242).
+func badTwoSendersBufferOneGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- a.Wait()
+	}()
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- b.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Two senders, a buffer of one
+//
+// After the first receive, or on ctx.Done(), the second send blocks for ever
+// (#242).
+func badTwoSendersBufferOneErrgroup(ctx context.Context, a, b *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		errc <- a.Wait()
+		return nil
+	})
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		errc <- b.Wait()
+		return nil
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Two senders, a buffer of one
+//
+// After the first receive, or on ctx.Done(), the second send blocks for ever
+// (#242).
+func badTwoSendersBufferOneWaitGroup(ctx context.Context, a, b *exec.Cmd) error {
+	var wg sync.WaitGroup
+	errc := make(chan error, 1)
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		errc <- a.Wait()
+	})
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		errc <- b.Wait()
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Two senders, a buffer of one
+//
+// After the first receive, or on ctx.Done(), the second send blocks for ever
+// (#242).
+func badTwoSendersBufferOneSpawner(ctx context.Context, a, b *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	runWithGroup(g, func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
+		errc <- a.Wait()
+		return nil
+	})
+	runWithGroup(g, func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
+		errc <- b.Wait()
+		return nil
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One sender that sends twice
+//
+// The second send blocks for ever when the caller has stopped receiving
+// (#242).
+func badSendTwiceGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- a.Wait()
+		errc <- b.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Senders spawned in a loop
+//
+// There is one sender for each command, and one slot (#242).
+func badLoopSendersGoroutine(ctx context.Context, cmds []*exec.Cmd) error {
+	errc := make(chan error, 1)
+	for _, cmd := range cmds {
+		go func() { // want `goroutine does not propagate context "ctx"`
+			errc <- cmd.Wait()
+		}()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Senders spawned in a loop
+//
+// There is one sender for each command, and one slot (#242).
+func badLoopSendersErrgroup(ctx context.Context, cmds []*exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	for _, cmd := range cmds {
+		g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+			errc <- cmd.Wait()
+			return nil
+		})
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One closure spawned in a loop
+//
+// The closure is made once but run for each command.
+func badLoopSpawnedClosureGoroutine(ctx context.Context, cmd *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	send := func() {
+		errc <- cmd.Wait()
+	}
+	for range n {
+		go send() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: The channel is given to a call
+//
+// The function called may send on it too, so the slot may be taken.
+func badChanEscapesGoroutine(ctx context.Context, cmd *exec.Cmd, fill func(chan<- error)) error {
+	errc := make(chan error, 1)
+	fill(errc)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- cmd.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // ===== Receive, then signal =====
 
 // [BAD]: Receive, then close

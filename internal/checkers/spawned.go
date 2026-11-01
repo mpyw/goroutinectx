@@ -32,8 +32,10 @@ func spawnedFuncPasses(e *env.Env, expr ast.Expr, v ssa.Value, r *flow.FuncResol
 }
 
 // spawnedContextResolver judges a closure by whether it takes or captures a
-// context, or, when derivers is not empty, calls the deriver at its start,
-// or only waits and signals ([spawnedWaiterPasses]). A
+// context, or, when derivers is not empty, calls the deriver at its start.
+// When derivers is empty, a closure that only waits and signals passes too
+// ([spawnedWaiterPasses]). With derivers, it must still call the deriver,
+// as a go statement must for the goroutinederive checker (#243). A
 // factory passes when it takes a context, or is given one other than a fresh
 // context.Background() or TODO(). A named function given only a fresh context
 // fails, as it has no other way to get ctx.
@@ -43,7 +45,8 @@ func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncRes
 	captured := spawnedCapturedResolver(e, derivers)
 	spawned := *captured
 	spawned.Closure = func(fn *ssa.Function) bool {
-		return e.Kinds.HasParam(fn, ctxkind.Param) || captured.Closure(fn) || spawnedWaiterPasses(e, fn)
+		return e.Kinds.HasParam(fn, ctxkind.Param) || captured.Closure(fn) ||
+			(derivers.IsEmpty() && spawnedWaiterPasses(e, fn))
 	}
 	return &spawned
 }
