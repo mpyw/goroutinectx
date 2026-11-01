@@ -214,7 +214,7 @@ func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends in
 
 // waiterClosureSends counts the sends of the closure mk makes on the channel
 // of v, which mk binds, as [waiterChanSends] does. The closure must be made
-// and used once: outside a loop, and given to one go statement or call.
+// and used once: outside a loop, and run once, as [waiterRunsOnce] tells.
 func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int, ok bool) {
 	fn, isFunc := mk.Fn.(*ssa.Function)
 	i := slices.Index(mk.Bindings, v)
@@ -223,11 +223,52 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 	}
 	uses := 0
 	for _, instr := range *mk.Referrers() {
-		if uses++; uses > 1 || waiterInLoop(instr.Block()) {
+		if uses++; uses > 1 || waiterInLoop(instr.Block()) || !waiterRunsOnce(instr, mk) {
 			return 0, false
 		}
 	}
 	return waiterChanSends(fn.FreeVars[i], addr)
+}
+
+// waiterOnceSpawns are the calls that run the func they are given once, in
+// a new goroutine.
+var waiterOnceSpawns = []funcspec.Spec{
+	{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "Go"},
+	{PkgPath: "golang.org/x/sync/errgroup", TypeName: "Group", FuncName: "TryGo"},
+	{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc", TypeName: "WaitGroup", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "Pool", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ErrorPool", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ContextPool", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ResultPool", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ResultErrorPool", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/pool", TypeName: "ResultContextPool", FuncName: "Go"},
+	{PkgPath: "github.com/sourcegraph/conc/stream", TypeName: "Stream", FuncName: "Go"},
+}
+
+// waiterRunsOnce reports whether instr runs the closure mk makes at most
+// once: as the function of a go statement or of a direct or deferred call,
+// or as the func given to one of [waiterOnceSpawns]. Any other call given
+// the closure may run it any number of times (#255), as a channel given to a
+// call may be sent on any number of times. So may any other use, as a
+// conversion to an interface.
+func waiterRunsOnce(instr ssa.Instruction, mk *ssa.MakeClosure) bool {
+	var call *ssa.CallCommon
+	switch x := instr.(type) {
+	case *ssa.Go:
+		call = &x.Call
+	case *ssa.Call:
+		call = &x.Call
+	case *ssa.Defer:
+		call = &x.Call
+	default:
+		return false
+	}
+	if !slices.Contains(call.Args, ssa.Value(mk)) {
+		return call.Value == mk
+	}
+	fn := ExtractCalledFunc(call)
+	return fn != nil && slices.ContainsFunc(waiterOnceSpawns, func(s funcspec.Spec) bool { return s.Matches(fn) })
 }
 
 // waiterInLoop reports whether b may run more than once in its function: it

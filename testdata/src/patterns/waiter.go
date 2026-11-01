@@ -572,6 +572,144 @@ func badLoopSpawnedClosureGoroutine(ctx context.Context, cmd *exec.Cmd, n int) e
 	}
 }
 
+// [GOOD]: A closure called once starts the sender
+//
+// The closure that makes the goroutine runs once, so there is one sender for
+// the one slot.
+func goodClosureCalledOnceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	start := func() {
+		go func() {
+			errc <- cmd.Wait()
+		}()
+	}
+	start()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure called twice starts the sender
+//
+// Two senders share the one slot.
+func badClosureCalledTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	start := func() {
+		go func() { // want `goroutine does not propagate context "ctx"`
+			errc <- cmd.Wait()
+		}()
+	}
+	start()
+	start()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A deferred closure starts the sender
+//
+// A deferred call runs the closure once.
+func goodClosureDeferredGoroutine(ctx context.Context, cmd *exec.Cmd) {
+	errc := make(chan error, 1)
+	defer func() {
+		select {
+		case <-errc:
+		case <-ctx.Done():
+		}
+	}()
+	defer func() {
+		go func() {
+			errc <- cmd.Wait()
+		}()
+	}()
+}
+
+// [BAD]: A closure held as an interface starts the sender
+//
+// The closure is not followed through the interface, so it may run more
+// than once.
+func badClosureAsInterfaceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	var start any = func() {
+		go func() { // want `goroutine does not propagate context "ctx"`
+			errc <- cmd.Wait()
+		}()
+	}
+	start.(func())()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// waiterRunTwice runs f twice.
+func waiterRunTwice(f func()) { f(); f() }
+
+// [BAD]: A closure given to a call starts the sender
+//
+// The function called may run the closure more than once, as waiterRunTwice
+// does, so two senders may share the one slot (#255).
+func badClosureGivenToCallGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	waiterRunTwice(func() {
+		go func() { // want `goroutine does not propagate context "ctx"`
+			errc <- cmd.Wait()
+		}()
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One sender given to a spawner
+//
+// A spawner may run the func it is given more than once, so it is not known
+// to have one sender for the one slot (#255). errgroup.Group.Go, by
+// contrast, runs it once.
+func badOneSenderSpawner(ctx context.Context, cmd *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	runWithGroup(g, func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
+		errc <- cmd.Wait()
+		return nil
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: One sender given to errgroup.Group.Go
+//
+// errgroup.Group.Go runs the func once.
+func goodOneSenderErrgroup(ctx context.Context, cmd *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	g.Go(func() error {
+		errc <- cmd.Wait()
+		return nil
+	})
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // [BAD]: The channel is given to a call
 //
 // The function called may send on it too, so the slot may be taken.
