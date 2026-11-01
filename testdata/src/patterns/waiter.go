@@ -1883,3 +1883,346 @@ func badCapturedSenderCallerAndInClosureGoroutine(ctx context.Context, cmd *exec
 		return ctx.Err()
 	}
 }
+
+// ===== Senders at sites that exclude each other, in closures or used twice (#354, #355, #356) =====
+
+// [GOOD]: Each branch of an if starts a caller of a captured sender, in a closure called in place
+//
+// Only one of the closures runs, so the sender runs once.
+func goodCapturedSenderBranchCallersInClosureGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		func() { go func() { send() }() }()
+	} else {
+		func() { go func() { send() }() }()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Each branch of an if starts a goroutine that calls a captured sender from a closure called in place
+//
+// Only one of the goroutines runs, so the sender runs once.
+func goodCapturedSenderBranchNestedCallersGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go func() { func() { send() }() }()
+	} else {
+		go func() { func() { send() }() }()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Each branch of an if starts a caller of a captured sender, one through another variable
+//
+// Only one of the branches runs, so the sender runs once.
+func goodCapturedSenderBranchCallersRespilledGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		again := send
+		go func() { again() }()
+	} else {
+		go func() { send() }()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A caller of a captured sender through another variable, and another caller
+//
+// Both callers run, so two senders share the one slot.
+func badCapturedSenderRespilledAndCallerGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	again := send
+	go func() { again() }() // want `goroutine does not propagate context "ctx"`
+	go func() { send() }()  // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure called in place starts two callers of a captured sender
+//
+// Both callers run, so two senders share the one slot.
+func badCapturedSenderTwoCallersInClosureGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	func() {
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A caller of a captured sender in a closure called in a branch, and another after the if
+//
+// Both run when the branch is taken, so two senders share the one slot.
+func badCapturedSenderBranchCallerInClosureAndAfterGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		func() { go func() { send() }() }() // want `goroutine does not propagate context "ctx"`
+	}
+	func() { go func() { send() }() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A goroutine calls a captured sender from two closures called in place
+//
+// Both closures run, so the sender runs twice on the one slot.
+func badCapturedSenderNestedTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() { send() }()
+		func() { send() }()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Each branch of an if starts a caller of a captured sender in a closure called in place, in a loop
+//
+// The branches run for each pass of the loop, so senders pile up.
+func badCapturedSenderBranchCallersInClosureInLoopGoroutine(ctx context.Context, cmd *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	for i := range n {
+		if i%2 == 0 {
+			func() { go func() { send() }() }() // want `goroutine does not propagate context "ctx"`
+		} else {
+			func() { go func() { send() }() }() // want `goroutine does not propagate context "ctx"`
+		}
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Each branch of an if starts one sender closure
+//
+// Only one of the branches runs, so the sender runs once.
+func goodSenderBranchStartsGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go send()
+	} else {
+		go send()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One sender closure started in a branch, and again after the if
+//
+// Both run when the branch is taken, so two senders share the one slot.
+func badSenderBranchStartAndAfterGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go send() // want `goroutine does not propagate context "ctx"`
+	}
+	go send() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Each branch of an if starts one sender closure, in a loop
+//
+// The branches run for each pass of the loop, so senders pile up.
+func badSenderBranchStartsInLoopGoroutine(ctx context.Context, cmd *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	for i := range n {
+		if i%2 == 0 {
+			go send() // want `goroutine does not propagate context "ctx"`
+		} else {
+			go send() // want `goroutine does not propagate context "ctx"`
+		}
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Each branch of an if starts one sender closure, on an unbuffered channel
+//
+// The send blocks for good once the caller stops receiving (#242).
+func badSenderBranchStartsUnbufferedGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go send() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go send() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One branch of an if starts one sender closure twice
+//
+// Both starts run when the branch is taken, so the sender runs twice.
+func badSenderBranchStartsTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go send() // want `goroutine does not propagate context "ctx"`
+		go send() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go send() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place starts a caller of a captured sender loaded twice and joined by a Phi
+//
+// The Phi holds the caller either way, and it runs once.
+func goodCapturedSenderPhiLoadsInClosureGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := func() { send() }
+	if conditionFlag {
+		run = func() { send() }
+	}
+	func() {
+		p := run
+		if again {
+			p = run
+		}
+		go p()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place starts a caller of a captured sender in each branch of an if
+//
+// Only one of the branches runs, so the caller runs once.
+func goodCapturedSenderBranchLoadsInClosureGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := func() { send() }
+	if conditionFlag {
+		run = func() { send() }
+	}
+	func() {
+		if again {
+			go run()
+		} else {
+			go run()
+		}
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure called in place starts a caller of a captured sender joined by a Phi, and again
+//
+// Both starts run, so two senders share the one slot.
+func badCapturedSenderPhiLoadsInClosureAndAgainGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := func() { send() }
+	if conditionFlag {
+		run = func() { send() }
+	}
+	func() {
+		p := run
+		if again {
+			p = run
+		}
+		go p()   // want `goroutine does not propagate context "ctx"`
+		go run() // want `goroutine does not propagate context "ctx"`
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A caller of a captured sender started from one variable, then from the same variable set again
+//
+// The two starts both run, so two senders share the one slot.
+func badCapturedSenderStartedAgainGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := func() { send() }
+	func() { go run() }() // want `goroutine does not propagate context "ctx"`
+	run = func() { send() }
+	func() { go run() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

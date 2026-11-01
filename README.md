@@ -1456,6 +1456,24 @@ if fast {
 <td>
 
 ```go
+errCh := make(chan error, 1)
+send := func() {
+	errCh <- cmd.Wait()
+}
+if fast {
+	go send()
+} else {
+	go send()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The same for one sender closure started in each branch</td>
+</tr>
+<tr>
+<td>
+
+```go
 done := make(chan struct{})
 go func() {
 	wg.Wait()
@@ -1568,7 +1586,7 @@ A send outside a `select` cannot block when all of these hold:
 - The channel is made with `make(chan T, n)` for a constant `n` of at least 1.
 - There are at most `n` sends on the channel in all, none in a loop. Every goroutine and every closure counts.
 
-A closure that sends, or starts a sender, must run once. A `go` statement, a direct or deferred call, and a `Go` of `errgroup`, `sync.WaitGroup` or conc run it once. A closure in a variable that another closure captures runs once when that closure runs once and loads the variable once, as `func() { go send() }()` does. Closures joined by a Phi that each load it once count as one, as only one of them runs. Any other call, such as a spawner, may run it more than once.
+A closure that sends, or starts a sender, must run once. A `go` statement, a direct or deferred call, and a `Go` of `errgroup`, `sync.WaitGroup` or conc run it once. A closure in a variable that another closure captures runs once when that closure runs once and loads the variable once, as `func() { go send() }()` does. Closures joined by a Phi that each load it once count as one, as only one of them runs. A closure started, called or loaded at several places runs once when at most one of those places can run, as in the two branches of an `if`, also when they are in closures called in place. Any other call, such as a spawner, may run it more than once.
 
 Anything else is reported as before. These may leak when `ctx` is cancelled:
 

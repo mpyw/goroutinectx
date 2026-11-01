@@ -227,3 +227,22 @@ func badCapturedSenderBranchCallersGoroutine(ctx context.Context, cmd *exec.Cmd)
 		return ctx.Err()
 	}
 }
+
+// [BAD]: Each branch of an if starts one sender closure
+//
+// -report-waiters reports it (#355).
+func badSenderBranchStartsGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if pickFlag {
+		go send() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go send() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
