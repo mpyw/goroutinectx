@@ -26,7 +26,9 @@ type RunOptions struct {
 	// returns, as any result of any of its returns, when the call's result
 	// is called, as factory()() does.
 	Returned bool
-	// Flow follows the called value back to the call, for Returned.
+	// Flow follows the called value back to the call, for Returned, and
+	// to the function literals it can be, so that a closure called through
+	// a Phi is gone into as one called directly is (#306).
 	Flow *Flow
 }
 
@@ -67,14 +69,14 @@ func (r *runner) walk(fn *ssa.Function, inDefer bool) bool {
 			switch v := instr.(type) {
 			case *ssa.Call:
 				if !r.call(RunCall{Call: &v.Call, inDefer: inDefer}) ||
-					!r.walk(runCallee(&v.Call), inDefer) ||
+					!r.walkCallee(&v.Call, inDefer) ||
 					!r.walk(runRangeBody(&v.Call), inDefer) {
 					return false
 				}
 
 			case *ssa.Defer:
 				if !r.call(RunCall{Call: &v.Call, inDefer: true}) ||
-					!r.walk(runCallee(&v.Call), true) {
+					!r.walkCallee(&v.Call, true) {
 					return false
 				}
 
@@ -82,13 +84,29 @@ func (r *runner) walk(fn *ssa.Function, inDefer bool) bool {
 				if !r.call(RunCall{Call: &v.Call, inDefer: inDefer, isGo: true}) {
 					return false
 				}
-				if r.opts.Goroutines && !r.walk(runCallee(&v.Call), false) {
+				if r.opts.Goroutines && !r.walkCallee(&v.Call, false) {
 					return false
 				}
 			}
 		}
 	}
 
+	return true
+}
+
+// walkCallee walks the function call runs in place, as [runCallee] gives
+// it, or with Flow, each function literal the called value can be, as
+// [Flow.Sources] follows it. It reports false when yield stopped it.
+func (r *runner) walkCallee(call *ssa.CallCommon, inDefer bool) bool {
+	if r.opts.Flow == nil || call.IsInvoke() {
+		return r.walk(runCallee(call), inDefer)
+	}
+	sources, _ := r.opts.Flow.Sources(call.Value)
+	for _, s := range sources {
+		if !r.walk(runLiteral(s.Value), inDefer) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -149,14 +167,18 @@ func runCallee(call *ssa.CallCommon) *ssa.Function {
 	if call.IsInvoke() {
 		return nil
 	}
+	return runLiteral(call.Value)
+}
 
-	if mc, ok := call.Value.(*ssa.MakeClosure); ok {
-		if fn, ok := mc.Fn.(*ssa.Function); ok {
-			return fn
-		}
+// runLiteral gives the function literal v is: the function of a closure,
+// or a function literal that captures nothing, or nil.
+func runLiteral(v ssa.Value) *ssa.Function {
+	if mc, ok := v.(*ssa.MakeClosure); ok {
+		fn, _ := mc.Fn.(*ssa.Function)
+		return fn
 	}
 
-	if fn, ok := call.Value.(*ssa.Function); ok && runIsBody(fn) {
+	if fn, ok := v.(*ssa.Function); ok && runIsBody(fn) {
 		return fn
 	}
 
