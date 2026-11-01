@@ -44,10 +44,10 @@ type Flow struct {
 	// closure and what it is judged with (#239).
 	captures map[closureVerdictKey]bool //declscope:shared // closure.go remembers its verdicts
 	// called are the factories whose results a judgement follows from a call
-	// that gives them no func that passes, up the stack. A func parameter of
-	// one holds what the call gives, so it does not pass for being a
-	// parameter.
-	called map[*ssa.Function]int //declscope:shared // judge.go follows the factories a call calls
+	// that gives them no func that passes, up the stack, each with the calls
+	// that follow it, the last one innermost. A func parameter of one holds
+	// what the call gives, so it does not pass for being a parameter.
+	called map[*ssa.Function][]*ssa.CallCommon //declscope:shared // judge.go follows the factories a call calls
 }
 
 // NewFlow gives the Flow of one pass.
@@ -57,7 +57,7 @@ func NewFlow() *Flow {
 		parts:    make(map[resolvedPartKey]resolvedValuesResult),
 		closures: make(map[*ssa.Function]int),
 		captures: make(map[closureVerdictKey]bool),
-		called:   make(map[*ssa.Function]int),
+		called:   make(map[*ssa.Function][]*ssa.CallCommon),
 	}
 }
 

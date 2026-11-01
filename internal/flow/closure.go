@@ -107,8 +107,8 @@ const closureUnheld = math.MaxInt
 // result of a factory, up the stack, so that a parameter of it does not
 // pass.
 func closureFactoriesCalled(f *Flow) bool {
-	for _, n := range f.called {
-		if n > 0 {
+	for _, calls := range f.called {
+		if len(calls) > 0 {
 			return true
 		}
 	}
@@ -560,20 +560,42 @@ func closureElemsPass(f *Flow, funcs Policy, v ssa.Value) bool {
 // read from a map, a channel or a type assertion (opaque) cannot be
 // followed, so it passes, unless the captured variable is a parameter of a
 // factory whose result is followed from a call: the call gives it no func
-// that passes, as the parameter itself does not pass then.
+// that passes, as the parameter itself does not pass then. A parameter
+// that is a slice, an array, a map or a channel of funcs is followed to
+// what the call gives it, and passes when [closureElemsPass] passes that,
+// as when it cannot be followed (#327).
 func (r *closureReader) runsPassingPart(part ssa.Value, opaque bool) bool {
-	return r.runsPassing(part) && (!opaque || !closureGivenToFactory(r.flow, r.root))
+	return r.runsPassing(part) && (!opaque || !closureGivenToFactory(r.flow, r.root, r.funcs))
 }
 
 // closureGivenToFactory reports whether every value the captured v can be
 // is a parameter of a factory whose result a judgement follows from a
-// call.
-func closureGivenToFactory(f *Flow, v ssa.Value) bool {
+// call, and the call gives it no funcs that pass, as
+// [closureFactoryArgFails] tells.
+func closureGivenToFactory(f *Flow, v ssa.Value, funcs Policy) bool {
 	sources, complete := f.CapturedSources(v)
 	return complete && len(sources) > 0 && !slices.ContainsFunc(sources, func(s Source) bool {
 		p, ok := s.Value.(*ssa.Parameter)
-		return !ok || f.called[p.Parent()] == 0
+		return !ok || !closureFactoryArgFails(f, p, funcs)
 	})
+}
+
+// closureFactoryArgFails reports whether p is a parameter of a factory
+// whose result a judgement follows from a call, and does not pass for what
+// the innermost such call gives it. A slice, an array, a map or a channel
+// of funcs passes when [closureElemsPass] passes the argument, as one that
+// cannot be followed does. A parameter of any other type does not pass.
+func closureFactoryArgFails(f *Flow, p *ssa.Parameter, funcs Policy) bool {
+	calls := f.called[p.Parent()]
+	if len(calls) == 0 {
+		return false
+	}
+	if !closureHoldsFuncs(p.Type()) {
+		return true
+	}
+	args := calls[len(calls)-1].Args
+	i := slices.Index(p.Parent().Params, p)
+	return i < len(args) && !closureElemsPass(f, funcs, args[i])
 }
 
 // waitsDone reports whether v, a channel read from what the closure
