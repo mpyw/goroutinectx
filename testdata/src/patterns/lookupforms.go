@@ -359,6 +359,193 @@ func badStructFieldReadInAClosureSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Map value - read in a closure =====
+
+// [GOOD]: Map value - read in a closure
+//
+// A map captured by a closure is followed into it (#302).
+func goodMapValueReadInAClosureGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() { use(ctx) }}
+	func() {
+		go m["a"]()
+	}()
+}
+
+// [BAD]: Map value - read in a closure
+//
+// A map captured by a closure is followed into it (#302).
+func badMapValueReadInAClosureGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() { fmt.Println("no ctx") }}
+	func() {
+		go m["a"]() // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [BAD]: Map value - read in a closure
+//
+// A map captured by a closure is followed into it (#302).
+func badMapValueReadInAClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	m := map[string]func() error{"a": func() error { return nil }}
+	func() {
+		g.Go(m["a"]) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Map value - read in a closure
+//
+// A map captured by a closure is followed into it (#302).
+func badMapValueReadInAClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	m := map[string]func(){"a": func() {}}
+	func() {
+		wg.Go(m["a"]) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	}()
+	wg.Wait()
+}
+
+// [BAD]: Map value - read in a closure
+//
+// A map captured by a closure is followed into it (#302).
+func badMapValueReadInAClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	m := map[string]func() error{"a": func() error { return nil }}
+	func() {
+		runWithGroup(g, m["a"]) // want `runWithGroup\(\) func argument should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Map value - read in a goroutine
+//
+// The goroutine runs a value of a map it captures, and the value does not
+// use ctx (#302).
+func badMapValueReadInAGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() { fmt.Println("no ctx") }}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		m["a"]()
+	}()
+}
+
+// [GOOD]: Map value - read in a goroutine
+func goodMapValueReadInAGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() { use(ctx) }}
+	go func() {
+		m["a"]()
+	}()
+}
+
+// ===== Map value - written past the literal =====
+
+// [NOTCHECKED]: Map value - updated in a closure
+//
+// A map a closure updates is not followed, so it passes.
+func notCheckedMapValueUpdatedInAClosureGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	func() {
+		m["a"] = func() { use(ctx) }
+	}()
+	func() {
+		go m["a"]()
+	}()
+}
+
+// [NOTCHECKED]: Map value - updated after a closure captures it
+//
+// A map updated through the variable a closure captures is not followed,
+// so it passes.
+func notCheckedMapValueUpdatedAfterCaptureGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	run := func() {
+		go m["a"]()
+	}
+	m["a"] = func() { use(ctx) }
+	run()
+}
+
+// [NOTCHECKED]: Map value - variable replaced
+//
+// A variable a closure captures that is given another map is not
+// followed, so it passes.
+func notCheckedMapValueReplacedGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	run := func() {
+		go m["a"]()
+	}
+	m = map[string]func(){"a": func() { use(ctx) }}
+	run()
+}
+
+// [NOTCHECKED]: Map value - replaced in a closure
+//
+// A closure that stores another map to the variable is not followed, so it
+// passes.
+func notCheckedMapValueReplacedInAClosureGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	func() {
+		m = map[string]func(){"a": func() { use(ctx) }}
+	}()
+	func() {
+		go m["a"]()
+	}()
+}
+
+// [NOTCHECKED]: Map value - address taken
+//
+// A map variable whose address is passed on may be written there, so it
+// passes.
+func notCheckedMapValueAddressTakenGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	fill(&m)
+	func() {
+		go m["a"]()
+	}()
+}
+
+// [NOTCHECKED]: Map value - copied to a variable read past the copy
+//
+// A copy of the map that is passed on may be updated there, so it passes.
+func notCheckedMapValueCopyLoadedGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	alias := m
+	fill(&alias)
+	func() {
+		go m["a"]()
+	}()
+}
+
+// [NOTCHECKED]: Map value - copied to a variable passed on
+//
+// A copy of the map whose address is passed on may be updated there, so
+// it passes.
+func notCheckedMapValueCopyAddressTakenGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	alias := m
+	fill(&alias)
+	held := m
+	func() {
+		go held["a"]()
+	}()
+}
+
+// [NOTCHECKED]: Map value - copied to a variable a closure replaces
+//
+// A copy of the map in a variable a closure stores to is not followed, so
+// it passes.
+func notCheckedMapValueCopyReplacedInAClosureGoroutine(ctx context.Context) {
+	m := map[string]func(){"a": func() {}}
+	alias := m
+	func() {
+		alias = nil
+	}()
+	held := m
+	func() {
+		go held["a"]()
+	}()
+	_ = alias
+}
+
 // ===== Struct field - pointer literal read in a closure =====
 
 // [BAD]: Struct field - pointer literal read in a closure
