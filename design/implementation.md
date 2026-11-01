@@ -247,6 +247,8 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 
 `gotaskPolicy` handles a combinator in `Call`, so it does not fall to the factory rules, which pass a callee without a body.
 
+A task is followed back by `Flow.Sources`, through a variable that holds its address too: `p` of `p := &task`, read in a closure as `(*p).DoAsync(ctx, nil)`, is followed to the stores of `task` (#273). The resolver does this for any value, so a func read through a captured pointer is judged too. A variable written through the pointer is not followed.
+
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 
 **Known Limitations:**

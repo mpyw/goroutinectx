@@ -965,3 +965,39 @@ func runWithWaitGroup(wg *sync.WaitGroup, fn func()) {
 }
 
 var conditionFlag bool
+
+// ===== Read through a pointer a closure captures (#273) =====
+
+// [GOOD]: Func read through a pointer a closure captures
+//
+// The func is followed through the variable that holds its address.
+func goodFuncThroughCapturedPointer(ctx context.Context) {
+	fn := func() { _ = ctx }
+	p := &fn
+	func() {
+		go (*p)()
+	}()
+}
+
+// [BAD]: Func read through a pointer a closure captures
+//
+// The func is followed through the variable that holds its address.
+func badFuncThroughCapturedPointer(ctx context.Context) {
+	fn := func() {}
+	p := &fn
+	func() {
+		go (*p)() // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [GOOD]: Func read through a pointer a closure writes through
+//
+// A variable written through a captured pointer is not followed.
+func goodFuncThroughPointerWrittenInClosure(ctx context.Context) {
+	fn := func() {}
+	p := &fn
+	func() {
+		*p = func() { _ = ctx }
+		go (*p)()
+	}()
+}
