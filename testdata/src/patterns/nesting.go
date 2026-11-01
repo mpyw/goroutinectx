@@ -471,6 +471,603 @@ func badCapturedSliceFreshCtxElemSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Context from an element of a captured map =====
+
+// [GOOD]: Context from an element of a captured map
+//
+// A context read from a map counts, as one read from a slice does (#253).
+func goodCapturedMapCtxElemGoroutine(ctx context.Context, k string) {
+	m := map[string]context.Context{"a": ctx}
+	go func() { use(m[k]) }()
+}
+
+// [GOOD]: Context from an element of a captured map
+//
+// A context read from a map counts, as one read from a slice does (#253).
+func goodCapturedMapCtxElemErrgroup(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": ctx}
+	g.Go(func() error { use(m[k]); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from an element of a captured map
+//
+// A context read from a map counts, as one read from a slice does (#253).
+func goodCapturedMapCtxElemWaitGroup(ctx context.Context, k string) {
+	var wg sync.WaitGroup
+	m := map[string]context.Context{"a": ctx}
+	wg.Go(func() { use(m[k]) })
+	wg.Wait()
+}
+
+// [GOOD]: Context from an element of a captured map
+//
+// A context read from a map counts, as one read from a slice does (#253).
+func goodCapturedMapCtxElemSpawner(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": ctx}
+	runWithGroup(g, func() error { use(m[k]); return nil })
+	_ = g.Wait()
+}
+
+// ===== Context from a range over a captured map =====
+
+// [GOOD]: Context from a range over a captured map
+//
+// A context a range over a map gives counts (#253).
+func goodCapturedMapCtxRangeGoroutine(ctx context.Context) {
+	m := map[string]context.Context{"a": ctx}
+	go func() {
+		for _, c := range m {
+			use(c)
+		}
+	}()
+}
+
+// [GOOD]: Context from a range over a captured map
+//
+// A context a range over a map gives counts (#253).
+func goodCapturedMapCtxRangeErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": ctx}
+	g.Go(func() error {
+		for _, c := range m {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a range over a captured map
+//
+// A context a range over a map gives counts (#253).
+func goodCapturedMapCtxRangeWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	m := map[string]context.Context{"a": ctx}
+	wg.Go(func() {
+		for _, c := range m {
+			use(c)
+		}
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Context from a range over a captured map
+//
+// A context a range over a map gives counts (#253).
+func goodCapturedMapCtxRangeSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": ctx}
+	runWithGroup(g, func() error {
+		for _, c := range m {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// ===== Context from a comma-ok lookup of a captured map =====
+
+// [GOOD]: Context from a comma-ok lookup of a captured map
+//
+// A context v, ok := m[k] gives counts (#253).
+func goodCapturedMapCtxCommaOkGoroutine(ctx context.Context, k string) {
+	m := map[string]context.Context{"a": ctx}
+	go func() {
+		if c, ok := m[k]; ok {
+			use(c)
+		}
+	}()
+}
+
+// [GOOD]: Context from a comma-ok lookup of a captured map
+//
+// A context v, ok := m[k] gives counts (#253).
+func goodCapturedMapCtxCommaOkErrgroup(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": ctx}
+	g.Go(func() error {
+		if c, ok := m[k]; ok {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a comma-ok lookup of a captured map
+//
+// A context v, ok := m[k] gives counts (#253).
+func goodCapturedMapCtxCommaOkWaitGroup(ctx context.Context, k string) {
+	var wg sync.WaitGroup
+	m := map[string]context.Context{"a": ctx}
+	wg.Go(func() {
+		if c, ok := m[k]; ok {
+			use(c)
+		}
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Context from a comma-ok lookup of a captured map
+//
+// A context v, ok := m[k] gives counts (#253).
+func goodCapturedMapCtxCommaOkSpawner(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": ctx}
+	runWithGroup(g, func() error {
+		if c, ok := m[k]; ok {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// ===== Context from a map in a field of a captured struct =====
+
+// [GOOD]: Context from a map in a field of a captured struct
+//
+// A context read from a map that a field holds counts (#253).
+func goodCapturedFieldMapCtxGoroutine(ctx context.Context, id int) {
+	r := &ctxByID{byID: map[int]context.Context{1: ctx}}
+	go func() { use(r.byID[id]) }()
+}
+
+// [GOOD]: Context from a map in a field of a captured struct
+//
+// A context read from a map that a field holds counts (#253).
+func goodCapturedFieldMapCtxErrgroup(ctx context.Context, id int) {
+	g := new(errgroup.Group)
+	r := &ctxByID{byID: map[int]context.Context{1: ctx}}
+	g.Go(func() error { use(r.byID[id]); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a map in a field of a captured struct
+//
+// A context read from a map that a field holds counts (#253).
+func goodCapturedFieldMapCtxWaitGroup(ctx context.Context, id int) {
+	var wg sync.WaitGroup
+	r := &ctxByID{byID: map[int]context.Context{1: ctx}}
+	wg.Go(func() { use(r.byID[id]) })
+	wg.Wait()
+}
+
+// [GOOD]: Context from a map in a field of a captured struct
+//
+// A context read from a map that a field holds counts (#253).
+func goodCapturedFieldMapCtxSpawner(ctx context.Context, id int) {
+	g := new(errgroup.Group)
+	r := &ctxByID{byID: map[int]context.Context{1: ctx}}
+	runWithGroup(g, func() error { use(r.byID[id]); return nil })
+	_ = g.Wait()
+}
+
+// ===== Context received from a captured channel =====
+
+// [GOOD]: Context received from a captured channel
+//
+// A context received from a channel counts (#253).
+func goodCapturedChanCtxRecvGoroutine(ctx context.Context) {
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	go func() { use(<-ch) }()
+}
+
+// [GOOD]: Context received from a captured channel
+//
+// A context received from a channel counts (#253).
+func goodCapturedChanCtxRecvErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	g.Go(func() error { use(<-ch); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context received from a captured channel
+//
+// A context received from a channel counts (#253).
+func goodCapturedChanCtxRecvWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	wg.Go(func() { use(<-ch) })
+	wg.Wait()
+}
+
+// [GOOD]: Context received from a captured channel
+//
+// A context received from a channel counts (#253).
+func goodCapturedChanCtxRecvSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	runWithGroup(g, func() error { use(<-ch); return nil })
+	_ = g.Wait()
+}
+
+// ===== Context from a range over a captured channel =====
+
+// [GOOD]: Context from a range over a captured channel
+//
+// A context a range over a channel gives counts (#253).
+func goodCapturedChanCtxRangeGoroutine(ctx context.Context) {
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	close(ch)
+	go func() {
+		for c := range ch {
+			use(c)
+		}
+	}()
+}
+
+// [GOOD]: Context from a range over a captured channel
+//
+// A context a range over a channel gives counts (#253).
+func goodCapturedChanCtxRangeErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	close(ch)
+	g.Go(func() error {
+		for c := range ch {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a range over a captured channel
+//
+// A context a range over a channel gives counts (#253).
+func goodCapturedChanCtxRangeWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	close(ch)
+	wg.Go(func() {
+		for c := range ch {
+			use(c)
+		}
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Context from a range over a captured channel
+//
+// A context a range over a channel gives counts (#253).
+func goodCapturedChanCtxRangeSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan context.Context, 1)
+	ch <- ctx
+	close(ch)
+	runWithGroup(g, func() error {
+		for c := range ch {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// ===== Context from a type assertion of a captured value =====
+
+// [GOOD]: Context from a type assertion of a captured value
+//
+// A context a type assertion gives counts (#253).
+func goodCapturedAnyCtxAssertGoroutine(ctx context.Context) {
+	var v any = ctx
+	go func() { use(v.(context.Context)) }()
+}
+
+// [GOOD]: Context from a type assertion of a captured value
+//
+// A context a type assertion gives counts (#253).
+func goodCapturedAnyCtxAssertErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var v any = ctx
+	g.Go(func() error { use(v.(context.Context)); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a type assertion of a captured value
+//
+// A context a type assertion gives counts (#253).
+func goodCapturedAnyCtxAssertWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var v any = ctx
+	wg.Go(func() { use(v.(context.Context)) })
+	wg.Wait()
+}
+
+// [GOOD]: Context from a type assertion of a captured value
+//
+// A context a type assertion gives counts (#253).
+func goodCapturedAnyCtxAssertSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var v any = ctx
+	runWithGroup(g, func() error { use(v.(context.Context)); return nil })
+	_ = g.Wait()
+}
+
+// ===== Context from a comma-ok type assertion of a captured value =====
+
+// [GOOD]: Context from a comma-ok type assertion of a captured value
+//
+// A context v, ok := x.(T) gives counts (#253).
+func goodCapturedAnyCtxAssertCommaOkGoroutine(ctx context.Context) {
+	var v any = ctx
+	go func() {
+		if c, ok := v.(context.Context); ok {
+			use(c)
+		}
+	}()
+}
+
+// [GOOD]: Context from a comma-ok type assertion of a captured value
+//
+// A context v, ok := x.(T) gives counts (#253).
+func goodCapturedAnyCtxAssertCommaOkErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var v any = ctx
+	g.Go(func() error {
+		if c, ok := v.(context.Context); ok {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Context from a comma-ok type assertion of a captured value
+//
+// A context v, ok := x.(T) gives counts (#253).
+func goodCapturedAnyCtxAssertCommaOkWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var v any = ctx
+	wg.Go(func() {
+		if c, ok := v.(context.Context); ok {
+			use(c)
+		}
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Context from a comma-ok type assertion of a captured value
+//
+// A context v, ok := x.(T) gives counts (#253).
+func goodCapturedAnyCtxAssertCommaOkSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var v any = ctx
+	runWithGroup(g, func() error {
+		if c, ok := v.(context.Context); ok {
+			use(c)
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// ===== Captured map of values that are not contexts =====
+
+// [BAD]: Captured map of values that are not contexts
+//
+// A map that holds no context gives none.
+func badCapturedMapNoCtxGoroutine(ctx context.Context, k string) {
+	m := map[string]string{"a": "b"}
+	go func() { _ = m[k] }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured map of values that are not contexts
+//
+// A map that holds no context gives none.
+func badCapturedMapNoCtxErrgroup(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]string{"a": "b"}
+	g.Go(func() error { _ = m[k]; return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured map of values that are not contexts
+//
+// A map that holds no context gives none.
+func badCapturedMapNoCtxWaitGroup(ctx context.Context, k string) {
+	var wg sync.WaitGroup
+	m := map[string]string{"a": "b"}
+	wg.Go(func() { _ = m[k] }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Captured map of values that are not contexts
+//
+// A map that holds no context gives none.
+func badCapturedMapNoCtxSpawner(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]string{"a": "b"}
+	runWithGroup(g, func() error { _ = m[k]; return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Captured channel of values that are not contexts =====
+
+// [BAD]: Captured channel of values that are not contexts
+//
+// A channel that carries no context gives none.
+func badCapturedChanNoCtxGoroutine(ctx context.Context) {
+	ch := make(chan int, 1)
+	ch <- 1
+	close(ch)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		for n := range ch {
+			_ = n
+		}
+	}()
+}
+
+// [BAD]: Captured channel of values that are not contexts
+//
+// A channel that carries no context gives none.
+func badCapturedChanNoCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan int, 1)
+	ch <- 1
+	close(ch)
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		for n := range ch {
+			_ = n
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [BAD]: Captured channel of values that are not contexts
+//
+// A channel that carries no context gives none.
+func badCapturedChanNoCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ch := make(chan int, 1)
+	ch <- 1
+	close(ch)
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		for n := range ch {
+			_ = n
+		}
+	})
+	wg.Wait()
+}
+
+// [BAD]: Captured channel of values that are not contexts
+//
+// A channel that carries no context gives none.
+func badCapturedChanNoCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan int, 1)
+	ch <- 1
+	close(ch)
+	runWithGroup(g, func() error { // want `runWithGroup\(\) func argument should use context "ctx"`
+		for n := range ch {
+			_ = n
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// ===== Type assertion of a captured value to a type that is not a context =====
+
+// [BAD]: Type assertion of a captured value to a type that is not a context
+//
+// A value asserted to a type that holds no context gives none.
+func badCapturedAnyAssertNoCtxGoroutine(ctx context.Context) {
+	var v any = "s"
+	go func() { _ = v.(string) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Type assertion of a captured value to a type that is not a context
+//
+// A value asserted to a type that holds no context gives none.
+func badCapturedAnyAssertNoCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	var v any = "s"
+	g.Go(func() error { _ = v.(string); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Type assertion of a captured value to a type that is not a context
+//
+// A value asserted to a type that holds no context gives none.
+func badCapturedAnyAssertNoCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	var v any = "s"
+	wg.Go(func() { _ = v.(string) }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Type assertion of a captured value to a type that is not a context
+//
+// A value asserted to a type that holds no context gives none.
+func badCapturedAnyAssertNoCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	var v any = "s"
+	runWithGroup(g, func() error { _ = v.(string); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// ===== Captured map that holds only a fresh context =====
+
+// [LIMITATION]: Captured map that holds only a fresh context
+//
+// What a captured map holds is not followed, so a context read from it
+// counts even when it is only fresh, and it passes. It should be reported.
+func limitationCapturedMapFreshCtxGoroutine(ctx context.Context, k string) {
+	m := map[string]context.Context{"a": context.Background()}
+	go func() { use(m[k]) }()
+}
+
+// [LIMITATION]: Captured map that holds only a fresh context
+//
+// What a captured map holds is not followed, so a context read from it
+// counts even when it is only fresh, and it passes. It should be reported.
+func limitationCapturedMapFreshCtxErrgroup(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": context.Background()}
+	g.Go(func() error { use(m[k]); return nil })
+	_ = g.Wait()
+}
+
+// [LIMITATION]: Captured map that holds only a fresh context
+//
+// What a captured map holds is not followed, so a context read from it
+// counts even when it is only fresh, and it passes. It should be reported.
+func limitationCapturedMapFreshCtxWaitGroup(ctx context.Context, k string) {
+	var wg sync.WaitGroup
+	m := map[string]context.Context{"a": context.Background()}
+	wg.Go(func() { use(m[k]) })
+	wg.Wait()
+}
+
+// [LIMITATION]: Captured map that holds only a fresh context
+//
+// What a captured map holds is not followed, so a context read from it
+// counts even when it is only fresh, and it passes. It should be reported.
+func limitationCapturedMapFreshCtxSpawner(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	m := map[string]context.Context{"a": context.Background()}
+	runWithGroup(g, func() error { use(m[k]); return nil })
+	_ = g.Wait()
+}
+
+// ctxByID holds contexts by an ID.
+type ctxByID struct{ byID map[int]context.Context }
+
 // ===== Context through a copy of a captured struct =====
 
 // [GOOD]: Context through a copy of a captured struct

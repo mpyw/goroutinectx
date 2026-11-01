@@ -20,7 +20,8 @@ import (
 // too included. A value whose type implements context.Context counts as a
 // context, judged the same. A context the closure
 // reads from a field or an element of a variable it captures counts, unless
-// it is fresh. So does a method called on a captured value that returns a
+// it is fresh: an element of a slice, a map or a channel, as m[k], <-ch or
+// a range over one gives, and a value a type assertion gives, too (#253). So does a method called on a captured value that returns a
 // context, and a call that takes a captured value that holds a context the
 // analyzed code can have put there ([ctxkind.Holds]), as its receiver or as
 // any argument, as a function or method spawned directly with it is left
@@ -29,7 +30,8 @@ import (
 // captures a context counts too.
 //
 // A func value the closure calls or passes on, read from a variable it
-// captures or from a part of one, counts when funcs passes it at
+// captures or from a part of one, as handlers[k]() or a range over a
+// channel of funcs reads it, counts when funcs passes it at
 // [SiteCaptured], as it would pass the same value spawned directly: one
 // that cannot be followed passes, as a parameter, a field of a parameter,
 // an element at an index that is not constant or a result of a call with
@@ -131,7 +133,8 @@ func closureCapturesFreeVar(f *Flow, closure *ssa.Function, kinds *ctxkind.Class
 		case k&ctxkind.Carrier != 0:
 			return true
 		}
-		return r.reads(fv) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv) || r.waitsDone(fv)
+		r.root = fv
+		return r.reads(fv, false) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv) || r.waitsDone(fv)
 	})
 }
 
@@ -144,21 +147,29 @@ type closureReader struct {
 	kinds *ctxkind.Classifier
 	// funcs judges a func value the closure runs, or nil.
 	funcs Policy
-	seen  map[ssa.Value]bool
+	// root is the captured variable the parts read are of.
+	root ssa.Value
+	seen map[ssa.Value]bool
 }
 
 // reads reports whether a context or a carrier is read from v, through the
-// fields and elements of what it holds and the local variables it is copied
-// to, or a method is called on a value that returns one, or a call takes a
-// value that holds one. A context
-// that is only ever fresh does not count.
-func (r *closureReader) reads(v ssa.Value) bool {
+// fields and elements of what it holds, slices, maps and channels alike,
+// the values it asserts to and the local variables it is copied to, or a
+// method is called on a value that returns one, or a call takes a value
+// that holds one. A context that is only ever fresh does not count; one
+// read from a map, a channel or a type assertion cannot be followed, so it
+// counts.
+//
+// opaque tells that v is read from a map, a channel or a type assertion,
+// which cannot be followed to what was put there.
+func (r *closureReader) reads(v ssa.Value, opaque bool) bool {
 	if r.seen[v] {
 		return false
 	}
 	r.seen[v] = true
 	for _, ref := range *v.Referrers() {
 		var part ssa.Value
+		partOpaque := opaque
 		switch x := ref.(type) {
 		case ssa.CallInstruction:
 			if r.callsContextMethod(x.Common(), v) || r.callsWithHolder(x.Common(), v, v) {
@@ -178,27 +189,30 @@ func (r *closureReader) reads(v ssa.Value) bool {
 		case *ssa.Store:
 			// A copy to a local variable, as c := *p makes, is read the same.
 			a, ok := x.Addr.(*ssa.Alloc)
-			if !ok || x.Val != v || !r.reads(a) {
+			if !ok || x.Val != v || !r.reads(a, opaque) {
 				continue
 			}
 			return true
 		case *ssa.UnOp:
-			if x.Op != token.MUL {
+			// A load, or a receive from a channel, as <-ch and a range over
+			// a channel make.
+			if x.Op != token.MUL && x.Op != token.ARROW {
 				continue
 			}
-			part = x
-		case *ssa.FieldAddr:
-			part = x
-		case *ssa.Field:
-			part = x
-		case *ssa.IndexAddr:
-			part = x
-		case *ssa.Index:
-			part = x
+			part, partOpaque = x, opaque || x.Op == token.ARROW
+		case *ssa.FieldAddr, *ssa.Field, *ssa.IndexAddr, *ssa.Index,
+			// A result of a part with several, as v, ok := m[k] and a
+			// range give.
+			*ssa.Extract:
+			part = x.(ssa.Value)
+		case *ssa.Lookup, *ssa.Range, *ssa.Next, *ssa.TypeAssert:
+			// An element of a map, and of a range over one, and a type
+			// assertion (#253).
+			part, partOpaque = x.(ssa.Value), true
 		default:
 			continue
 		}
-		if r.carries(part) || r.runsPassing(part) || r.waitsDone(part) || r.reads(part) {
+		if r.carries(part) || r.runsPassingPart(part, partOpaque) || r.waitsDone(part) || r.reads(part, partOpaque) {
 			return true
 		}
 	}
@@ -344,6 +358,27 @@ func (r *closureReader) runsPassing(v ssa.Value) bool {
 		return false
 	}
 	return judgeCaptured(r.flow, r.funcs, v).Passes()
+}
+
+// runsPassingPart reports whether part, read from what the closure
+// captures, runs passing, as [closureReader.runsPassing] judges it. One
+// read from a map, a channel or a type assertion (opaque) cannot be
+// followed, so it passes, unless the captured variable is a parameter of a
+// factory whose result is followed from a call: the call gives it no func
+// that passes, as the parameter itself does not pass then.
+func (r *closureReader) runsPassingPart(part ssa.Value, opaque bool) bool {
+	return r.runsPassing(part) && (!opaque || !closureGivenToFactory(r.flow, r.root))
+}
+
+// closureGivenToFactory reports whether every value the captured v can be
+// is a parameter of a factory whose result a judgement follows from a
+// call.
+func closureGivenToFactory(f *Flow, v ssa.Value) bool {
+	sources, complete := f.CapturedSources(v)
+	return complete && len(sources) > 0 && !slices.ContainsFunc(sources, func(s Source) bool {
+		p, ok := s.Value.(*ssa.Parameter)
+		return !ok || f.called[p.Parent()] == 0
+	})
 }
 
 // waitsDone reports whether v, a channel read from what the closure
