@@ -1,12 +1,14 @@
 package directive
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
+	"slices"
 	"strings"
 	"unicode"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkername"
 )
 
 // tool is the tool part of every goroutinectx directive.
@@ -14,21 +16,22 @@ const tool = "goroutinectx"
 
 // Found holds the goroutinectx directives of one file, as [Scan] gives them.
 type Found struct {
-	// Ignores holds each //goroutinectx:ignore, in source order. The
-	// checker names are not checked: ignore.Build reports an unknown one.
+	// Ignores holds each //goroutinectx:ignore that names only checkers
+	// goroutinectx has, in source order.
 	Ignores []Ignore
 	// Spawners holds each function whose doc comment holds a
 	// //goroutinectx:spawner, once.
 	Spawners []*ast.FuncDecl
 	// Problems holds each comment addressed to goroutinectx that does
-	// nothing, in source order.
+	// nothing: first the ignores that name an unknown checker, then the
+	// rest, each in source order.
 	Problems []Problem
 }
 
 // Ignore is a //goroutinectx:ignore directive.
 type Ignore struct {
 	Comment  *ast.Comment
-	Checkers []checker.Name // The checkers it silences: empty for all
+	Checkers []checkername.Name // The checkers it silences: empty for all
 }
 
 // Problem is a comment addressed to goroutinectx that does nothing. It is
@@ -45,10 +48,13 @@ type Problem struct {
 // A comment addressed to goroutinectx that is not a directive is a problem,
 // and so is a directive with a name goroutinectx does not read:
 // //goroutinectx:ignre would otherwise leave the report it was written for,
-// with no hint why. A spawner directive outside the doc comment of a
-// function is a problem too.
+// with no hint why. An ignore that names a checker goroutinectx does not
+// have is a problem, and silences nothing: the whole directive is dropped on
+// one unknown name. A spawner directive outside the doc comment of a function
+// is a problem too.
 func Scan(file *ast.File) Found {
 	var found Found
+	var unknown []Problem                            // The ignores that name an unknown checker, reported first
 	var funcDocs map[*ast.CommentGroup]*ast.FuncDecl // Made at the first spawner directive
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
@@ -60,7 +66,12 @@ func Scan(file *ast.File) Found {
 			case !ok:
 				found.problem(c, "malformed goroutinectx directive: write it as //goroutinectx:name")
 			case d.Name == "ignore":
-				found.Ignores = append(found.Ignores, Ignore{Comment: c, Checkers: ignoreCheckers(d.Args)})
+				names := ignoreCheckers(d.Args)
+				if i := slices.IndexFunc(names, func(n checkername.Name) bool { return !slices.Contains(checkername.All, n) }); i >= 0 {
+					unknown = append(unknown, Problem{Pos: c.Pos(), Message: unknownChecker(names[i])})
+					continue
+				}
+				found.Ignores = append(found.Ignores, Ignore{Comment: c, Checkers: names})
 			case d.Name == "spawner":
 				if funcDocs == nil {
 					funcDocs = funcDocsOf(file)
@@ -77,6 +88,9 @@ func Scan(file *ast.File) Found {
 				found.problem(c, "unknown directive goroutinectx:"+d.Name)
 			}
 		}
+	}
+	if unknown != nil {
+		found.Problems = slices.Concat(unknown, found.Problems)
 	}
 	return found
 }
@@ -135,20 +149,31 @@ func parse(text string) (ast.Directive, bool) {
 // ignoreCheckers gives the checker names the arguments of an ignore
 // directive list: none to ignore all. A reason goes after "//", which parse
 // drops, or after " - ", kept for compatibility. Anything else after the name
-// is read as checker names. ignore.Build reports a name goroutinectx does not
-// have, since a misspelled checker or a reason written without a separator
-// would otherwise be read as a checker that never reports.
-func ignoreCheckers(args string) []checker.Name {
+// is read as checker names. Scan reports a name goroutinectx does not have,
+// since a misspelled checker or a reason written without a separator would
+// otherwise be read as a checker that never reports.
+func ignoreCheckers(args string) []checkername.Name {
 	rest, _, _ := strings.Cut(args, " - ")
 	if strings.HasPrefix(rest, "- ") || rest == "-" {
 		return nil
 	}
 
-	var checkers []checker.Name
+	var checkers []checkername.Name
 	for part := range strings.SplitSeq(rest, ",") {
-		if name := checker.Name(strings.TrimSpace(part)); name != "" {
+		if name := checkername.Name(strings.TrimSpace(part)); name != "" {
 			checkers = append(checkers, name)
 		}
 	}
 	return checkers
+}
+
+// unknownChecker gives the message for an ignore that names the checker
+// name, which goroutinectx does not have.
+func unknownChecker(name checkername.Name) string {
+	names := make([]string, len(checkername.All))
+	for i, n := range checkername.All {
+		names[i] = string(n)
+	}
+	return fmt.Sprintf("unknown checker %q in goroutinectx:ignore (want one of %s; write a reason after //)",
+		string(name), strings.Join(names, ", "))
 }

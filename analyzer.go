@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkerdef"
+	"github.com/mpyw/goroutinectx/internal/checkername"
+	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/run"
 )
 
@@ -57,10 +57,10 @@ func New(cfg Config) (*analysis.Analyzer, error) {
 	c.ExternalSpawner = cfg.ExternalSpawner
 	c.ContextCarriers = cfg.ContextCarriers
 	for name, on := range cfg.Checkers {
-		if !checkerdef.Settable(checker.Name(name)) {
+		if !checkers.Settable(checkername.Name(name)) {
 			return nil, fmt.Errorf("unknown checker %q", name)
 		}
-		c.Checkers[checker.Name(name)] = on
+		c.Checkers[checkername.Name(name)] = on
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func analyzerWithFlags() *analysis.Analyzer {
 	a.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
 
-	for _, d := range checkerdef.Defs {
+	for _, d := range checkers.Defs {
 		if d.HasFlag() {
 			a.Flags.Var(analyzerChecker{c.Checkers, d.Name}, string(d.Name), d.FlagDoc)
 		}
@@ -158,8 +158,8 @@ func (d analyzerDeriver) Set(s string) error {
 // boolean flag, as flag.BoolVar would give, that sets the checker's entry in
 // checkers.
 type analyzerChecker struct {
-	checkers map[checker.Name]bool
-	name     checker.Name
+	checkers map[checkername.Name]bool
+	name     checkername.Name
 }
 
 func (c analyzerChecker) String() string {

@@ -43,10 +43,10 @@
 // # Parsing
 //
 // [directive.Scan] finds the ignore directives of a file, and [Build] makes
-// its map: line number → ignore. Build also gives each ignore that names a
-// checker goroutinectx does not have, which silences nothing.
+// its map: line number → ignore. Scan drops, and reports, each ignore that
+// names a checker goroutinectx does not have, which silences nothing.
 //
-//	ignoreMap, problems := ignore.Build(fset, file, directive.Scan(file).Ignores)
+//	ignoreMap := ignore.Build(fset, file, directive.Scan(file).Ignores)
 //
 // # Checking Ignores
 //

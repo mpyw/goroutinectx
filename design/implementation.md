@@ -45,7 +45,7 @@ Only `//goroutinectx:name [args]` (a line comment, a lowercase name, no spaces) 
 
 Directive matching and file filters use unadjusted positions (`fset.PositionFor(pos, false)`), so a `//line` directive does not move them. Only diagnostics show adjusted positions.
 
-`directive.Scan` reads the directives of a file in one pass over its comments: the ignores, the functions marked spawner, and the comments that do nothing. `ignore.Build` then reports an ignore that names an unknown checker, since `directive` cannot import `checkerdef`, which imports the spawner analyzer. The runner and `spawner.Analyzer` both use it. The runner skips a generated file whole, at the file, not at each node. An ignore is marked used only by the runner, on the one ignore that silences a report: the one at the report's line, or else the one at the call it is inside.
+`directive.Scan` reads the directives of a file in one pass over its comments: the ignores, the functions marked spawner, and the comments that do nothing, including an ignore that names an unknown checker. It checks the names against `checkername.All`. It reports those ignores before the other problems of the file, the order the runner has reported them in since #219. The runner and `spawner.Analyzer` both use it. The runner skips a generated file whole, at the file, not at each node. An ignore is marked used only by the runner, on the one ignore that silences a report: the one at the report's line, or else the one at the call it is inside.
 
 ## Architecture
 
@@ -58,13 +58,13 @@ goroutinectx/
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
-│   ├── checker/               # Checker names
-│   ├── checkerdef/            # The one table of checkers: flags, defaults, builders
+│   ├── checkername/           # Checker names, and checkername.All in table order
 │   ├── checkers/              # Checker implementations
+│   │   ├── checkers.go        # The one table of checkers (Defs): flags, defaults, builders
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
 │   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
 │   │   ├── gotask.go          # gotask library checker
-│   │   └── spawnerlabel/      # spawnerlabel checker
+│   │   └── spawnerlabel.go    # spawnerlabel checker
 │   ├── carrier/               # Context carrier types (-context-carriers)
 │   ├── ctxkind/               # Classifier: what counts as a context, built once per pass
 │   ├── deriver/               # Matcher for OR/AND deriver matching
@@ -114,17 +114,17 @@ goroutinectx/
 // Separated interfaces, in internal/run. Each returns its reports, and the
 // runner applies //goroutinectx:ignore at each report's position.
 type goStmtChecker interface {
-    Name() checker.Name
+    Name() checkername.Name
     CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
 }
 
 type callChecker interface {
-    Name() checker.Name
+    Name() checkername.Name
     CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
 }
 
 type packageChecker interface {
-    Name() checker.Name
+    Name() checkername.Name
     Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic
 }
 ```
@@ -144,7 +144,7 @@ The first two are AST-level distinctions: `go` is a statement, function calls ar
 
 ### The Checker Table
 
-`checkerdef.Defs` defines every checker once:
+`checkers.Defs` defines every checker once:
 
 | Field | Meaning |
 | --- | --- |
@@ -154,7 +154,7 @@ The first two are AST-level distinctions: `go` is a statement, function calls ar
 | `NeedsDeriver` | Built only when `-goroutine-deriver` is set (goroutinederive, gotask) |
 | `Build` | Builds it from the pass's `env.Env` |
 
-The flags, `goroutinectx.New`'s `unknown checker` error, the plugin's settings (`run.Config.UnmarshalJSON`), the checkers `Run` builds, and the names `//goroutinectx:ignore` accepts all come from it. Its order is the order `Run` builds the checkers in, and the order an unknown-checker report in an ignore lists them in.
+The flags, `goroutinectx.New`'s `unknown checker` error, the plugin's settings (`run.Config.UnmarshalJSON`) and the checkers `Run` builds all come from it. The names `//goroutinectx:ignore` accepts come from `checkername.All`, which lists the same names in the same order; a test checks that. So `directive.Scan` checks the names without importing the checkers. The order is the order `Run` builds the checkers in, and the order an unknown-checker report in an ignore lists them in.
 
 ### Goroutine-Related Checkers
 
@@ -286,11 +286,11 @@ Validate config changes with `goreleaser check`, and dry-run with `goreleaser re
 
 ## Adding a New Checker
 
-1. Add the checker to `internal/checkers`, and its name to `internal/checker`:
+1. Add the checker to `internal/checkers`, and its name to `internal/checkername`, both as a constant and in `checkername.All`:
 ```go
 type MyChecker struct{}
 
-func (*MyChecker) Name() checker.Name { return checker.My }
+func (*MyChecker) Name() checkername.Name { return checkername.My }
 
 // For call expression checks. A spawning API goes in the table in
 // internal/registry, with this checker's name.
@@ -303,7 +303,7 @@ func (c *MyChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []
 func (c *MyChecker) CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic { ... }
 ```
 
-2. Add its `Def` to `checkerdef.Defs` in `internal/checkerdef` (see [The Checker Table](#the-checker-table)). That gives it its flag, its `goroutinectx.New` and plugin setting, and its place in `Run`. A checker that is not a go statement or call checker implements `packageChecker`
+2. Add its `Def` to `checkers.Defs` in `internal/checkers/checkers.go`, at the same place as in `checkername.All` (see [The Checker Table](#the-checker-table)). That gives it its flag, its `goroutinectx.New` and plugin setting, and its place in `Run`. A checker that is not a go statement or call checker implements `packageChecker`
 
 3. Add its variant of each case in `testdata/src/patterns/` that it can express, and its own cases in `testdata/src/<name>/` (see [Where a Test Case Goes](#where-a-test-case-goes))
 

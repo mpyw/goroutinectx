@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkername"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/registry"
@@ -19,7 +19,7 @@ import (
 // goroutine.
 type SpawnCallbackChecker struct {
 	spawnClosureCheck
-	checkerName checker.Name
+	checkerName checkername.Name
 }
 
 // spawnClosureCheck holds the closure checks that SpawnCallbackChecker and
@@ -28,9 +28,11 @@ type spawnClosureCheck struct {
 	derivers *deriver.Matcher
 }
 
-// NewSpawnCallbackChecker creates the checker of the registry entries of
+// newSpawnCallbackChecker creates the checker of the registry entries of
 // name.
-func NewSpawnCallbackChecker(name checker.Name, derivers *deriver.Matcher) *SpawnCallbackChecker {
+//
+//declscope:shared // Defs in checkers.go builds the checker with it
+func newSpawnCallbackChecker(name checkername.Name, derivers *deriver.Matcher) *SpawnCallbackChecker {
 	return &SpawnCallbackChecker{
 		spawnClosureCheck: spawnClosureCheck{derivers: derivers},
 		checkerName:       name,
@@ -38,7 +40,7 @@ func NewSpawnCallbackChecker(name checker.Name, derivers *deriver.Matcher) *Spaw
 }
 
 // Name returns the checker name for ignore directive matching.
-func (c *SpawnCallbackChecker) Name() checker.Name {
+func (c *SpawnCallbackChecker) Name() checkername.Name {
 	return c.checkerName
 }
 
@@ -95,8 +97,10 @@ type SpawnerMap interface {
 	IsSpawner(fn *types.Func) bool
 }
 
-// NewSpawnerChecker creates a spawner checker.
-func NewSpawnerChecker(spawners SpawnerMap, derivers *deriver.Matcher) *SpawnerChecker {
+// newSpawnerChecker creates a spawner checker.
+//
+//declscope:shared // Defs in checkers.go builds the checker with it
+func newSpawnerChecker(spawners SpawnerMap, derivers *deriver.Matcher) *SpawnerChecker {
 	return &SpawnerChecker{
 		spawnClosureCheck: spawnClosureCheck{derivers: derivers},
 		spawners:          spawners,
@@ -104,8 +108,8 @@ func NewSpawnerChecker(spawners SpawnerMap, derivers *deriver.Matcher) *SpawnerC
 }
 
 // Name returns the checker name.
-func (*SpawnerChecker) Name() checker.Name {
-	return checker.Spawner
+func (*SpawnerChecker) Name() checkername.Name {
+	return checkername.Spawner
 }
 
 // CheckCall checks the call expression. It reports each failing argument at

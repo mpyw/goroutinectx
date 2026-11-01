@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mpyw/goroutinectx/internal/checkername"
 )
 
 // scanOneComment scans a file that holds only the comment text.
@@ -105,6 +107,103 @@ func TestScanUnknownDirective(t *testing.T) {
 		if got != want {
 			t.Errorf("Scan(%q) reports it unknown = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// TestScanIgnoreForms checks which comments are an ignore, the checkers
+// each names, and the ignores Scan reports for an unknown checker.
+func TestScanIgnoreForms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		text    string
+		want    []checkername.Name
+		unknown string // the unknown checker the problem names
+		wantOK  bool
+	}{
+		{name: "canonical", text: "//goroutinectx:ignore", wantOK: true},
+		{name: "spaced", text: "// goroutinectx:ignore", wantOK: false},
+		{name: "trailing space", text: "//goroutinectx:ignore  ", wantOK: true},
+		{name: "one checker", text: "//goroutinectx:ignore goroutine", want: []checkername.Name{checkername.Goroutine}, wantOK: true},
+		{name: "spaced with checker", text: "// goroutinectx:ignore goroutine", wantOK: false},
+		{name: "block comment", text: "/* goroutinectx:ignore */", wantOK: false},
+		{name: "checker list", text: "//goroutinectx:ignore goroutine,errgroup", want: []checkername.Name{checkername.Goroutine, checkername.Errgroup}, wantOK: true},
+		{name: "checker list with spaces", text: "//goroutinectx:ignore goroutine, errgroup", want: []checkername.Name{checkername.Goroutine, checkername.Errgroup}, wantOK: true},
+		{name: "dash reason", text: "//goroutinectx:ignore - fire-and-forget", wantOK: true},
+		{name: "bare dash", text: "//goroutinectx:ignore -", wantOK: true},
+		{name: "checker with dash reason", text: "//goroutinectx:ignore goroutine - fire-and-forget", want: []checkername.Name{checkername.Goroutine}, wantOK: true},
+		{name: "checker with slash reason", text: "//goroutinectx:ignore errgroup // want `x`", want: []checkername.Name{checkername.Errgroup}, wantOK: true},
+		{name: "checker list with slash reason", text: "//goroutinectx:ignore goroutine,errgroup //reason", want: []checkername.Name{checkername.Goroutine, checkername.Errgroup}, wantOK: true},
+		{name: "bare slash reason", text: "//goroutinectx:ignore // fire-and-forget", wantOK: true},
+		{name: "bare slash reason without space", text: "//goroutinectx:ignore //fire-and-forget", wantOK: true},
+		{name: "bare want comment", text: "//goroutinectx:ignore // want `x`", wantOK: true},
+		{name: "slash reason holding a URL", text: "//goroutinectx:ignore // see https://example.com", wantOK: true},
+		{name: "conc", text: "//goroutinectx:ignore conc", want: []checkername.Name{checkername.Conc}, wantOK: true},
+		{name: "reason without dash", text: "//goroutinectx:ignore intentionally detached", unknown: "intentionally detached", wantOK: true},
+		{name: "checker then reason without dash", text: "//goroutinectx:ignore goroutine intentionally detached", unknown: "goroutine intentionally detached", wantOK: true},
+		{name: "misspelled checker", text: "//goroutinectx:ignore gorutine", unknown: "gorutine", wantOK: true},
+		{name: "one misspelled in a list", text: "//goroutinectx:ignore goroutine,typo", unknown: "typo", wantOK: true},
+		{name: "longer name", text: "//goroutinectx:ignored", wantOK: false},
+		{name: "longer name with args", text: "//goroutinectx:ignoregoroutine", wantOK: false},
+		{name: "longer tool", text: "//goroutinectxx:ignore", wantOK: false},
+		{name: "other directive", text: "//goroutinectx:spawner", wantOK: false},
+		{name: "other tool", text: "//nolint:ignore", wantOK: false},
+		{name: "plain comment", text: "// ignore this", wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			found := scanOneComment(tt.text)
+			var got []checkername.Name
+			if len(found.Ignores) == 1 {
+				got = found.Ignores[0].Checkers
+			}
+			problem := "" // The one report of an unknown checker, if any
+			for _, p := range found.Problems {
+				if strings.HasPrefix(p.Message, "unknown checker ") {
+					problem = p.Message
+				}
+			}
+			if ok := len(found.Ignores) == 1 || problem != ""; ok != tt.wantOK {
+				t.Fatalf("Scan(%q) found an ignore = %v, want %v", tt.text, ok, tt.wantOK)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("Scan(%q) ignore checkers = %q, want %q", tt.text, got, tt.want)
+			}
+			if tt.unknown == "" && problem != "" {
+				t.Errorf("Scan(%q) problem = %q, want none", tt.text, problem)
+			}
+			if tt.unknown != "" && !strings.HasPrefix(problem, "unknown checker \""+tt.unknown+"\" in goroutinectx:ignore (want one of ") {
+				t.Errorf("Scan(%q) problem = %q, want one naming %q", tt.text, problem, tt.unknown)
+			}
+		})
+	}
+}
+
+// TestScanUnknownCheckerFirst checks that the ignores naming an unknown
+// checker come first in the problems, before a malformed directive above
+// them, and that the dropped ignore is not kept.
+func TestScanUnknownCheckerFirst(t *testing.T) {
+	t.Parallel()
+
+	src := "package p\n\n// goroutinectx:ignore\nfunc f() {}\n\n//goroutinectx:ignore typo\nfunc g() {}\n\n//goroutinectx:ignore goroutine\nfunc h() {}\n"
+	file, err := parser.ParseFile(token.NewFileSet(), "p.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := Scan(file)
+	var got []string
+	for _, p := range found.Problems {
+		got = append(got, strings.Fields(p.Message)[0])
+	}
+	if want := []string{"unknown", "malformed"}; !slices.Equal(got, want) {
+		t.Errorf("Scan() problems = %v, want %v", found.Problems, want)
+	}
+	if len(found.Ignores) != 1 || !slices.Equal(found.Ignores[0].Checkers, []checkername.Name{checkername.Goroutine}) {
+		t.Errorf("Scan() ignores = %v, want the goroutine one only", found.Ignores)
 	}
 }
 
