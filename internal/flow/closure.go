@@ -482,7 +482,10 @@ func closureCallsOnlyFresh(f *Flow, v ssa.Value, kinds *ctxkind.Classifier, thro
 // method of, or gives to a call, counts when arg may hold a context, as
 // [closureReader.interfaceMayHold] judges it. A use in a closure the
 // closure makes, which captures param, counts the same, as the value
-// loaded from the variable SSA spills param to ([spilledUses], #322).
+// loaded from the variable SSA spills param to ([spilledUses], #322). A
+// slice, an array, a map or a channel of funcs whose elements the closure
+// runs counts when the funcs arg holds pass, as [closureElemsPass] judges
+// them, as the elements of the same value captured would (#325).
 func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, kinds *ctxkind.Classifier, funcs Policy) bool {
 	defer f.ask()()
 	t := param.Type()
@@ -491,15 +494,64 @@ func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, ki
 		runs := slices.ContainsFunc(uses, func(u ssa.Value) bool { return closureRuns(u, false) })
 		return runs && judgeCaptured(f, funcs, arg).Passes()
 	}
+	r := &closureReader{flow: f, kinds: kinds.From(closurePackage(param.Parent()))}
+	if closureHoldsFuncs(t) {
+		r.funcs, r.root, r.seen = funcs, param, make(map[ssa.Value]bool)
+		runs := slices.ContainsFunc(uses, func(u ssa.Value) bool { return r.reads(u, false) })
+		return runs && closureElemsPass(f, funcs, arg)
+	}
 	if !types.IsInterface(t) || kinds.Is(t, ctxkind.Captured) {
 		return false
 	}
-	r := &closureReader{flow: f, kinds: kinds.From(closurePackage(param.Parent()))}
 	return slices.ContainsFunc(uses, func(u ssa.Value) bool {
 		return slices.ContainsFunc(*u.Referrers(), func(ref ssa.Instruction) bool {
 			call, ok := ref.(ssa.CallInstruction)
 			return ok && r.callsWithHolder(call.Common(), u, arg)
 		})
+	})
+}
+
+// closureHoldsFuncs reports whether t is a slice, an array, a map or a
+// channel of funcs.
+func closureHoldsFuncs(t types.Type) bool {
+	var elem types.Type
+	switch u := t.Underlying().(type) {
+	case *types.Slice:
+		elem = u.Elem()
+	case *types.Array:
+		elem = u.Elem()
+	case *types.Map:
+		elem = u.Elem()
+	case *types.Chan:
+		elem = u.Elem()
+	default:
+		return false
+	}
+	_, isFunc := elem.Underlying().(*types.Signature)
+	return isFunc
+}
+
+// closureElemsPass reports whether the funcs v, a slice, an array, a map
+// or a channel of funcs, holds may pass, as funcs judges each at
+// [SiteCaptured]. Those of a slice made from a local array, as
+// [Flow.ResolvedSliceElems] gives them, pass when one of them does. Those
+// of a map or a channel made by the analyzed function, with make or a
+// literal, do not pass for that alone: what is put there is judged by the
+// arguments' rules, as [Flow.InvolvesContext]. Any other value cannot be
+// followed, as a parameter, a field or the result of a call, so it passes.
+func closureElemsPass(f *Flow, funcs Policy, v ssa.Value) bool {
+	switch v.Type().Underlying().(type) {
+	case *types.Slice, *types.Array:
+		elems, ok := f.ResolvedSliceElems(v)
+		return !ok || slices.ContainsFunc(elems, func(e ssa.Value) bool { return judgeCaptured(f, funcs, e).Passes() })
+	}
+	sources, complete := f.Sources(v)
+	return !complete || slices.ContainsFunc(sources, func(s Source) bool {
+		switch s.Value.(type) {
+		case *ssa.MakeMap, *ssa.MakeChan:
+			return false
+		}
+		return true
 	})
 }
 

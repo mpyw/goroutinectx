@@ -1122,3 +1122,87 @@ func badGoParamFuncParamStoredGoroutine(ctx context.Context, f func(), h *goPara
 		h.fn = g
 	}(f)
 }
+
+// [GOOD]: Goroutine given a slice parameter of funcs it runs an element of
+//
+// The funcs cannot be followed, as the same slice captured passes (#325).
+func goodGoParamFuncSliceParamGoroutine(ctx context.Context, fs []func()) {
+	go func(x []func()) {
+		x[0]()
+	}(fs)
+}
+
+// [GOOD]: Goroutine given a map parameter of funcs it runs a value of
+//
+// The funcs cannot be followed (#325).
+func goodGoParamFuncMapParamGoroutine(ctx context.Context, m map[string]func()) {
+	go func(x map[string]func()) {
+		x["a"]()
+	}(m)
+}
+
+// [GOOD]: Goroutine given a channel parameter of funcs it runs what it receives
+//
+// The funcs cannot be followed (#325).
+func goodGoParamFuncChanParamGoroutine(ctx context.Context, jobs <-chan func()) {
+	go func(c <-chan func()) {
+		for job := range c {
+			job()
+		}
+	}(jobs)
+}
+
+// [GOOD]: Goroutine given a slice parameter of funcs it runs in a nested closure
+//
+// The nested closure reads the parameter as the goroutine itself would
+// (#322, #325).
+func goodGoParamFuncSliceParamNestedGoroutine(ctx context.Context, fs []func()) {
+	go func(x []func()) {
+		func() { x[0]() }()
+	}(fs)
+}
+
+// [GOOD]: Goroutine given a slice literal of funcs, one of them a parameter
+//
+// The parameter cannot be followed, as the same element captured (#325).
+func goodGoParamFuncSliceOfParamGoroutine(ctx context.Context, f func()) {
+	go func(x []func()) {
+		x[0]()
+	}([]func(){f})
+}
+
+// [BAD]: Goroutine given a slice literal of funcs without ctx
+//
+// No func in the slice uses ctx.
+func badGoParamFuncSlicePlainGoroutine(ctx context.Context) {
+	go func(x []func()) { // want `goroutine does not propagate context "ctx"`
+		x[0]()
+	}([]func(){func() {}})
+}
+
+// [BAD]: Goroutine given a map literal of funcs without ctx
+//
+// No func in the map uses ctx.
+func badGoParamFuncMapPlainGoroutine(ctx context.Context) {
+	go func(x map[string]func()) { // want `goroutine does not propagate context "ctx"`
+		x["a"]()
+	}(map[string]func(){"a": func() {}})
+}
+
+// [BAD]: Goroutine given a slice parameter of funcs it does not run
+//
+// The funcs are only counted, as the same slice captured would be.
+func badGoParamFuncSliceParamNotRunGoroutine(ctx context.Context, fs []func()) {
+	go func(x []func()) { // want `goroutine does not propagate context "ctx"`
+		_ = len(x)
+	}(fs)
+}
+
+// [GOOD]: Goroutine given an array parameter of funcs it runs an element of
+//
+// The funcs cannot be followed (#325).
+func goodGoParamFuncArrayParamGoroutine(ctx context.Context, fs [1]func()) {
+	go func(x [1]func()) {
+		x[0]()
+	}(fs)
+}

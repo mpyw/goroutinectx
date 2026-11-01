@@ -88,9 +88,9 @@ func (p *spawnedContextPolicy) paramKind() ctxkind.Kind {
 // ctx, or, for a parameter of another type that may hold a context, a value
 // built from a context other than a fresh one, as [flow.Flow.InvolvesContext]
 // follows it: an interface, a func, a slice or an any given ctx (#252). A
-// func or an interface is judged as the same value captured, too, as
-// [flow.Flow.ClosureArgCapturesContext] judges it: one that cannot be
-// followed passes (#296).
+// func, an interface, or a slice, a map or a channel of funcs, is judged as
+// the same value captured, too, as [flow.Flow.ClosureArgCapturesContext]
+// judges it: one that cannot be followed passes (#296, #325).
 func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
 	return slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool {
