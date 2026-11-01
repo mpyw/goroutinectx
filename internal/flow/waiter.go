@@ -351,17 +351,74 @@ func waiterReaches(a, b ssa.Instruction) bool {
 }
 
 // waiterExclusive reports whether at most one of sites runs in one run of
-// the function holding them: each two are the same site, or neither
-// reaches the other, as [waiterReaches] tells (#350).
-func waiterExclusive(sites []ssa.Instruction) bool {
+// the functions holding them: each two are the same site, or neither
+// reaches the other, as [waiterReaches] tells (#350). Two sites in different
+// functions are compared where those functions run: a site in a closure is
+// lifted to the site that runs the closure, as [waiterLift] gives it, until
+// both are in one function, as if c { func() { go f() }() } else
+// { func() { go g() }() } runs f or g (#354). Sites that cannot be lifted to
+// one function may both run. sited is as [waiterRunSiteFrom] has it.
+func waiterExclusive(sites []ssa.Instruction, sited map[*ssa.MakeClosure]bool) bool {
 	for i, a := range sites {
 		for _, b := range sites[i+1:] {
-			if a != b && (a.Parent() != b.Parent() || waiterReaches(a, b) || waiterReaches(b, a)) {
+			if !waiterApart(a, b, sited) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// waiterApart reports whether a and b never both run, as [waiterExclusive]
+// tells for two of its sites.
+func waiterApart(a, b ssa.Instruction, sited map[*ssa.MakeClosure]bool) bool {
+	// lifted holds the sites a is lifted to, by the function holding each.
+	lifted := map[*ssa.Function]ssa.Instruction{}
+	for site := a; site != nil && lifted[site.Parent()] == nil; site = waiterLift(site, sited) {
+		lifted[site.Parent()] = site
+	}
+	seen := map[*ssa.Function]bool{}
+	for site := b; site != nil && !seen[site.Parent()]; site = waiterLift(site, sited) {
+		seen[site.Parent()] = true
+		if other := lifted[site.Parent()]; other != nil {
+			// One site runs one closure, so what runs in two of them are
+			// alternatives.
+			return other == site || !waiterReaches(other, site) && !waiterReaches(site, other)
+		}
+	}
+	return false
+}
+
+// waiterLift gives the site that runs the closure holding site, as
+// [waiterRunSiteFrom] gives it, so that site runs at most once in each run
+// of the one given. It is nil when the function of site is not a closure
+// made outside a loop, or the closure has no such site.
+func waiterLift(site ssa.Instruction, sited map[*ssa.MakeClosure]bool) ssa.Instruction {
+	mk := waiterMakerOf(site.Parent())
+	if mk == nil || waiterInLoop(mk.Block()) {
+		return nil
+	}
+	up, ok := waiterRunSiteFrom(mk, mk, sited)
+	if !ok {
+		return nil
+	}
+	return up
+}
+
+// waiterMakerOf gives the closure of fn made in the function that encloses
+// it, or nil when there is none.
+func waiterMakerOf(fn *ssa.Function) *ssa.MakeClosure {
+	if fn.Parent() == nil {
+		return nil
+	}
+	for _, b := range fn.Parent().Blocks {
+		for _, instr := range b.Instrs {
+			if mk, ok := instr.(*ssa.MakeClosure); ok && mk.Fn == fn {
+				return mk
+			}
+		}
+	}
+	return nil
 }
 
 // waiterChanUseSends counts the sends instr makes on the channel of v, as
@@ -435,11 +492,12 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 // (#298). So is the one store of it to a local variable, outside a loop, to
 // the one load of the variable, as [waiterSpilledLoads] gives it, as
 // run := f; go func() { run() }() runs f once (#321). When the variable is
-// loaded in several closures that are alternatives, each load is followed
-// to its use in turn, and the store is the site, as no one instruction
-// runs the closure (#345). A closure that is not used is its own site, as
-// nothing runs it. A closure that may run itself, through a variable that
-// a closure it runs captures, has none.
+// loaded several times at sites that exclude each other, each load is
+// followed to its use in turn, and the variable is the site, as no one
+// instruction runs the closure (#345, #356). Several uses that exclude each
+// other are taken as [waiterAlternativeUses] takes them (#355). A closure
+// that is not used is its own site, as nothing runs it. A closure that may
+// run itself, through a variable that a closure it runs captures, has none.
 func waiterRunSite(mk *ssa.MakeClosure) (site ssa.Instruction, ok bool) {
 	return waiterRunSiteFrom(mk, mk, make(map[*ssa.MakeClosure]bool))
 }
@@ -468,7 +526,9 @@ func waiterRunSiteFrom(mk *ssa.MakeClosure, v ssa.Value, sited map[*ssa.MakeClos
 		switch {
 		case len(refs) == 0 && v == mk:
 			return mk, true
-		case len(refs) != 1 || waiterInLoop(refs[0].Block()):
+		case len(refs) > 1:
+			return waiterAlternativeUses(v, refs, sited)
+		case waiterInLoop(refs[0].Block()):
 			return nil, false
 		}
 		switch x := refs[0].(type) {
@@ -483,12 +543,17 @@ func waiterRunSiteFrom(mk *ssa.MakeClosure, v ssa.Value, sited map[*ssa.MakeClos
 				v = loads[0]
 				continue
 			}
+			sites := make([]ssa.Instruction, 0, len(loads))
 			for _, load := range loads {
-				if _, ok := waiterRunSiteFrom(mk, load, sited); !ok {
+				site, ok := waiterRunSiteFrom(mk, load, sited)
+				if !ok {
 					return nil, false
 				}
+				sites = append(sites, site)
 			}
-			return x, true
+			// Every closure stored to the variable runs at those sites, so
+			// the variable is the site of each, and they are alternatives.
+			return x.Addr.(*ssa.Alloc), waiterExclusive(sites, sited)
 		default:
 			return refs[0], waiterRunsOnce(refs[0], v)
 		}
@@ -505,49 +570,47 @@ func waiterStoresAgain(refs []ssa.Instruction, ref ssa.Instruction) bool {
 	})
 }
 
+// waiterAlternativeUses gives the site of the closure v holds when refs, its
+// uses, are several sites that exclude each other, as [waiterExclusive]
+// tells, each outside a loop and running it once, as [waiterRunsOnce]
+// tells: if c { go send() } else { go send() } runs send once (#355). v is
+// the closure, a Phi or a load, as [waiterRunSiteFrom] follows it, and the
+// site is its instruction, which comes before each of refs, so that any
+// site that may run with one of them may run with it too.
+func waiterAlternativeUses(v ssa.Value, refs []ssa.Instruction, sited map[*ssa.MakeClosure]bool) (site ssa.Instruction, ok bool) {
+	if slices.ContainsFunc(refs, func(ref ssa.Instruction) bool {
+		return waiterInLoop(ref.Block()) || !waiterRunsOnce(ref, v)
+	}) || !waiterExclusive(refs, sited) {
+		return nil, false
+	}
+	return v.(ssa.Instruction), true
+}
+
 // waiterSpilledLoads gives the loads of the local variable st stores v
 // to, as [spilledLoads] follows it into the closures that capture the
 // variable. Other values stored to the variable are alternatives, as for a
 // Phi: the load runs one of them. Each of those closures must be made
 // outside a loop and run once, as [waiterRunSite] tells, so that a load
-// runs once when it is outside a loop of its own function. There must be
-// one load, or several, each in another of those closures, when all of them
-// run at one site, so that only one of them runs, as
+// runs once when it is outside a loop of its own function. When there are
+// several loads, [waiterRunSiteFrom] follows each to its site, and those
+// sites must exclude each other, as [waiterExclusive] tells, so that only
+// one load runs: as
 // run := func() { send() }; if c { run = func() { send() } }; go run()
-// runs send once (#345), or at sites that exclude each other, as
-// [waiterExclusive] tells, as if c { go func() { send() }() } else
-// { go func() { send() }() } runs send once (#350). sited is as
-// [waiterRunSiteFrom] has it.
+// runs send once (#345), as if c { go func() { send() }() } else
+// { go func() { send() }() } does (#350), and as two loads in one closure
+// joined by a Phi do (#356). sited is as [waiterRunSiteFrom] has it.
 func waiterSpilledLoads(st *ssa.Store, v ssa.Value, sited map[*ssa.MakeClosure]bool) ([]*ssa.UnOp, bool) {
 	loads, binders, ok := spilledLoads(st, true)
 	if !ok || st.Val != v || len(loads) == 0 || slices.ContainsFunc(loads, func(load *ssa.UnOp) bool { return waiterInLoop(load.Block()) }) {
 		return nil, false
 	}
-	var sites []ssa.Instruction
 	for _, mk := range binders {
 		if waiterInLoop(mk.Block()) {
 			return nil, false
 		}
-		site, ok := waiterRunSiteFrom(mk, mk, sited)
-		if !ok {
+		if _, ok := waiterRunSiteFrom(mk, mk, sited); !ok {
 			return nil, false
 		}
-		sites = append(sites, site)
-	}
-	if len(loads) == 1 {
-		return loads, true
-	}
-	if !waiterExclusive(sites) {
-		return nil, false
-	}
-	loaded := make(map[*ssa.Function]bool)
-	for _, load := range loads {
-		fn := load.Parent()
-		bound := slices.ContainsFunc(binders, func(mk *ssa.MakeClosure) bool { return mk.Fn == fn })
-		if loaded[fn] || !bound {
-			return nil, false
-		}
-		loaded[fn] = true
 	}
 	return loads, true
 }
