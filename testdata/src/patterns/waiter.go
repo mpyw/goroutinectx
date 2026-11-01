@@ -1711,3 +1711,175 @@ func badCapturedRecursiveSenderOtherGoroutine(ctx context.Context, cmd *exec.Cmd
 		return ctx.Err()
 	}
 }
+
+// ===== Senders started in branches that exclude each other (#350) =====
+
+// [GOOD]: Each branch of an if starts a caller of a captured sender
+//
+// Only one of the branches runs, so the sender runs once.
+func goodCapturedSenderBranchCallersGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go func() { send() }()
+	} else {
+		go func() { send() }()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Each branch of an if starts a sender
+//
+// Only one of the branches runs, so one sender shares the slot.
+func goodBranchSendersGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	if conditionFlag {
+		go func() { errc <- a.Wait() }()
+	} else {
+		go func() { errc <- b.Wait() }()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Each case of a switch starts a sender
+//
+// Only one of the cases runs, so one sender shares the slot.
+func goodSwitchSendersGoroutine(ctx context.Context, a, b, c *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	switch n {
+	case 0:
+		go func() { errc <- a.Wait() }()
+	case 1:
+		go func() { errc <- b.Wait() }()
+	default:
+		go func() { errc <- c.Wait() }()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A sender started in a branch, and another after the if
+//
+// Both run when the branch is taken, so two senders share the one slot.
+func badBranchSenderAndAfterGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	if conditionFlag {
+		go func() { errc <- a.Wait() }() // want `goroutine does not propagate context "ctx"`
+	}
+	go func() { errc <- b.Wait() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Each branch of an if starts a caller of a captured sender, and so does the code after it
+//
+// Two of the callers run, so two senders share the one slot.
+func badCapturedSenderBranchCallersAndAfterGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	}
+	go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One branch of an if starts two senders
+//
+// Both senders of that branch run, so two share the one slot.
+func badBranchTwoSendersGoroutine(ctx context.Context, a, b, c *exec.Cmd) error {
+	errc := make(chan error, 1)
+	if conditionFlag {
+		go func() { errc <- a.Wait() }() // want `goroutine does not propagate context "ctx"`
+		go func() { errc <- b.Wait() }() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go func() { errc <- c.Wait() }() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Each branch of an if starts a sender, in a loop
+//
+// The branches run for each pass of the loop, so senders pile up.
+func badBranchSendersInLoopGoroutine(ctx context.Context, a, b *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	for i := range n {
+		if i%2 == 0 {
+			go func() { errc <- a.Wait() }() // want `goroutine does not propagate context "ctx"`
+		} else {
+			go func() { errc <- b.Wait() }() // want `goroutine does not propagate context "ctx"`
+		}
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Each branch of an if starts a sender, on an unbuffered channel
+//
+// The send blocks for good once the caller stops receiving (#242).
+func badBranchSendersUnbufferedGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error)
+	if conditionFlag {
+		go func() { errc <- a.Wait() }() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go func() { errc <- b.Wait() }() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A caller of a captured sender is started, and another in a closure called in place
+//
+// Both callers run, so two senders share the one slot.
+func badCapturedSenderCallerAndInClosureGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	func() {
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

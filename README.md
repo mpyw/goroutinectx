@@ -1392,6 +1392,25 @@ go func() {
 <td>
 
 ```go
+errCh := make(chan error, 1)
+if fast {
+	go func() {
+		errCh <- g1.Wait()
+	}()
+} else {
+	go func() {
+		errCh <- g2.Wait()
+	}()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> Only one of the branches runs, so one sender shares the slot</td>
+</tr>
+<tr>
+<td>
+
+```go
 done := make(chan struct{})
 go func() {
 	wg.Wait()

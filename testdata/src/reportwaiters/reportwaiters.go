@@ -208,3 +208,22 @@ func badCapturedSenderPhiCallersGoroutine(ctx context.Context, cmd *exec.Cmd) er
 		return ctx.Err()
 	}
 }
+
+// [BAD]: Each branch of an if starts a caller of a captured sender
+//
+// -report-waiters reports it (#350).
+func badCapturedSenderBranchCallersGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if pickFlag {
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go func() { send() }() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
