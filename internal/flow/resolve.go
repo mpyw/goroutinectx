@@ -287,7 +287,7 @@ func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, w resolvedWalk) (store
 
 // resolvedBinding gives the value the closure owning fv was made with for it.
 //
-//declscope:shared // flow.go follows a variable captured by reference to itself
+//declscope:shared // flow.go and closure.go follow a variable captured by reference to itself
 func resolvedBinding(fv *ssa.FreeVar) (ssa.Value, bool) {
 	fn := fv.Parent()
 	idx := slices.Index(fn.FreeVars, fv)
