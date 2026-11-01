@@ -922,7 +922,7 @@ func handler(
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> The same for an array, a map, a channel or a pointer of contexts, as when the goroutine captures <code>ctxs</code>. A literal of only fresh contexts is reported</td>
+<td>⚠️ <b>Not reported.</b> The same for an array, a map, a channel or a pointer of contexts, or of structs with a context field, as when the goroutine captures <code>ctxs</code>. A literal of only fresh contexts is reported</td>
 </tr>
 <tr>
 <td>
