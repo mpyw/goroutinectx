@@ -1824,7 +1824,7 @@ func handler(ctx Doner) {
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> The function is not checked. The interface declares the methods itself. Only an embedded <code>context.Context</code> counts</td>
+<td>⚠️ <b>Not reported.</b> The function is not checked. The interface declares the methods itself. Only an embedded <code>context.Context</code> counts. Name the interface in <a href="#-context-carriers"><code>-context-carriers</code></a> to check the function</td>
 </tr>
 </tbody>
 </table>
@@ -1935,7 +1935,7 @@ func handler(ctx Doner) {
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> The function is not checked. The interface declares the methods itself. Only an embedded <code>context.Context</code> counts</td>
+<td>⚠️ <b>Not reported.</b> The function is not checked. The interface declares the methods itself. Only an embedded <code>context.Context</code> counts. Name the interface in <a href="#-context-carriers"><code>-context-carriers</code></a> to check the function</td>
 </tr>
 <tr>
 <td>
@@ -1953,7 +1953,7 @@ func handler(r Request) {
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> The function is not checked. The struct implements <code>context.Context</code>, but is not one</td>
+<td>⚠️ <b>Not reported.</b> The function is not checked. The struct implements <code>context.Context</code>, but is not one. Name the struct in <a href="#-context-carriers"><code>-context-carriers</code></a> to check the function</td>
 </tr>
 </tbody>
 </table>
