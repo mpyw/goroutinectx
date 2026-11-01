@@ -260,7 +260,7 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 
 **Known Limitations:**
-- A slice expanded with `...` is judged by its elements when they can be traced: a slice literal, in a variable or not, `gotask.TasksFrom(...)`, or the slices a function returns. A slice variable whose elements can't be traced, as a parameter, is reported
+- A slice expanded with `...` is judged by its elements when they can be traced: a slice literal, in a variable or not, `gotask.TasksFrom(...)`, or the slices a function returns. A slice a closure captures is judged by the slices stored to it, as `Flow.CapturedSources` reads it, and passes when they can't be traced (#263). A slice variable of the same function whose elements can't be traced, as a parameter, is reported
 - A task from an interface method can't be traced, so it is reported
 - A combinator given a slice of tasks whose elements can't be traced, as a slice parameter, passes
 

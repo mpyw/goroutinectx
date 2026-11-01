@@ -3,6 +3,7 @@ package checkers
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"slices"
 
@@ -135,7 +136,8 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, s *site.Site, entry registry.E
 // a call, as lo.Map makes one, passes when calling one of the call's
 // callbacks gives a task function that derives. A slice variable whose
 // elements are not traced, as a parameter, is reported. A slice SSA has no
-// value for passes, as nothing is known of it.
+// value for passes, as nothing is known of it. A slice a closure captures is
+// judged by the slices stored to it, and passes when they are not traced.
 func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *gotaskPolicy) bool {
 	v := spawned.Value
 	if v == nil {
@@ -143,6 +145,11 @@ func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *
 	}
 	if elems, ok := gotaskSliceElems(e, v); ok {
 		return !slices.ContainsFunc(elems, func(elem ssa.Value) bool { return !p.passes(elem) })
+	}
+	if _, captured := gotaskCapturedRead(v); captured {
+		// A captured slice that is not traced passes, as nothing is known
+		// of what the closure reads (#263).
+		return true
 	}
 	switch arg := ast.Unparen(spawned.Expr).(type) {
 	case *ast.Ident:
@@ -334,21 +341,47 @@ func (c *GotaskChecker) ctxIsDerivedFrom(e *env.Env, v ssa.Value, seen map[ssa.V
 
 // gotaskSliceElems gives the elements of a slice of tasks or task functions,
 // as [flow.Flow.ResolvedSliceElems] does, and for gotask.TasksFrom, the
-// functions it is given.
+// functions it is given. A slice read from a variable a closure captures
+// gives the elements of every slice stored to it, as
+// [flow.Flow.CapturedSources] reads it (#263). Each of those is in a
+// function around the closure, so the reads end. ok is false when any of
+// them is not traced.
 func gotaskSliceElems(e *env.Env, v ssa.Value) ([]ssa.Value, bool) {
+	if fv, ok := gotaskCapturedRead(v); ok {
+		sources, complete := e.Flow.CapturedSources(fv)
+		if !complete || len(sources) == 0 {
+			return nil, false
+		}
+		var elems []ssa.Value
+		for _, s := range sources {
+			sourceElems, ok := gotaskSliceElems(e, s.Value)
+			if !ok {
+				return nil, false
+			}
+			elems = append(elems, sourceElems...)
+		}
+		return elems, true
+	}
 	if call, ok := v.(*ssa.Call); ok {
 		fn := flow.ExtractCalledFunc(call.Common())
 		if fn != nil && (funcspec.Spec{PkgPath: gotaskConstructor.pkgPath, FuncName: "TasksFrom"}).Matches(fn) {
 			if len(call.Call.Args) != 1 {
 				return nil, false
 			}
-			return e.Flow.ResolvedSliceElems(call.Call.Args[0])
+			return gotaskSliceElems(e, call.Call.Args[0])
 		}
 	}
-	if v == nil {
-		return nil, false
-	}
 	return e.Flow.ResolvedSliceElems(v)
+}
+
+// gotaskCapturedRead gives the free variable v reads, when v is a free
+// variable captured by value or a load of one captured by reference.
+func gotaskCapturedRead(v ssa.Value) (*ssa.FreeVar, bool) {
+	if load, ok := v.(*ssa.UnOp); ok && load.Op == token.MUL {
+		v = load.X
+	}
+	fv, ok := v.(*ssa.FreeVar)
+	return fv, ok
 }
 
 // gotaskIsConstructor reports whether fn is the task constructor.
