@@ -696,11 +696,69 @@ func badExpandedSliceLiteral(ctx context.Context) {
 	}...)
 }
 
-// [LIMITATION]: A slice parameter, expanded
+// [GOOD]: A slice parameter, expanded
 //
-// Its elements can't be traced, so it is reported.
-func limitationExpandedParam(ctx context.Context, tasks []func(context.Context) error) {
+// Nothing is known of its elements, so it passes, as the same slice given
+// through a function with no body does (#316).
+func goodExpandedParam(ctx context.Context, tasks []func(context.Context) error) {
+	_ = gotask.DoAllFnsSettled(ctx, tasks...)
+}
+
+// [BAD]: A variable that holds one of two slices that do not derive, expanded
+//
+// Each slice the variable may hold is judged by its elements.
+func badExpandedPhiSlices(ctx context.Context, cond bool) {
+	tasks := []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+	if cond {
+		tasks = []func(context.Context) error{
+			func(ctx context.Context) error { return nil },
+		}
+	}
 	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+}
+
+// [BAD]: A variable that holds a slice parameter or a slice that does not derive, expanded
+//
+// The slice literal the variable may hold is judged by its elements.
+func badExpandedPhiParamOrLiteral(ctx context.Context, tasks []func(context.Context) error) {
+	if tasks == nil {
+		tasks = []func(context.Context) error{
+			func(ctx context.Context) error { return nil },
+		}
+	}
+	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+}
+
+// [GOOD]: A variable that holds one of two slices that derive, expanded
+//
+// Each slice the variable may hold is judged by its elements.
+func goodExpandedPhiSlices(ctx context.Context, cond bool) {
+	tasks := []func(context.Context) error{
+		func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+	}
+	if cond {
+		tasks = []func(context.Context) error{
+			func(ctx context.Context) error { _ = apm.NewGoroutineContext(ctx); return nil },
+		}
+	}
+	_ = gotask.DoAllFnsSettled(ctx, tasks...)
+}
+
+// [BAD]: A slice variable a loop may set to a slice that does not derive, expanded
+//
+// The loop gives a cycle of the slices the variable may hold. Each is judged
+// once, and the slice literal is judged by its elements.
+func badExpandedLoopSlice(ctx context.Context, tasks []func(context.Context) error, n int) {
+	for i := 0; i < n; i++ {
+		_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+		if i == 1 {
+			tasks = []func(context.Context) error{
+				func(ctx context.Context) error { return nil },
+			}
+		}
+	}
 }
 
 // [GOOD]: A whole local array, sliced and expanded
