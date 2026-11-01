@@ -202,6 +202,11 @@ func (j *judgement) call(call *ssa.CallCommon) Verdict {
 	callees, _ := j.f.Sources(call.Value)
 	for _, s := range callees {
 		if fn := s.Func(); fn != nil {
+			if fn.Origin() != nil {
+				// factory judges the origin, whose parameters are the
+				// ones the decorated function reaches (#271).
+				fn = fn.Origin()
+			}
 			j.f.called[fn]++
 			defer func() { j.f.called[fn]-- }()
 		}

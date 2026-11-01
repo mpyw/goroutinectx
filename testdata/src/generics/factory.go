@@ -118,6 +118,62 @@ func goodGenericFactoryCapturesCtx(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Generic decorator =====
+
+// [GOOD]: Generic decorator given a func that uses ctx
+//
+// A generic decorator is judged by the func it runs, as its non-generic twin
+// is (#271).
+func goodGenericDecoratorGoroutine(ctx context.Context) {
+	go genericRecoverWrap[int](func() { _ = ctx })()
+}
+
+// [BAD]: Generic decorator given a func without ctx
+//
+// A generic decorator is judged by the func it runs, as its non-generic twin
+// is (#271).
+func badGenericDecoratorGoroutine(ctx context.Context) {
+	go genericRecoverWrap[int](func() { fmt.Println("no ctx") })() // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Generic decorator given a func that uses ctx
+//
+// A generic decorator is judged by the func it runs, as its non-generic twin
+// is (#271).
+func goodGenericDecoratorErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(genericRecoverWrapErr[int](func() error { _ = ctx; return nil }))
+	_ = g.Wait()
+}
+
+// [BAD]: Generic decorator given a func without ctx
+//
+// A generic decorator is judged by the func it runs, as its non-generic twin
+// is (#271).
+func badGenericDecoratorErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(genericRecoverWrapErr[int](func() error { fmt.Println("no ctx"); return nil })) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Generic factory given a channel of funcs that use ctx
+//
+// A func sent on the channel captures ctx (#271).
+func goodGenericFuncChanCtxGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() { _ = ctx }
+	go genericRunFromChan[int](ch)()
+}
+
+// [BAD]: Generic factory given a channel of funcs without ctx
+//
+// No func sent on the channel captures ctx (#271).
+func badGenericFuncChanPlainGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	go genericRunFromChan[int](ch)() // want `goroutine does not propagate context "ctx"`
+}
+
 func genericWorker[T any](ctx context.Context, v T) {
 	_, _ = ctx, v
 }
@@ -152,5 +208,26 @@ func genericMakeErrWith[T any](v T) func() error {
 	return func() error {
 		_ = v
 		return nil
+	}
+}
+
+func genericRecoverWrap[T any](f func()) func() {
+	return func() {
+		defer func() { _ = recover() }()
+		f()
+	}
+}
+
+func genericRecoverWrapErr[T any](f func() error) func() error {
+	return func() error {
+		defer func() { _ = recover() }()
+		return f()
+	}
+}
+
+func genericRunFromChan[T any](ch chan func()) func() {
+	return func() {
+		f := <-ch
+		f()
 	}
 }
