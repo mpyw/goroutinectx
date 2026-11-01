@@ -1592,3 +1592,246 @@ func badGoParamFuncSliceCapturedPlainGoroutine(ctx context.Context) {
 		}(fs)
 	}()
 }
+
+// ===== Go parameters given holders of only fresh contexts (#351, #343) =====
+
+// setCtx sets the context h holds.
+func (h *goParamCtxHolder) setCtx(ctx context.Context) { h.ctx = ctx }
+
+// [BAD]: Goroutine given a pointer to a holder of only a fresh context
+//
+// The struct the pointer points to holds no ctx (#351).
+func badGoParamCtxHolderPtrFreshGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{context.Background()}
+	go func(x *goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x.ctx.Done()
+	}(&h)
+}
+
+// [BAD]: Goroutine in a closure given a pointer to a captured holder of only a fresh context
+//
+// The struct the pointer points to holds no ctx (#351).
+func badGoParamCtxHolderPtrFreshCapturedGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{context.Background()}
+	func() {
+		go func(x *goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+			<-x.ctx.Done()
+		}(&h)
+	}()
+}
+
+// [BAD]: Goroutine given a pointer literal of a holder of only a fresh context
+//
+// The struct holds no ctx (#351).
+func badGoParamCtxHolderPtrLiteralFreshGoroutine(ctx context.Context) {
+	go func(x *goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x.ctx.Done()
+	}(&goParamCtxHolder{ctx: context.TODO()})
+}
+
+// [BAD]: Goroutine given a holder of only a fresh context
+//
+// The struct holds no ctx (#351).
+func badGoParamCtxHolderFreshGoroutine(ctx context.Context) {
+	go func(x goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x.ctx.Done()
+	}(goParamCtxHolder{context.Background()})
+}
+
+// [BAD]: Goroutine given a slice literal of holders of only fresh contexts
+//
+// No struct in the slice holds ctx (#343).
+func badGoParamCtxHolderSliceFreshGoroutine(ctx context.Context) {
+	go func(x []goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x[0].ctx.Done()
+	}([]goParamCtxHolder{{ctx: context.Background()}})
+}
+
+// [BAD]: Goroutine given a local slice of holders of only fresh contexts
+//
+// No struct in the slice holds ctx (#343).
+func badGoParamCtxHolderSliceVarFreshGoroutine(ctx context.Context) {
+	cs := []goParamCtxHolder{{ctx: context.Background()}, {ctx: context.TODO()}}
+	go func(x []goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x[1].ctx.Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a pointer to a holder of ctx
+//
+// The struct the pointer points to holds ctx.
+func goodGoParamCtxHolderPtrGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{ctx}
+	go func(x *goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(&h)
+}
+
+// [GOOD]: Goroutine in a closure given a pointer to a captured holder of ctx
+//
+// The struct the pointer points to holds ctx.
+func goodGoParamCtxHolderPtrCapturedGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{ctx}
+	func() {
+		go func(x *goParamCtxHolder) {
+			<-x.ctx.Done()
+		}(&h)
+	}()
+}
+
+// [GOOD]: Goroutine given a pointer to a holder set to ctx after it starts
+//
+// Every value stored to the struct counts, as the goroutine may read it
+// after any of them (#351).
+func goodGoParamCtxHolderPtrSetAfterGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{context.Background()}
+	go func(x *goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(&h)
+	h.ctx = ctx
+}
+
+// [GOOD]: Goroutine given a pointer to a holder a method sets to ctx
+//
+// The method writes the struct in a way not followed, so it may hold ctx
+// (#351).
+func goodGoParamCtxHolderPtrSetByMethodGoroutine(ctx context.Context) {
+	h := &goParamCtxHolder{}
+	h.setCtx(ctx)
+	go func(x *goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(h)
+}
+
+// [GOOD]: Goroutine given a pointer to a holder a closure sets to ctx
+//
+// The closure writes the struct in a way not followed, so it may hold ctx
+// (#351).
+func goodGoParamCtxHolderPtrSetInClosureGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{context.Background()}
+	func() { h.ctx = ctx }()
+	go func(x *goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(&h)
+}
+
+// [GOOD]: Goroutine given a pointer to a holder set to ctx through another pointer
+//
+// The other pointer is a way of writing the struct not followed (#351).
+func goodGoParamCtxHolderPtrSetThroughAliasGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{context.Background()}
+	p := &h
+	p.ctx = ctx
+	go func(x *goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(&h)
+}
+
+// [GOOD]: Goroutine given a pointer a constructor makes
+//
+// The result of the call cannot be followed (#351).
+func goodGoParamCtxHolderPtrMadeGoroutine(ctx context.Context) {
+	go func(x *goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(newGoParamCtxHolder(ctx))
+}
+
+// newGoParamCtxHolder gives a holder of ctx.
+func newGoParamCtxHolder(ctx context.Context) *goParamCtxHolder {
+	return &goParamCtxHolder{ctx: ctx}
+}
+
+// [GOOD]: Goroutine given a holder of ctx
+//
+// The struct holds ctx.
+func goodGoParamCtxHolderGoroutine(ctx context.Context) {
+	go func(x goParamCtxHolder) {
+		<-x.ctx.Done()
+	}(goParamCtxHolder{ctx})
+}
+
+// [GOOD]: Goroutine given a holder of a struct a pointer field points to
+//
+// The struct pointed to cannot be followed, so it may hold ctx.
+func goodGoParamCtxHolderPtrFieldLiteralGoroutine(ctx context.Context) {
+	go func(x goParamCtxHolderPtr) {
+		<-x.p.ctx.Done()
+	}(goParamCtxHolderPtr{&goParamCtxHolder{ctx}})
+}
+
+// [GOOD]: Goroutine given a slice literal of holders of ctx
+//
+// A struct in the slice holds ctx (#343).
+func goodGoParamCtxHolderSliceGoroutine(ctx context.Context) {
+	go func(x []goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}([]goParamCtxHolder{{ctx: ctx}})
+}
+
+// [GOOD]: Goroutine given a local slice of holders, one set to ctx
+//
+// A struct in the slice holds ctx (#343).
+func goodGoParamCtxHolderSliceSetGoroutine(ctx context.Context) {
+	cs := []goParamCtxHolder{{ctx: context.Background()}}
+	cs[0].ctx = ctx
+	go func(x []goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a local slice of holders, one set to ctx at an index not constant
+//
+// The write at that index is not followed, so the slice may hold ctx
+// (#343).
+func goodGoParamCtxHolderSliceSetAtIndexGoroutine(ctx context.Context, i int) {
+	cs := []goParamCtxHolder{{ctx: context.Background()}}
+	cs[i].ctx = ctx
+	go func(x []goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a local slice of holders also given to a call
+//
+// The call may write the slice (#343).
+func goodGoParamCtxHolderSliceGivenToCallGoroutine(ctx context.Context) {
+	cs := []goParamCtxHolder{{ctx: context.Background()}}
+	fillGoParamCtxHolders(cs, ctx)
+	go func(x []goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}(cs)
+}
+
+// fillGoParamCtxHolders sets each holder of cs to ctx.
+func fillGoParamCtxHolders(cs []goParamCtxHolder, ctx context.Context) {
+	for i := range cs {
+		cs[i].ctx = ctx
+	}
+}
+
+// [BAD]: Goroutine given a pointer to a holder of a nil context
+//
+// A nil context holds no ctx (#351).
+func badGoParamCtxHolderPtrNilGoroutine(ctx context.Context) {
+	h := goParamCtxHolder{ctx: nil}
+	go func(x *goParamCtxHolder) { // want `goroutine does not propagate context "ctx"`
+		<-x.ctx.Done()
+	}(&h)
+}
+
+// [GOOD]: Goroutine given a slice of holders also kept in a variable whose address a call is given
+//
+// The call may set the holders through the variable (#351).
+func goodGoParamCtxHolderSliceKeptSetByCallGoroutine(ctx context.Context) {
+	cs := []goParamCtxHolder{{ctx: context.Background()}}
+	kept := cs
+	setGoParamCtxHolders(&kept, ctx)
+	go func(x []goParamCtxHolder) {
+		<-x[0].ctx.Done()
+	}(cs)
+}
+
+// setGoParamCtxHolders sets the first holder of cs to ctx.
+func setGoParamCtxHolders(cs *[]goParamCtxHolder, ctx context.Context) {
+	(*cs)[0].ctx = ctx
+}

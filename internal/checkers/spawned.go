@@ -90,17 +90,28 @@ func (p *spawnedContextPolicy) paramKind() ctxkind.Kind {
 // follows it: an interface, a func, a slice or an any given ctx (#252). A
 // func, an interface, or a slice, a map or a channel of funcs, is judged as
 // the same value captured, too, as [flow.Flow.ClosureArgCapturesContext]
-// judges it: one that cannot be followed passes (#296, #325).
+// judges it: one that cannot be followed passes (#296, #325). A struct
+// that holds a context, a pointer to one, or a slice, an array, a map or
+// a channel of contexts or of such structs, counts only when the contexts
+// it holds may not be fresh, as [flow.Flow.ClosureArgHoldsContext] judges
+// them (#351, #343).
 func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
 	return slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool {
 		i := slices.Index(fn.Params, param)
-		if p.e.Kinds.Is(param.Type(), ctxkind.Given) {
-			return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
+		if i >= len(args) {
+			return p.e.Kinds.Is(param.Type(), ctxkind.Given)
 		}
-		return i < len(args) && (p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
-			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds)) ||
-			p.e.Flow.ClosureArgCapturesContext(param, args[i], p.e.Kinds, p))
+		holds := p.e.Flow.ClosureArgHoldsContext(param, args[i], p.goCall, p.e.Kinds)
+		switch {
+		case p.e.Kinds.Is(param.Type(), ctxkind.Captured):
+			return !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
+		case p.e.Kinds.Is(param.Type(), ctxkind.Given):
+			return holds
+		}
+		return p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
+			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds) && holds) ||
+			p.e.Flow.ClosureArgCapturesContext(param, args[i], p.goCall, p.e.Kinds, p)
 	})
 }
 
