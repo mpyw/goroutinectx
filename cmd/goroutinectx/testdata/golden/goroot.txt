@@ -3,7 +3,6 @@ net/http/internal/http2/clientconn_test.go:544:4: goroutine does not propagate c
 net/http/internal/http2/transport.go:2882:2: goroutine does not propagate context "ctx"
 net/http/internal/http2/transport.go:973:2: goroutine does not propagate context "ctx"
 net/lookup.go:354:4: goroutine does not propagate context "ctx"
-net/lookup.go:356:4: goroutine does not propagate context "ctx"
 net/lookup_test.go:909:4: goroutine does not propagate context "ctx"
 runtime/pprof/pprof_test.go:2412:3: goroutine does not propagate context "ctx"
 runtime/pprof/runtime_test.go:71:3: goroutine does not propagate context "ctx"

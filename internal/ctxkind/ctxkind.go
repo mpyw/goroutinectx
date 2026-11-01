@@ -285,6 +285,22 @@ func IsWithCall(fn *types.Func) bool {
 		sig.Recv() == nil && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())
 }
 
+// IsCancelCall reports whether fn is a function of package context that
+// makes a context from the Context it is given first, as [IsWithCall]
+// tells, and gives a func that cancels it second: WithCancel,
+// WithCancelCause, WithTimeout, WithDeadline and their Cause forms.
+func IsCancelCall(fn *types.Func) bool {
+	if fn == nil || !IsWithCall(fn) {
+		return false
+	}
+	results := fn.Type().(*types.Signature).Results()
+	if results.Len() != 2 {
+		return false
+	}
+	_, isFunc := results.At(1).Type().Underlying().(*types.Signature)
+	return isFunc
+}
+
 // isContext reports whether t is a Context: context.Context, through
 // pointers and aliases, an interface that embeds it, named or not, or a type
 // parameter whose constraint is or embeds it (see [typeutil.Embeds]).

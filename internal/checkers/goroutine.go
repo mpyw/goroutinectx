@@ -51,10 +51,12 @@ func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {
-				if !e.Kinds.Is(p.Type(), ctxkind.Param) {
-					return false
-				}
 				i := slices.Index(fn.Params, p)
+				if !e.Kinds.Is(p.Type(), ctxkind.Param) {
+					// The channel of ctx.Done(), or a cancel func of a
+					// context made from ctx, ties the goroutine to ctx.
+					return i < len(args) && e.Flow.SignalsContext(args[i], e.Kinds)
+				}
 				return i >= len(args) || !onlyFresh || !e.Flow.IsFreshContext(args[i])
 			})
 		}

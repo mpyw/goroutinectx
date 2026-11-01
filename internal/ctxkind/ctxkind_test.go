@@ -67,3 +67,37 @@ func TestIsContext(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCancelCall(t *testing.T) {
+	t.Parallel()
+
+	ctxPkg := types.NewPackage("context", "context")
+	ctx := types.NewNamed(types.NewTypeName(token.NoPos, ctxPkg, "Context", nil), types.NewInterfaceType(nil, nil), nil)
+	cancelFunc := types.NewNamed(types.NewTypeName(token.NoPos, ctxPkg, "CancelFunc", nil), types.NewSignatureType(nil, nil, nil, nil, nil, false), nil)
+	param := func(typ types.Type) *types.Var { return types.NewParam(token.NoPos, ctxPkg, "", typ) }
+	fn := func(pkg *types.Package, name string, results ...types.Type) *types.Func {
+		vars := make([]*types.Var, len(results))
+		for i, r := range results {
+			vars[i] = param(r)
+		}
+		sig := types.NewSignatureType(nil, nil, nil, types.NewTuple(param(ctx)), types.NewTuple(vars...), false)
+		return types.NewFunc(token.NoPos, pkg, name, sig)
+	}
+
+	tests := []struct {
+		name string
+		fn   *types.Func
+		want bool
+	}{
+		{name: "nil", fn: nil, want: false},
+		{name: "WithCancel", fn: fn(ctxPkg, "WithCancel", ctx, cancelFunc), want: true},
+		{name: "WithValue", fn: fn(ctxPkg, "WithValue", ctx), want: false},
+		{name: "second result not a func", fn: fn(ctxPkg, "WithOther", ctx, types.Typ[types.Int]), want: false},
+		{name: "other package", fn: fn(types.NewPackage("other", "other"), "WithCancel", ctx, cancelFunc), want: false},
+	}
+	for _, tt := range tests {
+		if got := IsCancelCall(tt.fn); got != tt.want {
+			t.Errorf("IsCancelCall(%s) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
