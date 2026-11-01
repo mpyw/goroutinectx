@@ -47,7 +47,7 @@ func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
 		onlyFresh := e.Flow.GivesOnlyFreshContext(&g.Call, e.Kinds)
 		captured := spawnedCapturedResolver(e, nil)
 		r.Closure = func(fn *ssa.Function) bool {
-			if captured.Closure(fn) {
+			if captured.Closure(fn) || spawnedWaiterPasses(e, fn) {
 				return true
 			}
 			return slices.ContainsFunc(fn.Params, func(p *ssa.Parameter) bool {

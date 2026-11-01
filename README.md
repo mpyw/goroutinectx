@@ -268,6 +268,55 @@ func handler(ctx context.Context, f func()) {
 }
 ```
 
+#### Goroutines that only wait and signal
+
+A goroutine that only waits and then tells the caller is not reported. It has no use for `ctx`, as the caller selects on `ctx.Done()` itself:
+
+```go
+func run(ctx context.Context) error {
+    var wg sync.WaitGroup
+    // ... start workers with wg ...
+
+    // Good: the goroutine only waits and signals
+    done := make(chan struct{})
+    go func() {
+        wg.Wait()
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        return nil
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+```
+
+The shape is narrow. The function makes at least one of these waits:
+
+- [`sync.WaitGroup.Wait`](https://pkg.go.dev/sync#WaitGroup.Wait)
+- [`errgroup.Group.Wait`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Wait)
+- [`exec.Cmd.Wait`](https://pkg.go.dev/os/exec#Cmd.Wait), [`os.Process.Wait`](https://pkg.go.dev/os#Process.Wait)
+- `Wait` of [conc](https://pkg.go.dev/github.com/sourcegraph/conc): `conc.WaitGroup`, the `pool` types and `stream.Stream`
+
+Besides the waits, it only does these:
+
+| It may | Note |
+| --- | --- |
+| Close a channel | Also in `defer` |
+| Send on a channel | Only when the send cannot block: the channel is made with `make(chan T, n)`, `n` a constant of at least 1, or the send is a case of a `select` with a `default` |
+| Assign to a variable | As `err = cmd.Wait()` |
+| Return | As `return inner.Wait()` |
+| Branch | As `if err := cmd.Wait(); err != nil { ... }`. A loop is not allowed |
+
+Anything else is reported as before: a call that is not a wait, as a log line after the wait, a loop, a server's `Serve`, and a goroutine that receives from a channel. These may leak when ctx is cancelled:
+
+- **A receive** can wait for ever when nothing is sent. The goroutine could select on `ctx.Done()` instead.
+- **A send on an unbuffered channel** blocks for ever when the caller has returned on `ctx.Done()`. So does a send on a channel that can't be followed, such as a parameter.
+
+The rule holds for a `go` statement and for the callback of `errgroup`, `sync.WaitGroup.Go`, conc and spawners. It does not change `-goroutine-deriver`: a goroutine must still call the deriver. Set [`-report-waiters`](#-report-waiters) to report these goroutines too.
+
 ### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
 
 Detects [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) and [`errgroup.Group.TryGo`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.TryGo) closures that don't use context:
@@ -577,6 +626,16 @@ goroutinectx -external-spawner='github.com/example/workerpool.Pool.Submit,github
 - `pkg/path.Type.Method` for methods
 
 When an external spawner is called, goroutinectx checks that func arguments properly use context.
+
+### `-report-waiters`
+
+Also report goroutines that only wait and signal (default: false). See [Goroutines that only wait and signal](#goroutines-that-only-wait-and-signal).
+
+```bash
+goroutinectx -report-waiters ./...
+```
+
+In the golangci-lint plugin, set `report-waiters: true`.
 
 ### Checker Enable/Disable Flags
 

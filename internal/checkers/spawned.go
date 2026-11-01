@@ -32,7 +32,8 @@ func spawnedFuncPasses(e *env.Env, expr ast.Expr, v ssa.Value, r *flow.FuncResol
 }
 
 // spawnedContextResolver judges a closure by whether it takes or captures a
-// context, or, when derivers is not empty, calls the deriver at its start. A
+// context, or, when derivers is not empty, calls the deriver at its start,
+// or only waits and signals ([spawnedWaiterPasses]). A
 // factory passes when it takes a context, or is given one other than a fresh
 // context.Background() or TODO(). A named function given only a fresh context
 // fails, as it has no other way to get ctx.
@@ -42,9 +43,20 @@ func spawnedContextResolver(e *env.Env, derivers *deriver.Matcher) *flow.FuncRes
 	captured := spawnedCapturedResolver(e, derivers)
 	spawned := *captured
 	spawned.Closure = func(fn *ssa.Function) bool {
-		return e.Kinds.HasParam(fn, ctxkind.Param) || captured.Closure(fn)
+		return e.Kinds.HasParam(fn, ctxkind.Param) || captured.Closure(fn) || spawnedWaiterPasses(e, fn)
 	}
 	return &spawned
+}
+
+// spawnedWaiterPasses passes a closure that only waits and signals, as
+// [flow.Flow.IsWaiter] tells one, unless -report-waiters is set (#230). It
+// has no use for ctx. Only the closure that is spawned passes this way: a
+// func value it runs does not pass for being a waiter, as it holds no
+// context the closure could pass on.
+//
+//declscope:shared // goroutine.go judges the closure a go statement runs alike
+func spawnedWaiterPasses(e *env.Env, fn *ssa.Function) bool {
+	return !e.ReportWaiters && e.Flow.IsWaiter(fn)
 }
 
 // spawnedCapturedResolver judges a func value a closure captures and runs,

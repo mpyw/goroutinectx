@@ -39,6 +39,9 @@ type Config struct {
 	ExternalSpawner []string `json:"external-spawner"`
 	// ContextCarriers is -context-carriers. The flag is comma-separated.
 	ContextCarriers []string `json:"context-carriers"`
+	// ReportWaiters is -report-waiters: report a goroutine that only waits
+	// and signals too, as [flow.Flow.IsWaiter] tells one (#230).
+	ReportWaiters bool `json:"report-waiters"`
 
 	// Checkers turns each checker that has a flag on or off by its name: on
 	// when its value is true. In JSON each is a key of its own, beside the
@@ -195,7 +198,7 @@ func Run(pass *analysis.Pass, cfg Config) error {
 	}
 
 	r := &runner{
-		env:        env.New(pass, ssaProg, parsed.carriers, parsed.derivers, spawners),
+		env:        env.New(pass, ssaProg, parsed.carriers, parsed.derivers, spawners, cfg.ReportWaiters),
 		ignoreMaps: ignoreMaps,
 		skipFiles:  skipFiles,
 		enabled:    make(ignore.EnabledCheckers),

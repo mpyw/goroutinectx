@@ -2,7 +2,5 @@
 discovery/aws/ecs.go:860:5: goroutine does not propagate context "ctx"
 discovery/aws/mq.go:454:3: goroutine does not propagate context "ctx"
 discovery/aws/msk.go:438:3: goroutine does not propagate context "ctx"
-discovery/dns/dns.go:184:2: goroutine does not propagate context "ctx"
 discovery/file/file.go:255:8: sync.WaitGroup.Go() closure should use context "ctx"
-storage/merge.go:174:2: goroutine does not propagate context "ctx"
 web/web.go:785:2: goroutine does not propagate context "ctx"

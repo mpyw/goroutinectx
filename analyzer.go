@@ -43,6 +43,10 @@ type Config struct {
 	// ContextCarriers names types to treat as context carriers, such as
 	// github.com/labstack/echo/v4.Context.
 	ContextCarriers []string
+	// ReportWaiters reports a goroutine that only waits and signals too, as
+	// one that runs wg.Wait() and then close(done). By default it is not
+	// reported.
+	ReportWaiters bool
 	// Checkers turns a checker on or off by its name, such as "goroutine". A
 	// checker left out keeps its default.
 	Checkers map[string]bool
@@ -56,6 +60,7 @@ func New(cfg Config) (*analysis.Analyzer, error) {
 	c.GoroutineDeriver = cfg.GoroutineDeriver
 	c.ExternalSpawner = cfg.ExternalSpawner
 	c.ContextCarriers = cfg.ContextCarriers
+	c.ReportWaiters = cfg.ReportWaiters
 	for name, on := range cfg.Checkers {
 		if !checkers.Settable(checkername.Name(name)) {
 			return nil, fmt.Errorf("unknown checker %q", name)
@@ -80,6 +85,8 @@ func analyzerWithFlags() *analysis.Analyzer {
 		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
 	a.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",
 		"comma-separated list of types to treat as context carriers (e.g., github.com/labstack/echo/v4.Context)")
+	a.Flags.BoolVar(&c.ReportWaiters, "report-waiters", false,
+		"also report goroutines that only wait (e.g., wg.Wait()) and signal (e.g., close(done))")
 
 	for _, d := range checkers.Defs {
 		if d.HasFlag() {

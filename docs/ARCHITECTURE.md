@@ -112,7 +112,7 @@ goroutinectx/
 
 ### analyzer.go
 
-Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
+Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, `-report-waiters`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`, and from them one `env.Env` for the pass
 2. Builds each checker that is on from the `env.Env`
 3. Maps each function with a context parameter to the name of the first (`Kinds.ParamNames`)
@@ -215,6 +215,7 @@ Every check that follows a value is a fold over these:
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
 | `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `context.With*` call, and that context is not fresh |
 | `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value, counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `FuncResolver.CapturedPasses` passes it, as if it were spawned directly |
+| `Flow.IsWaiter` | The closure only waits (`WaitGroup.Wait`, `errgroup.Group.Wait`, `Cmd.Wait`, ...) and signals, with no loop. A channel it sends on is buffered when every value `CapturedSources` gives has only `make(chan T, n)` sources, `n` a constant of at least 1 (#230) |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
 | gotask `ctxIsDerived`, `taskDerives` | Every source is a deriver call, a `With*` of one, or a task that derives |
 

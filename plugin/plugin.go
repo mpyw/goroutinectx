@@ -51,6 +51,7 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 		GoroutineDeriver: cfg.GoroutineDeriver,
 		ExternalSpawner:  cfg.ExternalSpawner,
 		ContextCarriers:  cfg.ContextCarriers,
+		ReportWaiters:    cfg.ReportWaiters,
 		Checkers:         checkers,
 	})
 	if err != nil {
