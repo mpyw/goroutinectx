@@ -575,57 +575,88 @@ func closureHoldsContexts(kinds *ctxkind.Classifier, t types.Type, seen map[type
 
 // closureContextElemsPass reports whether the contexts v holds, v being a
 // context or a value [closureHoldsContexts] tells, may not be fresh, as a
-// captured value of the same contexts would be judged. A context passes
-// unless [Flow.IsFreshContext] tells it is fresh. The
-// elements of a slice made from a local array, as
-// [Flow.ResolvedSliceElems] gives them, pass when one of them does. A map,
-// a channel or a variable made by the analyzed function, with make, a
-// literal or new, does not pass for that alone: what is put there is judged
-// by the arguments' rules, as [Flow.InvolvesContext]. Any other value
-// cannot be followed, as a parameter, a field or the result of a call, so
-// it passes.
+// captured value of the same contexts would be judged. v read from a
+// variable a closure captures is judged by each value it reads, as
+// [closureCapturedPass] gives them (#346). A context passes unless
+// [Flow.IsFreshContext] tells it is fresh. The elements of a slice made
+// from a local array, as [Flow.ResolvedSliceElems] gives them, pass when
+// one of them does. A map, a channel or a variable made by the analyzed
+// function, with make, a literal or new, does not pass for that alone:
+// what is put there is judged by the arguments' rules, as
+// [Flow.InvolvesContext]. Any other value cannot be followed, as a
+// parameter, a field or the result of a call, so it passes.
 func closureContextElemsPass(f *Flow, kinds *ctxkind.Classifier, v ssa.Value) bool {
-	t := v.Type()
-	if kinds.Is(t, ctxkind.Context|ctxkind.Implements) {
-		return !f.IsFreshContext(v)
-	}
-	switch t.Underlying().(type) {
-	case *types.Slice, *types.Array:
-		if elems, ok := f.ResolvedSliceElems(v); ok {
-			return slices.ContainsFunc(elems, func(e ssa.Value) bool { return closureContextElemsPass(f, kinds, e) })
+	return closureCapturedPass(f, v, func(v ssa.Value) bool {
+		t := v.Type()
+		if kinds.Is(t, ctxkind.Context|ctxkind.Implements) {
+			return !f.IsFreshContext(v)
 		}
-	}
-	sources, complete := f.Sources(v)
-	return !complete || slices.ContainsFunc(sources, func(s Source) bool {
-		switch s.Value.(type) {
-		case *ssa.MakeMap, *ssa.MakeChan, *ssa.Alloc:
-			return false
+		switch t.Underlying().(type) {
+		case *types.Slice, *types.Array:
+			if elems, ok := f.ResolvedSliceElems(v); ok {
+				return slices.ContainsFunc(elems, func(e ssa.Value) bool { return closureContextElemsPass(f, kinds, e) })
+			}
 		}
-		return true
+		sources, complete := f.Sources(v)
+		return !complete || slices.ContainsFunc(sources, func(s Source) bool {
+			switch s.Value.(type) {
+			case *ssa.MakeMap, *ssa.MakeChan, *ssa.Alloc:
+				return false
+			}
+			return true
+		})
 	})
+}
+
+// closureCapturedPass reports whether passes passes v, or what v reads
+// when it reads a variable a closure captures, as an argument of a go
+// statement inside a closure does (#346). A free variable is the value the
+// closure was made with for it, as the address of a variable captured by
+// reference is that variable. A load of a free variable reads what
+// [Flow.CapturedSources] gives, every value stored to the variable. Each
+// is followed out in turn, as a variable an outer closure captures. What
+// cannot be followed passes.
+func closureCapturedPass(f *Flow, v ssa.Value, passes func(ssa.Value) bool) bool {
+	switch x := v.(type) {
+	case *ssa.FreeVar:
+		binding, ok := resolvedBinding(x)
+		return !ok || closureCapturedPass(f, binding, passes)
+	case *ssa.UnOp:
+		if _, isFV := x.X.(*ssa.FreeVar); isFV && x.Op == token.MUL {
+			captured, complete := f.CapturedSources(x.X)
+			return !complete || slices.ContainsFunc(captured, func(c Source) bool {
+				return closureCapturedPass(f, c.Value, passes)
+			})
+		}
+	}
+	return passes(v)
 }
 
 // closureElemsPass reports whether the funcs v, a slice, an array, a map
 // or a channel of funcs, holds may pass, as funcs judges each at
-// [SiteCaptured]. Those of a slice made from a local array, as
-// [Flow.ResolvedSliceElems] gives them, pass when one of them does. Those
-// of a map or a channel made by the analyzed function, with make or a
-// literal, do not pass for that alone: what is put there is judged by the
-// arguments' rules, as [Flow.InvolvesContext]. Any other value cannot be
-// followed, as a parameter, a field or the result of a call, so it passes.
+// [SiteCaptured]. v read from a variable a closure captures is judged by
+// each value it reads, as [closureCapturedPass] gives them (#346). Those
+// of a slice made from a local array, as [Flow.ResolvedSliceElems] gives
+// them, pass when one of them does. Those of a map or a channel made by
+// the analyzed function, with make or a literal, do not pass for that
+// alone: what is put there is judged by the arguments' rules, as
+// [Flow.InvolvesContext]. Any other value cannot be followed, as a
+// parameter, a field or the result of a call, so it passes.
 func closureElemsPass(f *Flow, funcs Policy, v ssa.Value) bool {
-	switch v.Type().Underlying().(type) {
-	case *types.Slice, *types.Array:
-		elems, ok := f.ResolvedSliceElems(v)
-		return !ok || slices.ContainsFunc(elems, func(e ssa.Value) bool { return judgeCaptured(f, funcs, e).Passes() })
-	}
-	sources, complete := f.Sources(v)
-	return !complete || slices.ContainsFunc(sources, func(s Source) bool {
-		switch s.Value.(type) {
-		case *ssa.MakeMap, *ssa.MakeChan:
-			return false
+	return closureCapturedPass(f, v, func(v ssa.Value) bool {
+		switch v.Type().Underlying().(type) {
+		case *types.Slice, *types.Array:
+			elems, ok := f.ResolvedSliceElems(v)
+			return !ok || slices.ContainsFunc(elems, func(e ssa.Value) bool { return judgeCaptured(f, funcs, e).Passes() })
 		}
-		return true
+		sources, complete := f.Sources(v)
+		return !complete || slices.ContainsFunc(sources, func(s Source) bool {
+			switch s.Value.(type) {
+			case *ssa.MakeMap, *ssa.MakeChan:
+				return false
+			}
+			return true
+		})
 	})
 }
 

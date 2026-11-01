@@ -1443,3 +1443,152 @@ type goParamSelfStruct struct {
 	next *goParamSelfStruct
 	n    int
 }
+
+// [GOOD]: Goroutine in a closure given a captured slice of ctx
+//
+// The argument reads the variable the closure captures, which holds ctx
+// (#346).
+func goodGoParamCtxSliceCapturedGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	func() {
+		go func(x []context.Context) {
+			<-x[0].Done()
+		}(cs)
+	}()
+}
+
+// [GOOD]: Goroutine in a closure given a captured slice parameter of contexts
+//
+// The contexts cannot be followed, as the same slice given directly (#346).
+func goodGoParamCtxSliceParamCapturedGoroutine(ctx context.Context, cs []context.Context) {
+	func() {
+		go func(x []context.Context) {
+			<-x[0].Done()
+		}(cs)
+	}()
+}
+
+// [GOOD]: Goroutine in a closure given the address of a captured slice of ctx
+//
+// What is stored to the variable holds ctx (#346).
+func goodGoParamCtxSlicePtrCapturedGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	func() {
+		go func(x *[]context.Context) {
+			<-(*x)[0].Done()
+		}(&cs)
+	}()
+}
+
+// [GOOD]: Goroutine in a deferred closure given a captured slice reassigned to hold ctx
+//
+// Every value stored to the variable counts, as the closure may run after
+// any of them (#346).
+func goodGoParamCtxSliceCapturedReassignedGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	defer func() {
+		go func(x []context.Context) {
+			<-x[0].Done()
+		}(cs)
+	}()
+	cs = []context.Context{ctx}
+}
+
+// [GOOD]: Goroutine in nested closures given a captured slice of ctx
+//
+// The variable is followed out through each closure (#346).
+func goodGoParamCtxSliceCapturedNestedGoroutine(ctx context.Context) {
+	cs := []context.Context{ctx}
+	func() {
+		func() {
+			go func(x []context.Context) {
+				<-x[0].Done()
+			}(cs)
+		}()
+	}()
+}
+
+// [GOOD]: Goroutine in a closure given a captured slice of funcs that use ctx
+//
+// The funcs the variable holds use ctx (#346).
+func goodGoParamFuncSliceCapturedGoroutine(ctx context.Context) {
+	fs := []func(){func() { _ = ctx }}
+	func() {
+		go func(x []func()) {
+			x[0]()
+		}(fs)
+	}()
+}
+
+// [GOOD]: Goroutine in a closure given a captured slice parameter of funcs
+//
+// The funcs cannot be followed, as the same slice given directly (#346).
+func goodGoParamFuncSliceParamCapturedGoroutine(ctx context.Context, fs []func()) {
+	func() {
+		go func(x []func()) {
+			x[0]()
+		}(fs)
+	}()
+}
+
+// [BAD]: Goroutine in a closure given a captured slice of only fresh contexts
+//
+// The variable the argument reads holds no ctx (#346).
+func badGoParamCtxSliceCapturedFreshGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	func() {
+		go func(x []context.Context) { // want `goroutine does not propagate context "ctx"`
+			<-x[0].Done()
+		}(cs)
+	}()
+}
+
+// [BAD]: Goroutine in a closure given the address of a captured slice of only fresh contexts
+//
+// What is stored to the variable holds no ctx (#346).
+func badGoParamCtxSlicePtrCapturedFreshGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	func() {
+		go func(x *[]context.Context) { // want `goroutine does not propagate context "ctx"`
+			<-(*x)[0].Done()
+		}(&cs)
+	}()
+}
+
+// [BAD]: Goroutine in a deferred closure given a captured slice of only fresh contexts
+//
+// The variable the argument reads holds no ctx (#346).
+func badGoParamCtxSliceDeferCapturedFreshGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	defer func() {
+		go func(x []context.Context) { // want `goroutine does not propagate context "ctx"`
+			<-x[0].Done()
+		}(cs)
+	}()
+}
+
+// [BAD]: Goroutine in nested closures given a captured slice of only fresh contexts
+//
+// The variable is followed out through each closure (#346).
+func badGoParamCtxSliceCapturedNestedFreshGoroutine(ctx context.Context) {
+	cs := []context.Context{context.TODO()}
+	func() {
+		func() {
+			go func(x []context.Context) { // want `goroutine does not propagate context "ctx"`
+				<-x[0].Done()
+			}(cs)
+		}()
+	}()
+}
+
+// [BAD]: Goroutine in a closure given a captured slice of funcs without ctx
+//
+// No func the variable holds uses ctx (#346).
+func badGoParamFuncSliceCapturedPlainGoroutine(ctx context.Context) {
+	fs := []func(){func() {}}
+	func() {
+		go func(x []func()) { // want `goroutine does not propagate context "ctx"`
+			x[0]()
+		}(fs)
+	}()
+}
