@@ -221,7 +221,7 @@ Every check that follows a value is a fold over these:
 
 **One bound per question.** A question to `Flow` (`Sources`, `CapturedSources`, `Returns`, `IsFreshContext`, `ClosureCapturesContext`, `FuncResolver.Passes`, ...) may follow 4096 values, parts, loads and lookups in all, and the questions it asks in turn share that bound: a resolver judging a closure that asks whether a context is fresh does not start a new one. So nested checks do not multiply the work (#169). What a question finds is remembered for the rest of the pass, unless a bound cut it short, so a value asked about again costs nothing.
 
-It also tells whether a call gives only a fresh context (`GivesOnlyFreshContext`).
+It also tells whether a call gives only a fresh context (`GivesOnlyFreshContext`). An argument that `SignalsContext` accepts, as `ctx.Done()`, means it does not (#241).
 
 ### internal/directive/
 

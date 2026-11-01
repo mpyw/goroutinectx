@@ -24,7 +24,9 @@ func (f *Flow) IsFreshContext(v ssa.Value) bool {
 
 // GivesOnlyFreshContext reports whether call gives a fresh
 // context.Background() or TODO(), and every other argument is sure to hold
-// no context or carrier, as [ctxkind.Classifier.MayHold] judges it.
+// no context or carrier, as [ctxkind.Classifier.MayHold] judges it, and is
+// no signal of a context, as [Flow.SignalsContext] judges it: the channel of
+// ctx.Done() ties the callee to ctx (#241).
 func (f *Flow) GivesOnlyFreshContext(call *ssa.CallCommon, kinds *ctxkind.Classifier) bool {
 	defer f.ask()()
 	given := false
@@ -33,7 +35,7 @@ func (f *Flow) GivesOnlyFreshContext(call *ssa.CallCommon, kinds *ctxkind.Classi
 			given = true
 			continue
 		}
-		if kinds.MayHold(arg, ctxkind.Param) {
+		if kinds.MayHold(arg, ctxkind.Param) || f.SignalsContext(arg, kinds) {
 			return false
 		}
 	}

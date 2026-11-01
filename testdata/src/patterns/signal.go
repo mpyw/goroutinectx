@@ -165,6 +165,116 @@ func notCheckedParamChanGoroutine(ctx context.Context, done <-chan struct{}) {
 	go func() { <-done }() // want `goroutine does not propagate context "ctx"`
 }
 
+// ===== Channel of ctx.Done() given to a named function =====
+
+// [GOOD]: Channel of ctx.Done() given to a named function with a fresh context
+//
+// The function ends when ctx is done, as a function literal given the same
+// arguments does (#241).
+func goodDoneToNamedGoroutine(ctx context.Context) {
+	go waitDoneOrContext(context.Background(), ctx.Done())
+}
+
+// [GOOD]: Channel of ctx.Done() in a variable, given to a named function with a fresh context
+//
+// The variable is followed to ctx.Done() (#241).
+func goodDoneVarToNamedGoroutine(ctx context.Context) {
+	done := ctx.Done()
+	go waitDoneOrContext(context.Background(), done)
+}
+
+// [GOOD]: Channel of ctx.Done() given to a factory with a fresh context
+//
+// The func the factory returns ends when ctx is done (#241).
+func goodDoneToFactoryGoroutine(ctx context.Context) {
+	go makeDoneWaiter(context.Background(), ctx.Done())()
+}
+
+// [GOOD]: Channel of ctx.Done() given to a factory with a fresh context
+//
+// The func the factory returns ends when ctx is done (#241).
+func goodDoneToFactoryErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	g.Go(makeDoneWaiterErr(context.Background(), ctx.Done()))
+	_ = g.Wait()
+}
+
+// [GOOD]: Channel of ctx.Done() given to a factory with a fresh context
+//
+// The func the factory returns ends when ctx is done (#241).
+func goodDoneToFactoryWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(makeDoneWaiter(context.Background(), ctx.Done()))
+	wg.Wait()
+}
+
+// [GOOD]: Channel of ctx.Done() given to a factory with a fresh context
+//
+// The func the factory returns ends when ctx is done (#241).
+func goodDoneToFactorySpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	runWithGroup(g, makeDoneWaiterErr(context.Background(), ctx.Done()))
+	_ = g.Wait()
+}
+
+// [BAD]: Channel that is not of ctx, given to a named function with a fresh context
+//
+// Neither the channel nor context.Background() carries anything of ctx.
+func badChanToNamedGoroutine(ctx context.Context) {
+	ch := make(chan struct{})
+	go waitDoneOrContext(context.Background(), ch) // want `goroutine does not propagate context "ctx"`
+	close(ch)
+}
+
+// [BAD]: Channel of a fresh context, given to a named function with a fresh context
+//
+// context.Background().Done() carries nothing of ctx.
+func badFreshDoneToNamedGoroutine(ctx context.Context) {
+	go waitDoneOrContext(context.Background(), context.Background().Done()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Channel that is not of ctx, given to a factory with a fresh context
+//
+// Neither the channel nor context.Background() carries anything of ctx.
+func badChanToFactoryGoroutine(ctx context.Context) {
+	ch := make(chan struct{})
+	go makeDoneWaiter(context.Background(), ch)() // want `goroutine does not propagate context "ctx"`
+	close(ch)
+}
+
+// [BAD]: Channel that is not of ctx, given to a factory with a fresh context
+//
+// Neither the channel nor context.Background() carries anything of ctx.
+func badChanToFactoryErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan struct{})
+	g.Go(makeDoneWaiterErr(context.Background(), ch)) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	close(ch)
+	_ = g.Wait()
+}
+
+// [BAD]: Channel that is not of ctx, given to a factory with a fresh context
+//
+// Neither the channel nor context.Background() carries anything of ctx.
+func badChanToFactoryWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ch := make(chan struct{})
+	wg.Go(makeDoneWaiter(context.Background(), ch)) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	close(ch)
+	wg.Wait()
+}
+
+// [BAD]: Channel that is not of ctx, given to a factory with a fresh context
+//
+// Neither the channel nor context.Background() carries anything of ctx.
+func badChanToFactorySpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan struct{})
+	runWithGroup(g, makeDoneWaiterErr(context.Background(), ch)) // want `runWithGroup\(\) func argument should use context "ctx"`
+	close(ch)
+	_ = g.Wait()
+}
+
 // ===== Cancel func of a context made from ctx =====
 
 // [GOOD]: Cancel func of a context made from ctx
@@ -305,3 +415,21 @@ type doneWaiter struct{ done <-chan struct{} }
 
 // waitSignal waits for something other than ctx.
 func waitSignal() {}
+
+// waitDoneOrContext waits until done is closed or bg is done.
+func waitDoneOrContext(bg context.Context, done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-bg.Done():
+	}
+}
+
+// makeDoneWaiter gives a func that waits as waitDoneOrContext does.
+func makeDoneWaiter(bg context.Context, done <-chan struct{}) func() {
+	return func() { waitDoneOrContext(bg, done) }
+}
+
+// makeDoneWaiterErr gives a func that waits as waitDoneOrContext does.
+func makeDoneWaiterErr(bg context.Context, done <-chan struct{}) func() error {
+	return func() error { waitDoneOrContext(bg, done); return nil }
+}
