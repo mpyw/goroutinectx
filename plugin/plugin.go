@@ -2,8 +2,9 @@
 //
 // Import it from .custom-gcl.yml to build a golangci-lint binary that holds
 // goroutinectx. The settings in .golangci.yml take the names of the flags of
-// the goroutinectx command. external-spawner and context-carriers are lists
-// there, not comma-separated strings. A setting left out keeps its default.
+// the goroutinectx command. goroutine-deriver, external-spawner and
+// context-carriers are lists there, not comma-separated strings. Each item
+// of goroutine-deriver is one OR group, of functions joined by +. A setting left out keeps its default.
 package plugin
 
 import (

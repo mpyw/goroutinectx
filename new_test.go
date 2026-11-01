@@ -15,7 +15,7 @@ import (
 // flags of goroutinectx.Analyzer.
 func TestNew(t *testing.T) {
 	t.Parallel()
-	derive := mustNew(t, goroutinectx.Config{GoroutineDeriver: "github.com/my-example-app/telemetry/apm.NewGoroutineContext"})
+	derive := mustNew(t, goroutinectx.Config{GoroutineDeriver: []string{"github.com/my-example-app/telemetry/apm.NewGoroutineContext"}})
 	label := mustNew(t, goroutinectx.Config{Checkers: map[string]bool{"spawnerlabel": true}})
 	def := mustNew(t, goroutinectx.Config{})
 	if def.Flags.Lookup("goroutine") != nil {
@@ -36,7 +36,8 @@ func TestNewRejectsBadConfig(t *testing.T) {
 		{"an unknown checker", goroutinectx.Config{Checkers: map[string]bool{"goroutines": true}}, `unknown checker "goroutines"`},
 		// Of several unknown checkers, the first by name, on every call.
 		{"several unknown checkers", goroutinectx.Config{Checkers: map[string]bool{"c": true, "a": true, "goroutine": true, "b": false}}, `unknown checker "a"`},
-		{"a deriver without an import path", goroutinectx.Config{GoroutineDeriver: "apm.NewGoroutineContext"}, "import path"},
+		{"a deriver without an import path", goroutinectx.Config{GoroutineDeriver: []string{"apm.NewGoroutineContext"}}, "import path"},
+		{"an empty deriver group", goroutinectx.Config{GoroutineDeriver: []string{""}}, "group 1 is empty"},
 		{"a carrier without an import path", goroutinectx.Config{ContextCarriers: []string{"echo.Context"}}, "import path"},
 	}
 	for _, tt := range tests {

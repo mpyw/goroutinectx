@@ -34,9 +34,9 @@ import (
 // settings, resolve to. The json keys are the flags' names, and the plugin
 // decodes its settings onto [DefaultConfig] with them.
 type Config struct {
-	// GoroutineDeriver is -goroutine-deriver: comma-separated OR groups of
-	// functions joined by +.
-	GoroutineDeriver string `json:"goroutine-deriver"`
+	// GoroutineDeriver is -goroutine-deriver: OR groups, each of functions
+	// joined by +. The flag is comma-separated.
+	GoroutineDeriver []string `json:"goroutine-deriver"`
 	// ExternalSpawner is -external-spawner. The flag is comma-separated.
 	ExternalSpawner []string `json:"external-spawner"`
 	// ContextCarriers is -context-carriers. The flag is comma-separated.
@@ -147,7 +147,7 @@ func (cfg Config) parse() (parsedConfig, error) {
 	if p.carriers, err = carrier.Parse(cfg.ContextCarriers); err != nil {
 		return parsedConfig{}, err
 	}
-	if cfg.GoroutineDeriver != "" {
+	if len(cfg.GoroutineDeriver) > 0 {
 		if p.derivers, err = deriver.NewMatcher(cfg.GoroutineDeriver); err != nil {
 			return parsedConfig{}, err
 		}

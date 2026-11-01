@@ -342,6 +342,14 @@ go func() {
 
 This means: `(NewGoroutine AND NewContext) OR NewGoroutineContext`
 
+In the golangci-lint plugin, `goroutine-deriver` is a list. Each item is one group:
+
+```yaml
+goroutine-deriver:
+  - github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext
+  - github.com/my-app/apm.NewGoroutineContext
+```
+
 ---
 
 ## Why Nested Closures Count

@@ -45,7 +45,7 @@ func TestAnalyzer(t *testing.T) {
 		// The goroutines that only wait and signal of patterns, reported
 		// (#230).
 		{name: "reportwaiters", cfg: goroutinectx.Config{ReportWaiters: true}, pkgs: []string{"reportwaiters"}},
-		{name: "patternsderive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"patternsderive"}},
+		{name: "patternsderive", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"patternsderive"}},
 		// In module mode, a method of a captured value counts when its
 		// context field is unexported but of the analyzed module, and not
 		// when it is of another module (#191).
@@ -55,19 +55,19 @@ func TestAnalyzer(t *testing.T) {
 		// Closures given through variables, resolved through SSA (#82, #83),
 		// and context parameters given a fresh context (#84).
 		{name: "resolve", pkgs: []string{"resolve"}},
-		{name: "resolvederive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"resolvederive"}},
+		{name: "resolvederive", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"resolvederive"}},
 		{name: "waitgroup", pkgs: []string{"waitgroup"}},
 		// How //goroutinectx:ignore is read (#65).
 		{name: "ignoreforms", pkgs: []string{"ignoreforms"}},
 		{name: "conc", pkgs: []string{"conc"}},
-		{name: "goroutinederive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"goroutinederive"}},
+		{name: "goroutinederive", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"goroutinederive"}},
 		// AND: all must be called (Transaction.NewGoroutine + NewContext).
-		{name: "goroutinederiveand", cfg: goroutinectx.Config{GoroutineDeriver: newrelicDeriver}, pkgs: []string{"goroutinederiveand"}},
+		{name: "goroutinederiveand", cfg: goroutinectx.Config{GoroutineDeriver: []string{newrelicDeriver}}, pkgs: []string{"goroutinederiveand"}},
 		// Mixed: (Transaction.NewGoroutine AND NewContext) OR
 		// apm.NewGoroutineContext.
-		{name: "goroutinederivemixed", cfg: goroutinectx.Config{GoroutineDeriver: newrelicDeriver + "," + apmDeriver}, pkgs: []string{"goroutinederivemixed"}},
+		{name: "goroutinederivemixed", cfg: goroutinectx.Config{GoroutineDeriver: []string{newrelicDeriver, apmDeriver}}, pkgs: []string{"goroutinederivemixed"}},
 		{name: "carrier", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier, reqCarrier}}, pkgs: []string{"carrier"}},
-		{name: "carrierderive", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier}, GoroutineDeriver: apmDeriver}, pkgs: []string{"carrierderive"}},
+		{name: "carrierderive", cfg: goroutinectx.Config{ContextCarriers: []string{echoCarrier}, GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"carrierderive"}},
 		{name: "spawner", pkgs: []string{"spawner"}},
 		// Spawner directives across packages (#89) and on any doc comment
 		// line (#85).
@@ -78,7 +78,7 @@ func TestAnalyzer(t *testing.T) {
 		// and generic methods (Go 1.27).
 		{name: "generics", pkgs: []string{"generics"}},
 		// generics for gotask, with a deriver.
-		{name: "genericsderive", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"genericsderive"}},
+		{name: "genericsderive", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"genericsderive"}},
 		// -spawnerlabel with generic spawners (#86).
 		{name: "genericslabel", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"genericslabel"}},
 		{name: "directive", pkgs: []string{"directive"}},
@@ -87,7 +87,7 @@ func TestAnalyzer(t *testing.T) {
 			"github.com/example/workerpool.Run",
 		}}, pkgs: []string{"externalspawner"}},
 		{name: "spawnerlabel", cfg: goroutinectx.Config{Checkers: label}, pkgs: []string{"spawnerlabel"}},
-		{name: "gotask", cfg: goroutinectx.Config{GoroutineDeriver: apmDeriver}, pkgs: []string{"gotask"}},
+		{name: "gotask", cfg: goroutinectx.Config{GoroutineDeriver: []string{apmDeriver}}, pkgs: []string{"gotask"}},
 		// Generated files are skipped.
 		{name: "filefilter", pkgs: []string{"filefilter"}},
 		// //line directives do not move ignore and spawner directives.
@@ -197,6 +197,33 @@ func TestFlagRejectsShortName(t *testing.T) {
 	}
 	if err := a.Flags.Set("goroutine-deriver", "context.WithoutCancel"); err != nil {
 		t.Errorf("a standard library function was rejected: %v", err)
+	}
+}
+
+// TestFlagDeriverGroups checks that -goroutine-deriver splits its groups at
+// commas, and keeps the functions of a group joined by +.
+func TestFlagDeriverGroups(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
+	if err := a.Flags.Set("goroutine-deriver", " "+newrelicDeriver+" ,, "+apmDeriver+" "); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := a.Flags.Lookup("goroutine-deriver").Value.String(), newrelicDeriver+","+apmDeriver; got != want {
+		t.Errorf("-goroutine-deriver holds %q, want %q", got, want)
+	}
+	analysistest.Run(t, analysistest.TestData(), a, "goroutinederivemixed")
+}
+
+// TestFlagRejectsEmptyFunction checks that -goroutine-deriver rejects a
+// group with an empty function joined by +, and keeps its value.
+func TestFlagRejectsEmptyFunction(t *testing.T) {
+	t.Parallel()
+	a := goroutinectx.AnalyzerWithFlags()
+	if err := a.Flags.Set("goroutine-deriver", apmDeriver+"+"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Errorf("got error %v, want one about an empty function", err)
+	}
+	if got := a.Flags.Lookup("goroutine-deriver").Value.String(); got != "" {
+		t.Errorf("-goroutine-deriver holds %q after a rejected value", got)
 	}
 }
 

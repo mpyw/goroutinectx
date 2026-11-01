@@ -180,7 +180,12 @@ linters:
         type: module
         description: Checks goroutine context propagation.
         settings:
-          goroutine-deriver: github.com/my-example-app/telemetry/apm.NewGoroutineContext
+          # One group per item. A goroutine must
+          # call all the functions of one group.
+          # Join the functions of a group with +.
+          goroutine-deriver:
+            - github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext
+            - github.com/my-example-app/telemetry/apm.NewGoroutineContext
           # One name per item, not comma-separated.
           context-carriers:
             - github.com/labstack/echo/v4.Context
@@ -216,6 +221,10 @@ func main() {
 
 ```go
 a, err := goroutinectx.New(goroutinectx.Config{
+	// One group per item, as in .golangci.yml.
+	GoroutineDeriver: []string{
+		"github.com/my-example-app/telemetry/apm.NewGoroutineContext",
+	},
 	ContextCarriers: []string{
 		"github.com/labstack/echo/v4.Context",
 	},
@@ -3554,14 +3563,14 @@ go func() {
 </tbody>
 </table>
 
-A flag value can name several functions:
+The setting can name several functions. In `.golangci.yml`, it is a list with one group per item. On the command line, commas join the groups:
 
-| Spelling | Meaning |
-| --- | --- |
-| `pkg/path.Func` | A function |
-| `pkg/path.Type.Method` | A method |
-| `A+B` | AND. The goroutine must call every function of the group |
-| `A,B` | OR. The goroutine must satisfy at least one group |
+| Meaning | Command line | `.golangci.yml` |
+| --- | --- | --- |
+| A function | `pkg/path.Func` | `- pkg/path.Func` |
+| A method | `pkg/path.Type.Method` | `- pkg/path.Type.Method` |
+| AND. The goroutine must call every function of the group | `A+B` | `- A+B` |
+| OR. The goroutine must satisfy at least one group | `A,B` | `- A`<br>`- B` |
 
 With `-goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext'`:
 
@@ -3613,6 +3622,14 @@ Add another group after a comma, as in `A+B,C`. Then a goroutine that calls only
 goroutinectx \
   -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext' \
   ./...
+```
+
+In `.golangci.yml`, the same two groups are two items:
+
+```yaml
+goroutine-deriver:
+  - github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext
+  - github.com/my-example-app/telemetry/apm.NewGoroutineContext
 ```
 
 > [!TIP]

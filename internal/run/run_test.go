@@ -36,7 +36,7 @@ func TestRunNeedsItsRequires(t *testing.T) {
 		{name: "no inspector", resultOf: map[*analysis.Analyzer]any{}, cfg: DefaultConfig(), want: ErrNoInspector},
 		{name: "no spawners", resultOf: withInspector, cfg: DefaultConfig(), want: ErrNoSpawners},
 		{name: "no SSA", resultOf: withSpawners, cfg: DefaultConfig(), want: ErrNoSSA},
-		{name: "rejected flag", resultOf: withInspector, cfg: Config{GoroutineDeriver: "apm.NewGoroutineContext"}},
+		{name: "rejected flag", resultOf: withInspector, cfg: Config{GoroutineDeriver: []string{"apm.NewGoroutineContext"}}},
 	}
 
 	for _, tt := range tests {
@@ -59,7 +59,7 @@ func TestRunNeedsItsRequires(t *testing.T) {
 func TestBuildCheckers(t *testing.T) {
 	t.Parallel()
 
-	derivers, err := deriver.NewMatcher("example.com/apm.NewGoroutineContext")
+	derivers, err := deriver.NewMatcher([]string{"example.com/apm.NewGoroutineContext"})
 	if err != nil {
 		t.Fatal(err)
 	}
