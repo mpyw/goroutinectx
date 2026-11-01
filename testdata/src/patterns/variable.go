@@ -564,6 +564,160 @@ func goodSliceElemFuncInLiteralSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Func from a captured map, called inside a literal =====
+
+// [GOOD]: Func from a captured map, called inside a literal
+//
+// A func read from a map is not followed, so it passes, as one read from a
+// slice at an index that is not constant does (#253). Here it uses ctx.
+func goodMapFuncInLiteralGoroutine(ctx context.Context, k string) {
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	go func() { handlers[k]() }()
+}
+
+// [GOOD]: Func from a captured map, called inside a literal
+//
+// A func read from a map is not followed, so it passes, as one read from a
+// slice at an index that is not constant does (#253). Here it uses ctx.
+func goodMapFuncInLiteralErrgroup(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	g.Go(func() error { handlers[k](); return nil })
+	_ = g.Wait()
+}
+
+// [GOOD]: Func from a captured map, called inside a literal
+//
+// A func read from a map is not followed, so it passes, as one read from a
+// slice at an index that is not constant does (#253). Here it uses ctx.
+func goodMapFuncInLiteralWaitGroup(ctx context.Context, k string) {
+	var wg sync.WaitGroup
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	wg.Go(func() { handlers[k]() })
+	wg.Wait()
+}
+
+// [GOOD]: Func from a captured map, called inside a literal
+//
+// A func read from a map is not followed, so it passes, as one read from a
+// slice at an index that is not constant does (#253). Here it uses ctx.
+func goodMapFuncInLiteralSpawner(ctx context.Context, k string) {
+	g := new(errgroup.Group)
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	runWithGroup(g, func() error { handlers[k](); return nil })
+	_ = g.Wait()
+}
+
+// ===== Func from a range over a captured channel, called inside a literal =====
+
+// [GOOD]: Func from a range over a captured channel, called inside a literal
+//
+// A func received from a channel is not followed, so it passes (#253).
+// Here it uses ctx.
+func goodChanFuncInLiteralGoroutine(ctx context.Context) {
+	jobs := make(chan func(), 1)
+	jobs <- func() { _ = ctx }
+	close(jobs)
+	go func() {
+		for job := range jobs {
+			job()
+		}
+	}()
+}
+
+// [GOOD]: Func from a range over a captured channel, called inside a literal
+//
+// A func received from a channel is not followed, so it passes (#253).
+// Here it uses ctx.
+func goodChanFuncInLiteralErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	jobs := make(chan func(), 1)
+	jobs <- func() { _ = ctx }
+	close(jobs)
+	g.Go(func() error {
+		for job := range jobs {
+			job()
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Func from a range over a captured channel, called inside a literal
+//
+// A func received from a channel is not followed, so it passes (#253).
+// Here it uses ctx.
+func goodChanFuncInLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	jobs := make(chan func(), 1)
+	jobs <- func() { _ = ctx }
+	close(jobs)
+	wg.Go(func() {
+		for job := range jobs {
+			job()
+		}
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Func from a range over a captured channel, called inside a literal
+//
+// A func received from a channel is not followed, so it passes (#253).
+// Here it uses ctx.
+func goodChanFuncInLiteralSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	jobs := make(chan func(), 1)
+	jobs <- func() { _ = ctx }
+	close(jobs)
+	runWithGroup(g, func() error {
+		for job := range jobs {
+			job()
+		}
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// ===== Captured map of funcs, not called inside a literal =====
+
+// [BAD]: Captured map of funcs, not called inside a literal
+//
+// A func that is only counted, not run, gives no context.
+func badMapFuncNotCalledInLiteralGoroutine(ctx context.Context) {
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	go func() { _ = len(handlers) }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured map of funcs, not called inside a literal
+//
+// A func that is only counted, not run, gives no context.
+func badMapFuncNotCalledInLiteralErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	g.Go(func() error { _ = len(handlers); return nil }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [BAD]: Captured map of funcs, not called inside a literal
+//
+// A func that is only counted, not run, gives no context.
+func badMapFuncNotCalledInLiteralWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	wg.Go(func() { _ = len(handlers) }) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [BAD]: Captured map of funcs, not called inside a literal
+//
+// A func that is only counted, not run, gives no context.
+func badMapFuncNotCalledInLiteralSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	handlers := map[string]func(){"a": func() { _ = ctx }}
+	runWithGroup(g, func() error { _ = len(handlers); return nil }) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
 // [GOOD]: Func copied from a variable set on two branches, called inside a literal
 //
 // Each closure the copy can hold uses ctx.
