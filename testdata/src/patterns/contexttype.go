@@ -1042,3 +1042,83 @@ func badGoParamErrorParamGoroutine(ctx context.Context, err error) {
 		_ = e.Error()
 	}(err)
 }
+
+// [GOOD]: Goroutine given a func parameter it runs in a nested closure
+//
+// The nested closure captures the parameter and runs it in place, as the
+// goroutine running it itself does (#322).
+func goodGoParamFuncParamNestedGoroutine(ctx context.Context, f func()) {
+	go func(g func()) {
+		func() { g() }()
+	}(f)
+}
+
+// [GOOD]: Goroutine given a func parameter it runs in a deferred nested closure
+//
+// A deferred closure runs it the same (#322).
+func goodGoParamFuncParamDeferredGoroutine(ctx context.Context, f func()) {
+	go func(g func()) {
+		defer func() { g() }()
+	}(f)
+}
+
+// [GOOD]: Goroutine given an interface parameter it calls in a nested closure
+//
+// The runner cannot be followed, as the parameter called directly (#322).
+func goodGoParamIfaceParamNestedGoroutine(ctx context.Context, r runner) {
+	go func(x runner) {
+		func() { x.Run() }()
+	}(r)
+}
+
+// [BAD]: Goroutine given a func without ctx it runs in a nested closure
+//
+// The factory returns a func that captures nothing.
+func badGoParamFuncFromFactoryNestedGoroutine(ctx context.Context) {
+	go func(g func()) { // want `goroutine does not propagate context "ctx"`
+		func() { g() }()
+	}(plainFuncFactory())
+}
+
+// [BAD]: Goroutine given a func parameter a nested closure only compares
+//
+// The func is never run, as with the parameter compared directly.
+func badGoParamFuncParamNestedNotRunGoroutine(ctx context.Context, f func()) {
+	go func(g func()) { // want `goroutine does not propagate context "ctx"`
+		func() { _ = g == nil }()
+	}(f)
+}
+
+// [BAD]: Goroutine given a func parameter a nested closure replaces before it runs it
+//
+// The func run is the one the closure sets, which uses no context.
+func badGoParamFuncParamNestedReplacedGoroutine(ctx context.Context, f func()) {
+	go func(g func()) { // want `goroutine does not propagate context "ctx"`
+		func() {
+			g = func() {}
+			g()
+		}()
+	}(f)
+}
+
+// [BAD]: Goroutine given an error parameter it uses in a nested closure
+//
+// An interface of the standard library does not count, as the error used
+// directly does not.
+func badGoParamErrorParamNestedGoroutine(ctx context.Context, err error) {
+	go func(e error) { // want `goroutine does not propagate context "ctx"`
+		func() { _ = e.Error() }()
+	}(err)
+}
+
+// goParamFuncHolder holds a func a goroutine sets.
+type goParamFuncHolder struct{ fn func() }
+
+// [BAD]: Goroutine given a func parameter it only stores to a field
+//
+// The func is never run in the goroutine.
+func badGoParamFuncParamStoredGoroutine(ctx context.Context, f func(), h *goParamFuncHolder) {
+	go func(g func()) { // want `goroutine does not propagate context "ctx"`
+		h.fn = g
+	}(f)
+}
