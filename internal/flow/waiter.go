@@ -36,6 +36,9 @@ var waiterMethods = []funcspec.Spec{
 // stores to a variable, or returns. It has no loop. A send cannot block when
 // it is a case of a select with a default, or when it is the one send of fn
 // outside a select and the channel has room for it: see [waiterBuffered].
+// A function literal fn calls or defers in place is part of fn, as
+// [Runs] goes into it, so its body must have the same shape, and its waits
+// and sends count as those of fn (#282).
 //
 // A receive from a channel is not a wait here. A goroutine that receives can
 // select on ctx.Done() instead, and it leaks when nothing is ever sent. A
@@ -43,27 +46,49 @@ var waiterMethods = []funcspec.Spec{
 // stopped waiting, as one that selects on ctx.Done() does.
 func (f *Flow) IsWaiter(fn *ssa.Function) bool {
 	defer f.ask()()
+	w := &waiterShape{f: f}
+	return w.fits(fn) && w.waits > 0
+}
+
+// waiterShape is what [Flow.IsWaiter] has found in a function and the
+// function literals it runs in place.
+type waiterShape struct {
+	f *Flow
+	// waits counts the waits of [waiterMethods].
+	waits int
+	// sends counts the sends outside a select.
+	sends int
+}
+
+// fits reports whether fn only waits and signals, as [Flow.IsWaiter] tells,
+// counting its waits and sends, and those of the function literals it runs
+// in place, into w.
+func (w *waiterShape) fits(fn *ssa.Function) bool {
 	if fn == nil || fn.Blocks == nil || waiterHasLoop(fn) {
 		return false
 	}
-	waits, sends := 0, 0
 	for _, b := range fn.Blocks {
 		for _, instr := range b.Instrs {
 			switch x := instr.(type) {
 			case *ssa.Call:
 				switch {
 				case waiterIsWait(x.Common()):
-					waits++
-				case !waiterIsClose(x.Common()):
+					w.waits++
+				case waiterIsClose(x.Common()):
+				case !w.fits(runCallee(x.Common())):
 					return false
 				}
 			case *ssa.Defer:
-				if !waiterIsClose(x.Common()) {
+				if !waiterIsClose(x.Common()) && !w.fits(runCallee(x.Common())) {
+					return false
+				}
+			case *ssa.MakeClosure:
+				if !waiterRunInPlace(x) {
 					return false
 				}
 			case *ssa.Send:
 				// A second send may find the slot the first one filled.
-				if sends++; sends > 1 || !waiterBuffered(f, x.Chan) {
+				if w.sends++; w.sends > 1 || !waiterBuffered(w.f, x.Chan) {
 					return false
 				}
 			case *ssa.Select:
@@ -82,7 +107,21 @@ func (f *Flow) IsWaiter(fn *ssa.Function) bool {
 			}
 		}
 	}
-	return waits > 0
+	return true
+}
+
+// waiterRunInPlace reports whether the closure mk makes is only called or
+// deferred in place, so that [waiterShape.fits] goes into it.
+func waiterRunInPlace(mk *ssa.MakeClosure) bool {
+	refs := *mk.Referrers()
+	if len(refs) != 1 {
+		return false
+	}
+	call, ok := refs[0].(ssa.CallInstruction)
+	if _, isGo := call.(*ssa.Go); !ok || isGo {
+		return false
+	}
+	return call.Common().Value == mk && !slices.Contains(call.Common().Args, ssa.Value(mk))
 }
 
 // waiterHasLoop reports whether fn has a loop: an edge to a block that

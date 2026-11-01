@@ -319,6 +319,7 @@ Besides the waits, it only does these:
 | Assign to a variable | As `err = cmd.Wait()` |
 | Return | As `return inner.Wait()` |
 | Branch | As `if err := cmd.Wait(); err != nil { ... }`. A loop is not allowed |
+| Call a function literal in place | As `func() { wg.Wait(); close(done) }()`, also in `defer`. Its body follows the same rules, and its sends count with the goroutine's own |
 
 Anything else is reported as before: a call that is not a wait, as a log line after the wait, a loop, a server's `Serve`, and a goroutine that receives from a channel. These may leak when ctx is cancelled:
 

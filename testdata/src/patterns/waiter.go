@@ -789,6 +789,175 @@ func badChanSentGoroutine(ctx context.Context, cmd *exec.Cmd, out chan<- chan er
 	}
 }
 
+// ===== Body in a function literal called in place (#282) =====
+
+// [GOOD]: WaitGroup.Wait, then close, in a function literal called in place
+//
+// The literal is part of the goroutine, so its body is judged as the
+// goroutine's own.
+func goodWaitCloseInPlaceGoroutine(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		func() {
+			wg.Wait()
+			close(done)
+		}()
+	}()
+	return done
+}
+
+// [GOOD]: WaitGroup.Wait, then close, in a function literal called in place
+//
+// The literal is part of the callback, so its body is judged as the
+// callback's own.
+func goodWaitCloseInPlaceErrgroup(ctx context.Context, wg *sync.WaitGroup) error {
+	g := new(errgroup.Group)
+	done := make(chan struct{})
+	g.Go(func() error {
+		func() {
+			wg.Wait()
+			close(done)
+		}()
+		return nil
+	})
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+	return g.Wait()
+}
+
+// [GOOD]: Cmd.Wait, then send on a buffered channel, in a literal called in place
+//
+// The one send cannot block, as the goroutine's own would not.
+func goodCmdWaitSendInPlaceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	go func() {
+		func() {
+			errc <- cmd.Wait()
+		}()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: WaitGroup.Wait, with a close in a deferred literal
+//
+// A deferred literal is part of the goroutine too.
+func goodWaitDeferredCloseInPlaceGoroutine(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			close(done)
+		}()
+		func() {
+			wg.Wait()
+		}()
+	}()
+	return done
+}
+
+// [BAD]: WaitGroup.Wait, then more work, in a literal called in place
+//
+// The literal does more than wait and signal.
+func badWaitMoreWorkInPlaceGoroutine(ctx context.Context, wg *sync.WaitGroup) {
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() {
+			wg.Wait()
+			fmt.Println("done")
+		}()
+	}()
+}
+
+// [BAD]: Wait in a loop, in a literal called in place
+//
+// The literal waits again and again.
+func badWaitLoopInPlaceGoroutine(ctx context.Context, wg *sync.WaitGroup, done chan<- struct{}) {
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() {
+			for {
+				wg.Wait()
+				select {
+				case done <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}()
+}
+
+// [BAD]: Wait, then send on an unbuffered channel, in a literal called in place
+//
+// The send blocks for ever once the caller has returned on ctx.Done().
+func badWaitUnbufferedSendInPlaceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() {
+			errc <- cmd.Wait()
+		}()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One send in the goroutine and one in a literal called in place
+//
+// The second send may find the slot the first one filled (#242).
+func badTwoSendsInPlaceGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- a.Wait()
+		func() {
+			errc <- b.Wait()
+		}()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A literal in the goroutine called twice
+//
+// A literal kept in a variable and called twice is not called in place.
+func badLiteralCalledTwiceGoroutine(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+	done := make(chan struct{})
+	go func() { // want `goroutine does not propagate context "ctx"`
+		wait := func() {
+			wg.Wait()
+		}
+		wait()
+		wait()
+		close(done)
+	}()
+	return done
+}
+
+// [BAD]: A literal in the goroutine started in a goroutine of its own
+//
+// The outer goroutine does not wait for the literal, so the literal is not
+// part of it. The inner goroutine is a waiter of its own, and passes.
+func badLiteralInGoroutineGoroutine(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+	done := make(chan struct{})
+	go func() { // want `goroutine does not propagate context "ctx"`
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+	}()
+	return done
+}
+
 // ===== Receive, then signal =====
 
 // [BAD]: Receive, then close

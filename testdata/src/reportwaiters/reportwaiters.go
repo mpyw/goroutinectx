@@ -104,3 +104,18 @@ func badGroupWaitReturnErrgroup(ctx context.Context) error {
 	outer.Go(func() error { return inner.Wait() }) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
 	return outer.Wait()
 }
+
+// [BAD]: WaitGroup.Wait, then close, in a function literal called in place
+//
+// -report-waiters reports it.
+func badWaitCloseInPlaceGoroutine(ctx context.Context) {
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	go func() { // want `goroutine does not propagate context "ctx"`
+		func() {
+			wg.Wait()
+			close(done)
+		}()
+	}()
+	<-done
+}
