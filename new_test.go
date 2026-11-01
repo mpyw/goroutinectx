@@ -34,12 +34,16 @@ func TestNewRejectsBadConfig(t *testing.T) {
 		want string
 	}{
 		{"an unknown checker", goroutinectx.Config{Checkers: map[string]bool{"goroutines": true}}, `unknown checker "goroutines"`},
+		// Of several unknown checkers, the first by name, on every call.
+		{"several unknown checkers", goroutinectx.Config{Checkers: map[string]bool{"c": true, "a": true, "goroutine": true, "b": false}}, `unknown checker "a"`},
 		{"a deriver without an import path", goroutinectx.Config{GoroutineDeriver: "apm.NewGoroutineContext"}, "import path"},
 		{"a carrier without an import path", goroutinectx.Config{ContextCarriers: []string{"echo.Context"}}, "import path"},
 	}
 	for _, tt := range tests {
-		if _, err := goroutinectx.New(tt.cfg); err == nil || !strings.Contains(err.Error(), tt.want) {
-			t.Errorf("%s: got error %v, want one containing %q", tt.name, err, tt.want)
+		for range 5 {
+			if _, err := goroutinectx.New(tt.cfg); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("%s: got error %v, want one containing %q", tt.name, err, tt.want)
+			}
 		}
 	}
 }

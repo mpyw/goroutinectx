@@ -1,8 +1,11 @@
 package ignore
 
 import (
+	"cmp"
 	"go/parser"
 	"go/token"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mpyw/goroutinectx/internal/checkername"
@@ -112,5 +115,29 @@ func TestCovering(t *testing.T) {
 	m[4].MarkUsed(checkername.Goroutine)
 	if unused := m.GetUnusedIgnores(enabled); len(unused) != 1 || unused[0].Pos != m[6].pos {
 		t.Errorf("GetUnusedIgnores() after MarkUsed = %v, want the one on line 6", unused)
+	}
+}
+
+// TestGetUnusedIgnoresOrder checks that the unused ignores of a file come in
+// the order of their positions, on every call (#294).
+func TestGetUnusedIgnoresOrder(t *testing.T) {
+	t.Parallel()
+
+	src := "package p\n\nfunc f() {\n" + strings.Repeat("\t//goroutinectx:ignore\n\tgo f()\n", 8) + "}\n"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "p.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := Build(fset, file, directive.Scan(file).Ignores)
+
+	for range 5 {
+		unused := m.GetUnusedIgnores(EnabledCheckers{checkername.Goroutine: true})
+		if len(unused) != 8 {
+			t.Fatalf("GetUnusedIgnores() = %v, want 8 ignores", unused)
+		}
+		if !slices.IsSortedFunc(unused, func(a, b UnusedIgnore) int { return cmp.Compare(a.Pos, b.Pos) }) {
+			t.Errorf("GetUnusedIgnores() = %v, want them in the order of their positions", unused)
+		}
 	}
 }
