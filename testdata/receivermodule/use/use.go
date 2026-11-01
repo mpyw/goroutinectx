@@ -5,6 +5,7 @@ package use
 
 import (
 	"context"
+	"os/exec"
 	"sync"
 	"testing"
 
@@ -103,4 +104,34 @@ func badOtherModuleMethodWaitGroup(ctx context.Context) {
 func badOtherModuleMethodSpawner(ctx context.Context) {
 	h := other.NewHidden()
 	spawn(func() { h.Do() }) // want `spawn\(\) func argument should use context "ctx"`
+}
+
+// ===== Value of another module taken from ctx =====
+
+// [BAD]: Value of another module taken from ctx
+//
+// A call outside the standard library given ctx may take a value out of
+// ctx, as zerolog.Ctx(ctx) does, so its unexported context is not ctx
+// (#257).
+func badOtherModuleFromContextGoroutine(ctx context.Context) {
+	h := other.FromContext(ctx)
+	go func() { h.Do() }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Value of another module taken from ctx, given to a go statement
+//
+// A call outside the standard library given ctx may take a value out of
+// ctx, as zerolog.Ctx(ctx) does, so its unexported context is not ctx
+// (#257).
+func badOtherModuleFromContextArgGoroutine(ctx context.Context) {
+	go func(h *other.Hidden) { h.Do() }(other.FromContext(ctx)) // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Command made with ctx
+//
+// exec.CommandContext puts ctx in the unexported field of the *exec.Cmd,
+// as a call of the standard library given ctx does (#257).
+func goodCommandContextGoroutine(ctx context.Context) {
+	cmd := exec.CommandContext(ctx, "sleep", "1")
+	go func() { _ = cmd.Run() }()
 }

@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"go/types"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -20,6 +21,85 @@ func (f *Flow) IsFreshContext(v ssa.Value) bool {
 		call, ok := s.Value.(*ssa.Call)
 		return !ok || !ctxkind.IsFreshCall(ExtractCalledFunc(call.Common()))
 	})
+}
+
+// InvolvesContext reports whether v is built from a context other than a
+// fresh one, as [ctxkind.Classifier.InvolvesUnless] follows it with
+// [ctxkind.Given], and the parts [contextLeftOut] tells left out. A go
+// statement's argument for a parameter that is not a context counts so
+// (#252), and so does a call that makes a value a closure captures (#257).
+func (f *Flow) InvolvesContext(v ssa.Value, kinds *ctxkind.Classifier) bool {
+	defer f.ask()()
+	return kinds.InvolvesUnless(ctxkind.Given, func(part ssa.Value) bool { return contextLeftOut(f, part, kinds) }, v)
+}
+
+// contextLeftOut reports whether part, a part of a value
+// [Flow.InvolvesContext] looks into, is not to count toward ctx nor to be
+// looked into:
+//
+//   - a context.Context made by a fresh context.Background() or TODO(), as
+//     [Flow.IsFreshContext] tells;
+//   - the result of a call that cannot hold what the call was given, as
+//     [contextCallResultMayHold] tells. Such a result is data the call made,
+//     as the brokers a call given ctx lists. A call of many results is
+//     judged by each one taken from it.
+func contextLeftOut(f *Flow, part ssa.Value, kinds *ctxkind.Classifier) bool {
+	if kinds.Is(part.Type(), ctxkind.Context) {
+		return f.IsFreshContext(part)
+	}
+	if x, ok := part.(*ssa.Call); ok {
+		if _, many := x.Type().(*types.Tuple); many {
+			return false
+		}
+	}
+	call := contextMakingCall(part)
+	return call != nil && !contextCallResultMayHold(call, part.Type(), kinds)
+}
+
+// contextCallResultMayHold reports whether a result of type t of call may
+// hold a context the call was given: t is of [ctxkind.Given], an interface
+// or a func, or call is of the standard library and t has a context field
+// of any package, exported or not ([contextMadeByStd]).
+func contextCallResultMayHold(call *ssa.CallCommon, t types.Type, kinds *ctxkind.Classifier) bool {
+	switch t.Underlying().(type) {
+	case *types.Interface, *types.Signature:
+		return true
+	}
+	return kinds.Is(t, ctxkind.Given) || contextMadeByStd(call, t, kinds)
+}
+
+// contextMadeByStd reports whether call, a function or a method of the
+// standard library and not an interface method, makes a result of type t
+// that has a context field, exported or not
+// ([ctxkind.Classifier.HasContextField]), as the *exec.Cmd that
+// exec.CommandContext(ctx, ...) makes (#257). Such a call given ctx puts it
+// in the field. A call of another package may instead take a value out of
+// ctx, as zerolog.Ctx(ctx) gives the *zerolog.Logger stored in ctx, whose
+// context field is not ctx. A type of the module whose field the analyzed
+// code can set is judged by [ctxkind.Holds] instead.
+//
+//declscope:shared // closure.go judges a captured value a call made with ctx
+func contextMadeByStd(call *ssa.CallCommon, t types.Type, kinds *ctxkind.Classifier) bool {
+	if call.IsInvoke() {
+		return false
+	}
+	fn := ExtractCalledFunc(call)
+	return fn != nil && fn.Pkg() != nil && ctxkind.IsStdPackage(fn.Pkg()) && kinds.HasContextField(t)
+}
+
+// contextMakingCall gives the call v is the result of, alone or taken from
+// its results, or nil.
+//
+//declscope:shared // closure.go finds the call that made a captured value
+func contextMakingCall(v ssa.Value) *ssa.CallCommon {
+	if x, ok := v.(*ssa.Extract); ok {
+		v = x.Tuple
+	}
+	call, ok := v.(*ssa.Call)
+	if !ok {
+		return nil
+	}
+	return call.Common()
 }
 
 // GivesOnlyFreshContext reports whether call gives a fresh

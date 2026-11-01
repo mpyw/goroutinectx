@@ -178,8 +178,8 @@ Each caller names the set it counts (#210). A value a goroutine gets counts by a
 | Threshold | Kinds | Used by |
 |-----------|-------|---------|
 | `Param` | `Context`, `Carrier` | `ParamNames`: the runner, to find the functions whose goroutines are checked, and the name in the message |
-| `Captured` | `Context`, `Carrier`, `Implements` | `Flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields. `HasParam` for the deriver checks: a closure or factory with a parameter of this set is not checked for the deriver |
-| `Given` | `Captured` and `Holds` | `HasParam` for a spawned closure and a factory, a parameter of the closure a go statement runs, `Involves` for the arguments of a factory and, past a fresh context and a call result that is not of `Given`, an interface or a func (`InvolvesUnless`), for the argument a go statement gives a closure parameter of another type that `MayHold` one, `MayHold` for the other arguments of a call given a fresh context |
+| `Captured` | `Context`, `Carrier`, `Implements` | `Flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields; `HasContextField` for a value a call of the standard library given ctx made (#257). `HasParam` for the deriver checks: a closure or factory with a parameter of this set is not checked for the deriver |
+| `Given` | `Captured` and `Holds` | `HasParam` for a spawned closure and a factory, a parameter of the closure a go statement runs, `Involves` for the arguments of a factory and, past a fresh context and a call result that is not of `Given`, an interface or a func and has no context field (`Flow.InvolvesContext`, `HasContextField`), for the argument a go statement gives a closure parameter of another type that `MayHold` one, `MayHold` for the other arguments of a call given a fresh context |
 | `Context` | `Context` | `flow.GivesOnlyFreshContext`, for the fresh argument; `IsWithCall`, for the first parameter |
 
 These differences are kept on purpose:
