@@ -100,7 +100,12 @@ On Windows, download `goroutinectx_${VERSION}_windows_${ARCH}.zip` and extract `
 ### As a Library
 
 ```go
-import "github.com/mpyw/goroutinectx"
+package main
+
+import (
+    "github.com/mpyw/goroutinectx"
+    "golang.org/x/tools/go/analysis/singlechecker"
+)
 
 func main() {
     singlechecker.Main(goroutinectx.Analyzer)
@@ -218,7 +223,7 @@ A context the goroutine reads from a field or an element of a value it captures 
 A goroutine that takes a signal of the context, not the context itself, passes too. The signal can be captured or given as an argument, to a function literal or a named function. It is one of these:
 
 - The channel of `ctx.Done()`
-- The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`, or the same function of `golang.org/x/net/context`
+- The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`, or by `WithCancel`, `WithTimeout` or `WithDeadline` of `golang.org/x/net/context`
 
 A signal of a context made from `context.Background()` or `TODO()` does not count. A channel that can't be followed, such as a parameter, does not count either:
 
@@ -495,13 +500,22 @@ func handler(ctx context.Context) {
     go func() {
         backgroundTask()
     }()
-
-    //goroutinectx:ignore goroutine,errgroup // ignore multiple checkers
-    g.Go(func() error {
-        return backgroundTask()
-    })
 }
 ```
+
+Separate several names with commas. With `-goroutine-deriver` set, this goroutine gets a report from `goroutine` and one from `goroutinederive`. The ignore silences both:
+
+```go
+func handler(ctx context.Context) {
+    //goroutinectx:ignore goroutine,goroutinederive // ignore both checkers
+    go func() {
+        backgroundTask()
+    }()
+}
+```
+
+> [!NOTE]
+> Name only the checkers that report there. Without `-goroutine-deriver`, the `goroutinederive` checker does not run, so the ignore above is reported as unused for `goroutinederive`.
 
 **Available checker names:**
 - `goroutine` - `go func()` statements
