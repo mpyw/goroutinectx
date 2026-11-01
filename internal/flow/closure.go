@@ -156,7 +156,8 @@ type closureReader struct {
 // fields and elements of what it holds, slices, maps and channels alike,
 // the values it asserts to and the local variables it is copied to, or a
 // method is called on a value that returns one, or a call takes a value
-// that holds one. A context that is only ever fresh does not count; one
+// that holds one. A closure made inside that captures v counts when it
+// uses v so (#268). A context that is only ever fresh does not count; one
 // read from a map, a channel or a type assertion cannot be followed, so it
 // counts.
 //
@@ -173,6 +174,13 @@ func (r *closureReader) reads(v ssa.Value, opaque bool) bool {
 		switch x := ref.(type) {
 		case ssa.CallInstruction:
 			if r.callsContextMethod(x.Common(), v) || r.callsWithHolder(x.Common(), v, v) {
+				return true
+			}
+			continue
+		case *ssa.MakeClosure:
+			// A closure inside, as a deferred recover handler, that
+			// captures v in turn (#268).
+			if r.innerUses(x, v, opaque) {
 				return true
 			}
 			continue
@@ -213,6 +221,24 @@ func (r *closureReader) reads(v ssa.Value, opaque bool) bool {
 			continue
 		}
 		if r.carries(part) || r.runsPassingPart(part, partOpaque) || r.waitsDone(part) || r.reads(part, partOpaque) {
+			return true
+		}
+	}
+	return false
+}
+
+// innerUses reports whether the closure inner makes, inside the closure
+// judged, uses v it captures, as the closure judged would use v itself:
+// v read, run passing, waited for as ctx.Done(), or given to a call when
+// made with ctx.
+func (r *closureReader) innerUses(inner *ssa.MakeClosure, v ssa.Value, opaque bool) bool {
+	fn := inner.Fn.(*ssa.Function)
+	for i, b := range inner.Bindings {
+		if b != v {
+			continue
+		}
+		fv := fn.FreeVars[i]
+		if r.reads(fv, opaque) || r.runsPassing(fv) || r.waitsDone(fv) || r.madeWithContext(fv) {
 			return true
 		}
 	}
