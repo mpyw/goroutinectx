@@ -50,6 +50,33 @@ func badLoMapWithoutDeriver(ctx context.Context) {
 		})...)
 }
 
+// [GOOD]: lo.Map result held in a variable, callback with deriver
+//
+// The slice a variable holds is judged as the call that made it (#270).
+func goodLoMapVariableWithDeriver(ctx context.Context) {
+	chunk := []UnprocessedProduct{{ID: "1"}, {ID: "2"}}
+	tasks := lo.Map(chunk, func(p UnprocessedProduct, _ int) func(context.Context) ProcessedProduct {
+		return func(ctx context.Context) ProcessedProduct {
+			_ = apm.NewGoroutineContext(ctx)
+			return ProcessedProduct{ID: p.ID}
+		}
+	})
+	_ = gotask.DoAllFnsSettled(ctx, tasks...)
+}
+
+// [BAD]: lo.Map result held in a variable, callback without deriver
+//
+// The slice a variable holds is judged as the call that made it (#270).
+func badLoMapVariableWithoutDeriver(ctx context.Context) {
+	chunk := []UnprocessedProduct{{ID: "1"}, {ID: "2"}}
+	tasks := lo.Map(chunk, func(p UnprocessedProduct, _ int) func(context.Context) ProcessedProduct {
+		return func(ctx context.Context) ProcessedProduct {
+			return ProcessedProduct{ID: p.ID}
+		}
+	})
+	_ = gotask.DoAllFnsSettled(ctx, tasks...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+}
+
 // ===== More complex patterns =====
 
 // [GOOD]: lo.Map callback returning gotask.NewTask
