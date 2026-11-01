@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mpyw/goroutinectx/internal/funcspec"
+	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
 // Matcher provides OR/AND matching for derive function specifications.
@@ -19,8 +20,8 @@ type Matcher struct {
 // NewMatcher creates a Matcher from the OR groups of -goroutine-deriver.
 // Each group names one function, or several joined by + that must all be
 // called (AND). A function is "pkg/path.Func" or "pkg/path.Type.Method". It
-// rejects an empty group, an empty function of a group, and a specification
-// funcspec.Parse rejects. Original joins the groups with commas, as the
+// rejects an empty group, a group that holds a comma, an empty function of
+// a group, and a specification funcspec.Parse rejects. Original joins the groups with commas, as the
 // flag spells them.
 func NewMatcher(groups []string) (*Matcher, error) {
 	m := &Matcher{
@@ -30,6 +31,9 @@ func NewMatcher(groups []string) (*Matcher, error) {
 	for i, group := range groups {
 		if strings.TrimSpace(group) == "" {
 			return nil, fmt.Errorf("-goroutine-deriver: group %d is empty", i+1)
+		}
+		if err := typeutil.CheckItem("-goroutine-deriver", i, group, "group"); err != nil {
+			return nil, err
 		}
 
 		// Split by plus (AND within group)

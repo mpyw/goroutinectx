@@ -21,7 +21,7 @@ This file records design decisions and implementation details. The short, always
   - AND (plus): `-goroutine-deriver=example.com/a.F1+example.com/b.F2` - all must be called
   - Mixed: `-goroutine-deriver=example.com/a.F1+example.com/a.F2,example.com/b.F3` - (F1 AND F2) OR F3
   - A short name such as `apm.F1` is rejected: each function needs the full import path of its package
-  - `run.Config.GoroutineDeriver` and `goroutinectx.Config.GoroutineDeriver` are `[]string`, one OR group per item, with `+` inside an item. The golangci-lint plugin takes a list and rejects a string. Only the flag splits at commas, through `analyzerList`. An empty item, or an empty function joined by `+`, is rejected
+  - `run.Config.GoroutineDeriver` and `goroutinectx.Config.GoroutineDeriver` are `[]string`, one OR group per item, with `+` inside an item. The golangci-lint plugin takes a list and rejects a string. Only the flag splits at commas, through `analyzerList`. An empty item, an item that holds a comma, or an empty function joined by `+`, is rejected. `-external-spawner` and `-context-carriers` reject an empty item and an item that holds a comma too, through `typeutil.CheckItem`. The flag drops empty parts before them, so it never gives these errors (#386)
 - **gotask**: Detect [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) task functions without context derivation (requires `-goroutine-deriver`)
   - `Do*` functions: checks that task arguments call the deriver
   - [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), also on a `CancelableTask`, which embeds `Task`: checks that ctx argument is derived

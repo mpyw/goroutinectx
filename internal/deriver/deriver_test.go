@@ -66,6 +66,10 @@ func TestNewMatcherRejects(t *testing.T) {
 	}{
 		{"an empty group", []string{"example.com/apm.F", ""}, "-goroutine-deriver: group 2 is empty"},
 		{"a blank group", []string{"  "}, "-goroutine-deriver: group 1 is empty"},
+		{
+			"a group with a comma", []string{"example.com/apm.F", "example.com/apm.G,context.WithoutCancel"},
+			`-goroutine-deriver: "example.com/apm.G,context.WithoutCancel": each item is one group, and commas separate groups only on the command line`,
+		},
 		{"an empty function after +", []string{"example.com/apm.F+"}, `-goroutine-deriver: "example.com/apm.F+": a function joined by + is empty`},
 		{"an empty function between +", []string{"example.com/apm.F++example.com/apm.G"}, "a function joined by + is empty"},
 		{"a group with no import path", []string{"example.com/apm.F+apm.G"}, `-goroutine-deriver: "apm.G": "apm" is not an import path`},

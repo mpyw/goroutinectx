@@ -19,4 +19,9 @@
 // [CheckPkgPath] rejects a bare name that is not a standard library package,
 // for funcspec and carrier alike, and [PkgPathMatches] matches a path,
 // allowing a major version suffix such as /v2.
+//
+// # List Items
+//
+// [CheckItem] rejects a blank item of a list setting, and an item that
+// holds a comma. Only the command line splits a setting at commas.
 package typeutil

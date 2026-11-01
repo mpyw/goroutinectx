@@ -39,6 +39,11 @@ func TestNewRejectsBadConfig(t *testing.T) {
 		{"a deriver without an import path", goroutinectx.Config{GoroutineDeriver: []string{"apm.NewGoroutineContext"}}, "import path"},
 		{"an empty deriver group", goroutinectx.Config{GoroutineDeriver: []string{""}}, "group 1 is empty"},
 		{"a carrier without an import path", goroutinectx.Config{ContextCarriers: []string{"echo.Context"}}, "import path"},
+		{"a deriver group with a comma", goroutinectx.Config{GoroutineDeriver: []string{"example.com/apm.F,context.WithoutCancel"}}, `-goroutine-deriver: "example.com/apm.F,context.WithoutCancel": each item is one group, and commas separate groups only on the command line`},
+		{"a spawner with a comma", goroutinectx.Config{ExternalSpawner: []string{"example.com/pool.Run,example.com/pool.Go"}}, `-external-spawner: "example.com/pool.Run,example.com/pool.Go": each item is one function, and commas separate functions only on the command line`},
+		{"an empty spawner", goroutinectx.Config{ExternalSpawner: []string{"example.com/pool.Run", ""}}, "-external-spawner: item 2 is empty"},
+		{"a carrier with a comma", goroutinectx.Config{ContextCarriers: []string{"example.com/web.Context,example.com/cli.Context"}}, `-context-carriers: "example.com/web.Context,example.com/cli.Context": each item is one type, and commas separate types only on the command line`},
+		{"an empty carrier", goroutinectx.Config{ContextCarriers: []string{" "}}, "-context-carriers: item 1 is empty"},
 	}
 	for _, tt := range tests {
 		for range 5 {
@@ -47,6 +52,17 @@ func TestNewRejectsBadConfig(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestNewAcceptsLists checks that New takes a list of several items for
+// each list setting.
+func TestNewAcceptsLists(t *testing.T) {
+	t.Parallel()
+	mustNew(t, goroutinectx.Config{
+		GoroutineDeriver: []string{"example.com/apm.F+example.com/apm.G", "context.WithoutCancel"},
+		ExternalSpawner:  []string{"example.com/pool.Run", "example.com/pool.Pool.Go"},
+		ContextCarriers:  []string{"example.com/web.Context", "example.com/cli.Context"},
+	})
 }
 
 func mustNew(t *testing.T, cfg goroutinectx.Config) *analysis.Analyzer {

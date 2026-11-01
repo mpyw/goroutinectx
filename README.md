@@ -187,6 +187,7 @@ linters:
             - github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext
             - github.com/my-example-app/telemetry/apm.NewGoroutineContext
           # One name per item, not comma-separated.
+          # A comma in an item is an error.
           context-carriers:
             - github.com/labstack/echo/v4.Context
           external-spawner:
@@ -3983,7 +3984,7 @@ go func() {
 </tbody>
 </table>
 
-The setting can name several functions. In `.golangci.yml`, it is a list with one group per item. On the command line, commas join the groups:
+The setting can name several functions. In `.golangci.yml`, it is a list with one group per item. A comma in an item is an error. On the command line, commas join the groups:
 
 | Meaning | Command line | `.golangci.yml` |
 | --- | --- | --- |
@@ -4073,7 +4074,7 @@ goroutine-deriver:
 
 ### `-context-carriers`
 
-These types count as a context. Use it with a web framework that has its own context type, such as [`echo.Context`](https://pkg.go.dev/github.com/labstack/echo/v4#Context) or [`cli.Context`](https://pkg.go.dev/github.com/urfave/cli/v2#Context). Separate several types with commas.
+These types count as a context. Use it with a web framework that has its own context type, such as [`echo.Context`](https://pkg.go.dev/github.com/labstack/echo/v4#Context) or [`cli.Context`](https://pkg.go.dev/github.com/urfave/cli/v2#Context). Separate several types with commas. In `.golangci.yml`, it is a list with one type per item. A comma in an item is an error.
 
 ```bash
 goroutinectx \
@@ -4139,7 +4140,7 @@ func handler(c AppCtx) {
 
 ### `-external-spawner`
 
-These functions are [spawners](#spawner). The flag works like [`//goroutinectx:spawner`](#goroutinectxspawner), for code that you cannot edit. Separate several functions with commas. Write each one as `pkg/path.Func` or `pkg/path.Type.Method`.
+These functions are [spawners](#spawner). The flag works like [`//goroutinectx:spawner`](#goroutinectxspawner), for code that you cannot edit. Separate several functions with commas. In `.golangci.yml`, it is a list with one function per item. A comma in an item is an error. Write each one as `pkg/path.Func` or `pkg/path.Type.Method`.
 
 ```bash
 goroutinectx \
