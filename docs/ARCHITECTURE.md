@@ -178,8 +178,8 @@ Each caller names the set it counts (#210). A value a goroutine gets counts by a
 | Threshold | Kinds | Used by |
 |-----------|-------|---------|
 | `Param` | `Context`, `Carrier` | `ParamNames`: the runner, to find the functions whose goroutines are checked, and the name in the message |
-| `Captured` | `Context`, `Carrier`, `Implements` | `Flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields |
-| `Given` | `Captured` and `Holds` | `HasParam` for a spawned closure and a factory, a parameter of the closure a go statement runs, `Involves` for the arguments of a factory, `MayHold` for the other arguments of a call given a fresh context |
+| `Captured` | `Context`, `Carrier`, `Implements` | `Flow.ClosureCapturesContext`: free variables, the parts read from them, the results of a method called on them; `Holds` for its fields. `HasParam` for the deriver checks: a closure or factory with a parameter of this set is not checked for the deriver |
+| `Given` | `Captured` and `Holds` | `HasParam` for a spawned closure and a factory, a parameter of the closure a go statement runs, `Involves` for the arguments of a factory and, past a fresh context and a call result that is not of `Given`, an interface or a func (`InvolvesUnless`), for the argument a go statement gives a closure parameter of another type that `MayHold` one, `MayHold` for the other arguments of a call given a fresh context |
 | `Context` | `Context` | `flow.GivesOnlyFreshContext`, for the fresh argument; `IsWithCall`, for the first parameter |
 
 These differences are kept on purpose:
@@ -188,6 +188,7 @@ These differences are kept on purpose:
 |------------|-----|
 | `ParamNames` uses `Param`, not `Given` | A handler that takes a type that only implements `context.Context`, as `*gin.Context`, or a struct with a context field, would be checked, which means new reports. Such a type is often not the context to pass on |
 | A captured value is `Captured`, a call's argument `Holds` too | A captured struct that holds a context counts only when it is given to a call, as the receiver or an argument (`callsWithHolder`). A struct captured and not given anywhere does not use its context |
+| The deriver checks take a parameter by `Captured`, not `Given` | A closure that gets a struct holding a context did not get a context of its own, so it must still derive the one it reads (#256). Without a deriver, the same parameter counts by `Given`, as the closure uses ctx |
 | `GivesOnlyFreshContext` tests the fresh argument with `Context` | Only a `context.Context` can be fresh: `IsFreshContext` follows a value back to a `Background()` or `TODO()` call. Any other argument is tested with `MayHold(Given)` |
 
 A captured context, carrier or value of `Implements`, and a part read from one, are judged alike: a carrier that is a context too, and an `Implements` value, count unless they hold only a fresh context. A carrier that is not a context counts as it is.

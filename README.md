@@ -20,7 +20,7 @@ A parameter is a context when its type is one of these:
 
 Only an embedded `context.Context` counts. An interface that declares some or all of its methods itself is not a context.
 
-A parameter of a type that only implements `context.Context`, such as a struct that embeds one, does not make its function checked. Where a goroutine gets a value, such a value counts as a context: captured, as a parameter of the function the goroutine runs, or given to a factory. So does a struct that holds a context your code can have put there.
+A parameter of a type that only implements `context.Context`, such as a struct that embeds one, does not make its function checked. Where a goroutine gets a value, such a value counts as a context: captured, as a parameter of the function the goroutine runs, or given to a factory. So does a struct that holds a context your code can have put there. A parameter of another type, such as an interface, a func, a slice or `any`, counts when the `go` statement gives it a value made from a context other than a fresh `context.Background()` or `TODO()`: `go func(r Runner) { r.Run() }(ctxRunner{ctx})` and `go func(f func()) { f() }(func() { <-ctx.Done() })` pass. A result of a call counts only when it is a context, holds one, or is an interface or a func: the records a call given `ctx` lists are data, not a holder of `ctx`.
 
 ## Installation & Usage
 
@@ -570,6 +570,8 @@ goroutinectx -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transa
 - `pkg/path.Type.Method` for methods
 - `,` (comma) for OR - at least one group must be satisfied
 - `+` (plus) for AND - all functions in the group must be called
+
+A goroutine or a callback whose function takes a context of its own, such as `go func(ctx context.Context) { ... }(ctx)`, is not checked for the deriver. A value whose type implements `context.Context` counts as one. A struct that only holds a context does not: `go func(j *Job) { work(j.Ctx) }(j)` must still call the deriver.
 
 > [!TIP]
 > When both parent and child goroutines require instrumentation inheritance (e.g., [New Relic Go Agent](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic)), you need to call [`Transaction.NewGoroutine`](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic#Transaction.NewGoroutine) and [`NewContext`](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic#NewContext):

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/my-example-app/telemetry/apm"
+	"github.com/sourcegraph/conc/iter"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -393,4 +394,43 @@ func badRangeFuncNoDeriverSpawner(ctx context.Context, xs []int) {
 		}
 		return nil
 	})
+}
+
+// ===== Callback takes a struct that holds a context =====
+
+// ctxJob is a job that holds a context.
+type ctxJob struct {
+	Ctx  context.Context
+	Name string
+}
+
+//goroutinectx:spawner
+func runWithJob(j *ctxJob, fn func(*ctxJob)) {
+	go fn(j)
+}
+
+// [BAD]: Callback reads ctx from its parameter, without the deriver
+//
+// A struct that holds a context is not a context parameter of its own, so
+// the callback must still call the deriver (#256).
+func badHolderParamNoDeriverConc(ctx context.Context, jobs []ctxJob) {
+	iter.ForEach(jobs, func(j *ctxJob) { _ = j.Ctx }) // want `iter.ForEach\(\) closure should use context "ctx" or call goroutine deriver`
+}
+
+// [BAD]: Callback reads ctx from its parameter, without the deriver
+//
+// A struct that holds a context is not a context parameter of its own, so
+// the callback must still call the deriver (#256).
+func badHolderParamNoDeriverSpawner(ctx context.Context) {
+	runWithJob(&ctxJob{Ctx: ctx}, func(j *ctxJob) { _ = j.Ctx }) // want `runWithJob\(\) func argument should use context "ctx" or call goroutine deriver`
+}
+
+// [GOOD]: Callback reads ctx from its parameter, with the deriver
+func goodHolderParamCallsDeriverConc(ctx context.Context, jobs []ctxJob) {
+	iter.ForEach(jobs, func(j *ctxJob) { _ = apm.NewGoroutineContext(j.Ctx) })
+}
+
+// [GOOD]: Callback reads ctx from its parameter, with the deriver
+func goodHolderParamCallsDeriverSpawner(ctx context.Context) {
+	runWithJob(&ctxJob{Ctx: ctx}, func(j *ctxJob) { _ = apm.NewGoroutineContext(j.Ctx) })
 }
