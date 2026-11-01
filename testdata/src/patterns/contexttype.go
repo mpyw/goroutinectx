@@ -1206,3 +1206,128 @@ func goodGoParamFuncArrayParamGoroutine(ctx context.Context, fs [1]func()) {
 		x[0]()
 	}(fs)
 }
+
+// [GOOD]: Goroutine given a slice parameter of contexts it reads an element of
+//
+// The contexts cannot be followed, as the same slice captured passes (#338).
+func goodGoParamCtxSliceParamGoroutine(ctx context.Context, cs []context.Context) {
+	go func(x []context.Context) {
+		<-x[0].Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given an array parameter of contexts it reads an element of
+//
+// The contexts cannot be followed (#338).
+func goodGoParamCtxArrayParamGoroutine(ctx context.Context, cs [1]context.Context) {
+	go func(x [1]context.Context) {
+		<-x[0].Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a map parameter of contexts it reads a value of
+//
+// The contexts cannot be followed (#338).
+func goodGoParamCtxMapParamGoroutine(ctx context.Context, m map[string]context.Context) {
+	go func(x map[string]context.Context) {
+		<-x["a"].Done()
+	}(m)
+}
+
+// [GOOD]: Goroutine given a channel parameter of contexts it receives from
+//
+// The contexts cannot be followed (#338).
+func goodGoParamCtxChanParamGoroutine(ctx context.Context, c <-chan context.Context) {
+	go func(x <-chan context.Context) {
+		<-(<-x).Done()
+	}(c)
+}
+
+// [GOOD]: Goroutine given a pointer parameter to a slice of contexts
+//
+// The contexts cannot be followed (#338).
+func goodGoParamCtxSlicePtrParamGoroutine(ctx context.Context, cs *[]context.Context) {
+	go func(x *[]context.Context) {
+		<-(*x)[0].Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a slice parameter of slices of contexts
+//
+// The contexts cannot be followed (#338).
+func goodGoParamCtxNestedSliceParamGoroutine(ctx context.Context, cs [][]context.Context) {
+	go func(x [][]context.Context) {
+		<-x[0][0].Done()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a slice parameter of contexts it ranges over in a nested closure
+//
+// The nested closure reads the parameter as the goroutine itself would
+// (#322, #338).
+func goodGoParamCtxSliceParamNestedRangeGoroutine(ctx context.Context, cs []context.Context) {
+	go func(x []context.Context) {
+		func() {
+			for _, c := range x {
+				<-c.Done()
+			}
+		}()
+	}(cs)
+}
+
+// [GOOD]: Goroutine given a slice literal of contexts, one of them a parameter
+//
+// The parameter cannot be followed, as the same element captured (#338).
+func goodGoParamCtxSliceOfParamGoroutine(ctx context.Context, c context.Context) {
+	go func(x []context.Context) {
+		<-x[0].Done()
+	}([]context.Context{context.Background(), c})
+}
+
+// [BAD]: Goroutine given a slice literal of only fresh contexts
+//
+// No context in the slice is ctx.
+func badGoParamCtxSliceFreshGoroutine(ctx context.Context) {
+	go func(x []context.Context) { // want `goroutine does not propagate context "ctx"`
+		<-x[0].Done()
+	}([]context.Context{context.Background()})
+}
+
+// [BAD]: Goroutine given a map literal of only fresh contexts
+//
+// No context in the map is ctx.
+func badGoParamCtxMapFreshGoroutine(ctx context.Context) {
+	go func(x map[string]context.Context) { // want `goroutine does not propagate context "ctx"`
+		<-x["a"].Done()
+	}(map[string]context.Context{"a": context.TODO()})
+}
+
+// [BAD]: Goroutine given a pointer to a local slice of only fresh contexts
+//
+// What is stored to the variable holds no ctx.
+func badGoParamCtxSlicePtrFreshGoroutine(ctx context.Context) {
+	cs := []context.Context{context.Background()}
+	go func(x *[]context.Context) { // want `goroutine does not propagate context "ctx"`
+		<-(*x)[0].Done()
+	}(&cs)
+}
+
+// [BAD]: Goroutine given a slice parameter of contexts it does not read
+//
+// The contexts are only counted, as the same slice captured would be.
+func badGoParamCtxSliceParamNotReadGoroutine(ctx context.Context, cs []context.Context) {
+	go func(x []context.Context) { // want `goroutine does not propagate context "ctx"`
+		_ = len(x)
+	}(cs)
+}
+
+// [BAD]: Goroutine given a parameter of a slice type that holds itself
+//
+// No context is ever read from it.
+func badGoParamSelfSliceParamGoroutine(ctx context.Context, l goParamSelfSlice) {
+	go func(x goParamSelfSlice) { // want `goroutine does not propagate context "ctx"`
+		_ = len(x[0])
+	}(l)
+}
+
+type goParamSelfSlice []goParamSelfSlice

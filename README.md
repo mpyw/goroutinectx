@@ -911,6 +911,23 @@ func handler(
 <td>
 
 ```go
+func handler(
+	ctx context.Context,
+	ctxs []context.Context,
+) {
+	go func(cs []context.Context) {
+		<-cs[0].Done()
+	}(ctxs)
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The same for an array, a map, a channel or a pointer of contexts, as when the goroutine captures <code>ctxs</code>. A literal of only fresh contexts is reported</td>
+</tr>
+<tr>
+<td>
+
+```go
 go func(v any) {
 	doSomething(v)
 }(context.Background())
