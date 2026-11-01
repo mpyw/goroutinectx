@@ -181,11 +181,13 @@ func (r *myRunner) Run() {
 	fmt.Println("running")
 }
 
-// [BAD]: Interface method
+// [NOTCHECKED]: Interface method on a parameter
 //
-// Interface method call without context argument.
-func badGoroutineCallsInterfaceMethod(ctx context.Context, r Runner) {
-	go func() { // want `goroutine does not propagate context "ctx"`
+// What a parameter of an interface type holds cannot be followed, and
+// Runner is declared in the analyzed package, so it may hold ctx, as
+// go r.Run() is left alone (#240).
+func notCheckedGoroutineCallsInterfaceMethod(ctx context.Context, r Runner) {
+	go func() {
 		r.Run()
 	}()
 }
