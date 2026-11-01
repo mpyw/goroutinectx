@@ -87,7 +87,10 @@ func (p *spawnedContextPolicy) paramKind() ctxkind.Kind {
 // one, the channel of ctx.Done(), a cancel func of a context made from
 // ctx, or, for a parameter of another type that may hold a context, a value
 // built from a context other than a fresh one, as [flow.Flow.InvolvesContext]
-// follows it: an interface, a func, a slice or an any given ctx (#252).
+// follows it: an interface, a func, a slice or an any given ctx (#252). A
+// func or an interface is judged as the same value captured, too, as
+// [flow.Flow.ClosureArgCapturesContext] judges it: one that cannot be
+// followed passes (#296).
 func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
 	return slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool {
@@ -96,7 +99,8 @@ func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 			return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
 		}
 		return i < len(args) && (p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
-			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds)))
+			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds)) ||
+			p.e.Flow.ClosureArgCapturesContext(param, args[i], p.e.Kinds, p))
 	})
 }
 

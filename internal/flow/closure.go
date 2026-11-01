@@ -386,6 +386,30 @@ func (r *closureReader) runsPassing(v ssa.Value) bool {
 	return judgeCaptured(r.flow, r.funcs, v).Passes()
 }
 
+// ClosureArgCapturesContext reports whether arg, which a go statement gives
+// the parameter param of the closure it runs, ties the closure to a
+// context as the same value captured would, as [Flow.ClosureCapturesContext]
+// judges one (#296). A func param the closure runs counts when funcs passes
+// every function arg can hold at [SiteCaptured], so one that cannot be
+// followed, as a parameter, passes. An interface param the closure calls a
+// method of, or gives to a call, counts when arg may hold a context, as
+// [closureReader.interfaceMayHold] judges it.
+func (f *Flow) ClosureArgCapturesContext(param *ssa.Parameter, arg ssa.Value, kinds *ctxkind.Classifier, funcs Policy) bool {
+	defer f.ask()()
+	t := param.Type()
+	if _, isFunc := t.Underlying().(*types.Signature); isFunc {
+		return closureRuns(param, false) && judgeCaptured(f, funcs, arg).Passes()
+	}
+	if !types.IsInterface(t) || kinds.Is(t, ctxkind.Captured) {
+		return false
+	}
+	r := &closureReader{flow: f, kinds: kinds.From(closurePackage(param.Parent()))}
+	return slices.ContainsFunc(*param.Referrers(), func(ref ssa.Instruction) bool {
+		call, ok := ref.(ssa.CallInstruction)
+		return ok && r.callsWithHolder(call.Common(), param, arg)
+	})
+}
+
 // runsPassingPart reports whether part, read from what the closure
 // captures, runs passing, as [closureReader.runsPassing] judges it. One
 // read from a map, a channel or a type assertion (opaque) cannot be
