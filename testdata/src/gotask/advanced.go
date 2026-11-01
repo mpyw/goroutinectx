@@ -526,6 +526,110 @@ func badRangeFuncExprNested(ctx context.Context, xs []int) {
 	}
 }
 
+// ===== Captured slices =====
+
+// [GOOD]: Variadic slice literal a closure captures
+//
+// The closure reads the slice it was made with, so its elements are judged
+// as in the function that makes the slice (#263).
+func goodCapturedVariadicSlice(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		},
+	}
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
+// [BAD]: Variadic slice literal a closure captures, without deriver
+func badCapturedVariadicSlice(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+	}()
+}
+
+// derivingFns gives task functions that call the deriver.
+func derivingFns() []func(context.Context) error {
+	return []func(context.Context) error{
+		func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		},
+	}
+}
+
+// [GOOD]: Variadic slice from a call, captured by a closure
+func goodCapturedVariadicSliceFromCall(ctx context.Context) {
+	fns := derivingFns()
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
+// [GOOD]: Variadic slice a closure captures by reference
+func goodCapturedVariadicSliceByRef(ctx context.Context, fn func(context.Context) error) {
+	fns := []func(context.Context) error{fn}
+	fns = derivingFns()
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
+// [GOOD]: Variadic slice a closure captures, from a call whose slice is not traced
+//
+// Nothing is known of the elements, so the call passes.
+func goodCapturedVariadicSliceUntraced(ctx context.Context, xs []int) {
+	fns := lo.Map(xs, func(int, int) func(context.Context) error {
+		return func(ctx context.Context) error { return nil }
+	})
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
+// [GOOD]: Variadic slice captured by a range-over-func loop body
+func goodRangeFuncBodyCapturedVariadicSlice(ctx context.Context, xs []int) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		},
+	}
+	for x := range slices.Values(xs) {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+		_ = x
+	}
+}
+
+// [BAD]: Variadic slice captured by a range-over-func loop body, without deriver
+func badRangeFuncBodyCapturedVariadicSlice(ctx context.Context, xs []int) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+	for x := range slices.Values(xs) {
+		_ = gotask.DoAllFnsSettled(ctx, fns...) // want `gotask\.DoAllFnsSettled\(\) variadic argument should call goroutine deriver`
+		_ = x
+	}
+}
+
+// [BAD]: Parallel given a slice a closure captures, holding a task without deriver
+func badParallelCapturedSlice(ctx context.Context) {
+	tasks := []gotask.Task[gotask.Result[int]]{
+		gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
+			return gotask.ResultOk(1)
+		}),
+	}
+	func() {
+		_ = gotask.DoAll(ctx, gotask.Parallel(tasks...)) // want `gotask\.DoAll\(\) 2nd argument should call goroutine deriver`
+	}()
+}
+
 // ===== Unreachable code =====
 
 // [GOOD]: Variadic call in unreachable code
