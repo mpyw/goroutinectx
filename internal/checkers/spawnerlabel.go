@@ -200,14 +200,10 @@ func (c *SpawnerlabelChecker) spawnCallInfoOf(site flow.RunCall, o *spawnerlabel
 		return nil
 	}
 
-	// Check against registry. A task API, as DoAsync, runs its receiver,
-	// so every argument counts.
+	// Check against registry. A task API, as DoAsync, runs its receiver
+	// task, which counts when it is made of a func parameter.
 	if entry, ok := registry.Match(calledFn); ok {
-		start := entry.CallbackArgIdx
-		if entry.AlwaysSpawns {
-			start = 0
-		}
-		if o.anyArg(call, start) {
+		if (entry.AlwaysSpawns && o.fromParam(call.Args[0])) || o.anyArg(call, entry.CallbackArgIdx) {
 			return &spawnerlabelCall{methodName: entry.Spec.FullName()}
 		}
 	}
@@ -283,15 +279,25 @@ type spawnerlabelOrigin struct {
 	seen map[ssa.Value]bool
 }
 
-// anyArg reports whether an argument of call, at start or after, comes from
-// a func parameter, or an element of one of a slice.
+// anyArg reports whether a func argument of call, at start or after, comes
+// from a func parameter, or an element of one of a slice of funcs. An
+// argument of any other type, as a value a call given a func returns, is
+// not run.
 func (o *spawnerlabelOrigin) anyArg(call *ssa.CallCommon, start int) bool {
 	for i := start; i < len(call.Args); i++ {
 		arg := call.Args[i]
+		t := arg.Type()
+		slice, isSlice := t.Underlying().(*types.Slice)
+		if isSlice {
+			t = slice.Elem()
+		}
+		if !spawnerlabelIsFuncType(t) {
+			continue
+		}
 		if o.fromParam(arg) {
 			return true
 		}
-		if _, isSlice := arg.Type().Underlying().(*types.Slice); !isSlice {
+		if !isSlice {
 			continue
 		}
 		elems, _ := o.flow.ResolvedSliceElems(arg)

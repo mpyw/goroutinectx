@@ -212,3 +212,16 @@ func goodShapeLabeledForward(f func()) { shapeSpawn(f) }
 //
 //goroutinectx:spawner
 func goodShapeLabeledEscapes(ch chan<- func(), f func()) { ch <- f }
+
+// shapeConvert gives what conv makes of v.
+func shapeConvert(conv func(int) int, v int) int { return conv(v) }
+
+// [GOOD]: go statement given a value a call made with its param, not a func
+func goodShapeGoStmtConverted(conv func(int) int, sink func(int)) {
+	v := shapeConvert(conv, 1)
+	go shapeWork()
+	go shapeUse(v)
+	sink(v)
+}
+
+func shapeUse(int) {}
