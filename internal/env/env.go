@@ -54,14 +54,15 @@ func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, de
 			module = pass.Module.Path
 		}
 	}
+	f := flow.NewFlow()
 	return &Env{
 		Pass:     pass,
 		SSA:      prog,
-		Index:    site.NewIndex(pass, prog),
+		Index:    site.NewIndex(pass, prog, f),
 		Kinds:    ctxkind.New(prog.Program, carriers, module, pkg),
 		Derivers: derivers,
 		Spawners: spawners,
-		Flow:     flow.NewFlow(),
+		Flow:     f,
 
 		ReportWaiters: reportWaiters,
 	}

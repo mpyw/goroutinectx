@@ -15,6 +15,8 @@ import (
 // Index maps the nodes of one package to their SSA form.
 type Index struct {
 	pass *analysis.Pass
+	// flow follows a function value a call calls, as [Index.called] does.
+	flow *flow.Flow
 	// calls are the Call, Go and Defer instructions by the position of
 	// their call's left parenthesis.
 	calls map[token.Pos]ssa.CallInstruction
@@ -24,14 +26,16 @@ type Index struct {
 	lits map[*ast.FuncLit]*ssa.Function
 }
 
-// NewIndex builds the Index of pass, whose SSA program is prog.
+// NewIndex builds the Index of pass, whose SSA program is prog. f is the
+// pass's Flow.
 //
 // An instruction is indexed in the innermost function whose syntax holds its
 // position. The syntax of the yield function of a range-over-func loop is
 // only the loop's body: see [siteSyntax].
-func NewIndex(pass *analysis.Pass, prog *flow.Program) *Index {
+func NewIndex(pass *analysis.Pass, prog *flow.Program, f *flow.Flow) *Index {
 	x := &Index{
 		pass:  pass,
+		flow:  f,
 		calls: make(map[token.Pos]ssa.CallInstruction),
 		gos:   make(map[token.Pos]*ssa.Go),
 		lits:  make(map[*ast.FuncLit]*ssa.Function),
@@ -191,9 +195,10 @@ func (x *Index) callSite(call *ast.CallExpr) *Site {
 	if instr := x.calls[call.Lparen]; instr != nil {
 		s.Instr = instr
 	}
-	s.Callee, s.RecvArgs = x.callee(s)
+	common := x.called(s.Common())
+	s.Callee, s.RecvArgs = x.callee(s, common)
 	var values []ssa.Value
-	if common := s.Common(); common != nil {
+	if common != nil {
 		values = flow.ResolvedArgs(common, call)
 	}
 	for i, arg := range call.Args {
@@ -202,7 +207,7 @@ func (x *Index) callSite(call *ast.CallExpr) *Site {
 			s.Args[i].Value = values[i]
 		}
 	}
-	if common := s.Common(); common != nil {
+	if common != nil {
 		s.Recv = Receiver(common)
 		if s.RecvArgs == 1 && len(s.Args) > 0 && s.Args[0].Value != nil {
 			s.Recv = s.Args[0].Value
@@ -211,11 +216,31 @@ func (x *Index) callSite(call *ast.CallExpr) *Site {
 	return s
 }
 
-// callee gives the function s's call calls, and its RecvArgs. A call
-// through a function or method value, as gofn := wg.Go, or through a method
-// expression in a variable, as gofn := (*errgroup.Group).Go, is found
-// through SSA.
-func (x *Index) callee(s *Site) (*types.Func, int) {
+// called gives common, or, when it calls a value that is not static, as a
+// variable a closure captures, a copy of it that calls the one value the
+// variable can hold, when that value is static: goFn of goFn := g.Go called
+// in a closure calls the method value g.Go (#275). It gives nil for nil.
+func (x *Index) called(common *ssa.CallCommon) *ssa.CallCommon {
+	if common == nil || common.IsInvoke() || common.StaticCallee() != nil {
+		return common
+	}
+	sources, complete := x.flow.Sources(common.Value)
+	if !complete || len(sources) != 1 {
+		return common
+	}
+	c := *common
+	c.Value = sources[0].Value
+	if c.StaticCallee() == nil {
+		return common
+	}
+	return &c
+}
+
+// callee gives the function common, the call of s, calls, and its
+// RecvArgs. A call through a function or method value, as gofn := wg.Go,
+// or through a method expression in a variable, as gofn :=
+// (*errgroup.Group).Go, is found through SSA.
+func (x *Index) callee(s *Site, common *ssa.CallCommon) (*types.Func, int) {
 	if fn := funcspec.ExtractFunc(x.pass, s.Call); fn != nil {
 		if sel, ok := ast.Unparen(s.Call.Fun).(*ast.SelectorExpr); ok {
 			if sel := x.pass.TypesInfo.Selections[sel]; sel != nil && sel.Kind() == types.MethodExpr {
@@ -224,7 +249,6 @@ func (x *Index) callee(s *Site) (*types.Func, int) {
 		}
 		return fn, 0
 	}
-	common := s.Common()
 	if common == nil || common.IsInvoke() || common.StaticCallee() == nil {
 		return nil, 0
 	}
