@@ -112,7 +112,11 @@ func (p *spawnedContextPolicy) Call(call *ssa.CallCommon) flow.Verdict {
 // FactoryCall passes a factory given a context other than a fresh one, as
 // [ctxkind.Given] counts one.
 func (p *spawnedContextPolicy) FactoryCall(call *ssa.CallCommon) bool {
-	return p.e.Kinds.Involves(ctxkind.Given, call.Args...) && !p.e.Flow.GivesOnlyFreshContext(call, p.e.Kinds)
+	var args []ssa.Value
+	for _, arg := range call.Args {
+		args = append(args, p.e.Flow.CapturedValues(arg)...)
+	}
+	return p.e.Kinds.Involves(ctxkind.Given, args...) && !p.e.Flow.GivesOnlyFreshContext(call, p.e.Kinds)
 }
 
 // Factory passes a factory that takes a context, as [ctxkind.Given] counts

@@ -2,6 +2,7 @@ package ctxkind
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 	"slices"
 	"strings"
@@ -220,6 +221,10 @@ func (in *involving) involvesPut(container ssa.Value) bool {
 			return x.Map == container && (in.involves(x.Key) || in.involves(x.Value))
 		case *ssa.Send:
 			return x.Chan == container && in.involves(x.X)
+		case *ssa.UnOp:
+			// A value loaded from a variable, as ch <- f loads ch, holds
+			// what is put into it (#269).
+			return x.Op == token.MUL && x.X == container && in.involvesPut(x)
 		}
 		return false
 	})
