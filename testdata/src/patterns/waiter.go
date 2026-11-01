@@ -399,6 +399,17 @@ func goodSelectSendNeighborGoroutine(ctx context.Context, a, b *exec.Cmd) error 
 	}
 }
 
+// [GOOD]: One sender, received without a select
+//
+// The caller waits for the one send.
+func goodOneSenderReceiveGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	go func() {
+		errc <- cmd.Wait()
+	}()
+	return <-errc
+}
+
 // [BAD]: Two senders, a buffer of one
 //
 // After the first receive, or on ctx.Done(), the second send blocks for ever
@@ -567,6 +578,68 @@ func badLoopSpawnedClosureGoroutine(ctx context.Context, cmd *exec.Cmd, n int) e
 func badChanEscapesGoroutine(ctx context.Context, cmd *exec.Cmd, fill func(chan<- error)) error {
 	errc := make(chan error, 1)
 	fill(errc)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- cmd.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A neighbor that sends in a loop
+//
+// The neighbor's sends in a select can fill the slot first.
+func badLoopSelectSendNeighborGoroutine(ctx context.Context, cmd *exec.Cmd, errs []error) error {
+	errc := make(chan error, 1)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- cmd.Wait()
+	}()
+	go func() { // want `goroutine does not propagate context "ctx"`
+		for _, err := range errs {
+			select {
+			case errc <- err:
+			default:
+			}
+		}
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: The variable of the channel is given to a call
+//
+// The function called may send on the channel, or set the variable to
+// another one.
+func badChanVarEscapesGoroutine(ctx context.Context, cmd *exec.Cmd, fill func(*chan error)) error {
+	errc := make(chan error, 1)
+	fill(&errc)
+	go func() { // want `goroutine does not propagate context "ctx"`
+		errc <- cmd.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: The channel is sent on another channel
+//
+// Whoever receives it may send on it too.
+func badChanSentGoroutine(ctx context.Context, cmd *exec.Cmd, out chan<- chan error) error {
+	errc := make(chan error, 1)
+	select {
+	case out <- errc:
+	default:
+	}
 	go func() { // want `goroutine does not propagate context "ctx"`
 		errc <- cmd.Wait()
 	}()

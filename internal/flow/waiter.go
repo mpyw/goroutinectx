@@ -154,11 +154,7 @@ func waiterBuffered(f *Flow, ch ssa.Value) bool {
 // own variable, or sent from or given to a closure that may run more than
 // once, as one in a loop is.
 func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
-	refs := v.Referrers()
-	if refs == nil {
-		return 0, false
-	}
-	for _, instr := range *refs {
+	for _, instr := range *v.Referrers() {
 		n, ok := waiterChanUseSends(instr, v, addr)
 		if !ok {
 			return 0, false
@@ -169,38 +165,35 @@ func waiterChanSends(v ssa.Value, addr bool) (sends int, ok bool) {
 }
 
 // waiterChanUseSends counts the sends instr makes on the channel of v, as
-// [waiterChanSends] does.
+// [waiterChanSends] does. When addr is true, v points to the variable of the
+// channel, and only a store to it, a load from it, and a closure that
+// captures it are followed.
 func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends int, ok bool) {
 	switch x := instr.(type) {
-	case *ssa.DebugRef:
-		return 0, true
 	case *ssa.MakeClosure:
 		return waiterClosureSends(x, v, addr)
-	}
-	if addr {
-		switch x := instr.(type) {
-		case *ssa.Store:
+	case *ssa.Store:
+		if addr {
 			// The variable is set. What it is set to is followed on its own.
 			return 0, x.Addr == v
-		case *ssa.UnOp:
-			if x.Op == token.MUL {
-				return waiterChanSends(x, false)
-			}
 		}
-		return 0, false
-	}
-	switch x := instr.(type) {
-	case *ssa.Store:
-		if _, local := x.Addr.(*ssa.Alloc); local && x.Val == v {
+		if _, local := x.Addr.(*ssa.Alloc); local {
 			return waiterChanSends(x.Addr, true)
 		}
 	case *ssa.UnOp:
+		if addr {
+			return waiterChanSends(x, false)
+		}
 		return 0, x.Op == token.ARROW
 	case *ssa.Send:
-		return 1, !waiterInLoop(x.Block())
+		// The channel sent on another one may be sent on anywhere.
+		return 1, !addr && x.Chan == v && !waiterInLoop(x.Block())
 	case *ssa.Select:
 		for _, s := range x.States {
-			if s.Chan == v && s.Dir == types.SendOnly {
+			switch {
+			case s.Send == v:
+				return 0, false
+			case s.Chan == v && s.Dir == types.SendOnly:
 				if waiterInLoop(x.Block()) {
 					return 0, false
 				}
@@ -209,7 +202,7 @@ func waiterChanUseSends(instr ssa.Instruction, v ssa.Value, addr bool) (sends in
 		}
 		return sends, true
 	case *ssa.Call:
-		if b, isBuiltin := x.Call.Value.(*ssa.Builtin); isBuiltin {
+		if b, isBuiltin := x.Call.Value.(*ssa.Builtin); isBuiltin && !addr {
 			switch b.Name() {
 			case "close", "len", "cap":
 				return 0, true
@@ -230,9 +223,6 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 	}
 	uses := 0
 	for _, instr := range *mk.Referrers() {
-		if _, isDebug := instr.(*ssa.DebugRef); isDebug {
-			continue
-		}
 		if uses++; uses > 1 || waiterInLoop(instr.Block()) {
 			return 0, false
 		}
@@ -243,9 +233,6 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 // waiterInLoop reports whether b may run more than once in its function: it
 // can be reached again from itself.
 func waiterInLoop(b *ssa.BasicBlock) bool {
-	if b == nil {
-		return true
-	}
 	seen := map[*ssa.BasicBlock]bool{}
 	stack := slices.Clone(b.Succs)
 	for len(stack) > 0 {
