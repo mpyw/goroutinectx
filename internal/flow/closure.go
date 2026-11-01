@@ -73,7 +73,7 @@ func closureCaptures(f *Flow, closure *ssa.Function, kinds *ctxkind.Classifier, 
 	}
 	f.closureLow = closureUnheld
 	f.closures[closure] = depth
-	captures := closureCapturesFreeVar(f, closure, kinds, funcs, seen)
+	captures := closureCapturesFreeVar(f, closure, kinds, funcs, seen) || closureRunsPassingResult(f, closure, funcs)
 	delete(f.closures, closure)
 
 	// A verdict cut only at this closure itself, with nothing outside it
@@ -136,6 +136,28 @@ func closureCapturesFreeVar(f *Flow, closure *ssa.Function, kinds *ctxkind.Class
 		r.root = fv
 		return r.reads(fv, false) || closureHoldsCapturing(f, fv, kinds, funcs, seen) || r.runsPassing(fv) || r.waitsDone(fv) || r.madeWithContext(fv)
 	})
+}
+
+// closureRunsPassingResult reports whether closure, or a function it
+// runs in place ([Runs]), calls the result of a call in place, as
+// runFromChan(ch)() does, and funcs passes it at [SiteCaptured], as it
+// would pass go runFromChan(ch)() (#300): a factory given a context, or a
+// value that holds one, passes, and what it returns is followed. funcs
+// may be nil, and then none counts. The iterator of a range-over-func loop
+// is left out, as Runs goes into its body.
+func closureRunsPassingResult(f *Flow, closure *ssa.Function, funcs Policy) bool {
+	if funcs == nil {
+		return false
+	}
+	for site := range Runs(closure, RunOptions{}) {
+		if site.isGo || site.Call.IsInvoke() || runRangeBody(site.Call) != nil {
+			continue
+		}
+		if inner, ok := site.Call.Value.(*ssa.Call); ok && judgeCaptured(f, funcs, inner).Passes() {
+			return true
+		}
+	}
+	return false
 }
 
 // closureReader tells whether a closure reads a context from the values it
