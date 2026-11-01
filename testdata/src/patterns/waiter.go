@@ -1195,3 +1195,279 @@ func badServeGoroutine(ctx context.Context, srv *http.Server, l net.Listener) {
 	}()
 	<-errc
 }
+
+// ===== Sender in a variable a closure captures (#321) =====
+
+// [GOOD]: A goroutine calls the sender from a variable it captures
+//
+// The goroutine runs the one sender once, as go run() does.
+func goodCapturedSenderCalledGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	go func() { run() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place starts the sender from a variable it captures
+//
+// The closure runs once, so the go statement in it runs the sender once.
+func goodCapturedSenderInClosureGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	func() { go run() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place starts one sender stored twice
+//
+// The variable holds the one sender either way.
+func goodCapturedSenderStoredTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	run := send
+	if conditionFlag {
+		run = send
+	}
+	func() { go run() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place starts one of two senders, a buffer of one
+//
+// The go statement runs one of the senders the variable holds, so there is
+// one sender for the one slot.
+func goodCapturedTwoSendersInClosureGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if conditionFlag {
+		run = func() { errc <- b.Wait() }
+	}
+	func() { go run() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place gives the sender to errgroup.Group.Go
+//
+// errgroup.Group.Go runs it once.
+func goodCapturedSenderInClosureErrgroup(ctx context.Context, cmd *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	run := func() error { errc <- cmd.Wait(); return nil }
+	func() { g.Go(run) }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A closure called in place gives the sender to sync.WaitGroup.Go
+//
+// sync.WaitGroup.Go runs it once.
+func goodCapturedSenderInClosureWaitGroup(ctx context.Context, cmd *exec.Cmd) error {
+	var wg sync.WaitGroup
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	func() { wg.Go(run) }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A goroutine calls the sender from a variable twice
+//
+// Two sends share the one slot.
+func badCapturedSenderCalledTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	go func() { // want `goroutine does not propagate context "ctx"`
+		run()
+		run()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Goroutines that call the sender from a variable spawned in a loop
+//
+// The sender runs for each pass of the loop.
+func badCapturedSenderCalledInLoopGoroutine(ctx context.Context, cmd *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	for range n {
+		go func() { run() }() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: Two closures start the sender from a variable they capture
+//
+// Each go statement runs the sender, so two senders share the one slot.
+func badCapturedSenderTwoClosuresGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	func() { go run() }() // want `goroutine does not propagate context "ctx"`
+	func() { go run() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure called twice starts the sender from a variable it captures
+//
+// The go statement runs for each call, so two senders share the one slot.
+func badCapturedSenderClosureCalledTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	start := func() { go run() } // want `goroutine does not propagate context "ctx"`
+	start()
+	start()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure given to a call starts the sender from a variable it captures
+//
+// The function called may run the closure more than once (#255).
+func badCapturedSenderClosureGivenToCallGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	waiterRunTwice(func() { go run() }) // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure gives the sender from a variable it captures to a spawner
+//
+// A spawner may run the func it is given more than once (#255).
+func badCapturedSenderInClosureSpawner(ctx context.Context, cmd *exec.Cmd) error {
+	g := new(errgroup.Group)
+	errc := make(chan error, 1)
+	run := func() error { errc <- cmd.Wait(); return nil }
+	func() {
+		runWithGroup(g, run) // want `runWithGroup\(\) func argument should use context "ctx"`
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A goroutine calls one of two senders from a variable it captures, a buffer of one
+//
+// The variable holds one of them, so there is one sender for the one slot.
+func goodCapturedTwoSendersCalledGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if conditionFlag {
+		run = func() { errc <- b.Wait() }
+	}
+	go func() { run() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: A goroutine defers the sender from a variable it captures
+//
+// The deferred call runs the sender once.
+func goodCapturedSenderDeferredGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	go func() { defer run() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A goroutine calls a sender that calls itself through its variable
+//
+// The sender may run any number of times.
+func badCapturedSenderRecursiveGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	var run func()
+	run = func() {
+		errc <- cmd.Wait()
+		run()
+	}
+	go func() { run() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A goroutine calls one of two senders from a variable, and sends itself
+//
+// The goroutine sends once more, so two sends share the one slot.
+func badCapturedTwoSendersCalledAndSendGoroutine(ctx context.Context, a, b *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- a.Wait() }
+	if conditionFlag {
+		run = func() { errc <- b.Wait() }
+	}
+	go func() { // want `goroutine does not propagate context "ctx"`
+		run()
+		errc <- a.Wait()
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

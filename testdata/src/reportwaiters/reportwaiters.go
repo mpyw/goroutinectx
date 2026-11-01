@@ -159,3 +159,33 @@ func badPhiTwoSendersErrgroup(ctx context.Context, a, b *exec.Cmd) error {
 		return ctx.Err()
 	}
 }
+
+// [BAD]: A goroutine calls the sender from a variable it captures
+//
+// -report-waiters reports it (#321).
+func badCapturedSenderCalledGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	go func() { run() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: A closure called in place starts the sender from a variable it captures
+//
+// -report-waiters reports it (#321).
+func badCapturedSenderInClosureGoroutine(ctx context.Context, cmd *exec.Cmd) error {
+	errc := make(chan error, 1)
+	run := func() { errc <- cmd.Wait() }
+	func() { go run() }() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

@@ -11,8 +11,12 @@ import (
 // each as it is made. ok is false unless st is the one store to the
 // variable, and the variable, and each free variable a closure has for it,
 // is only loaded or captured, so that every load reads the value st
-// stores, or nothing yet.
-func spilledLoads(st *ssa.Store) (loads []*ssa.UnOp, binders []*ssa.MakeClosure, ok bool) {
+// stores, or nothing yet. With others, other stores to the variable in the
+// function of st are allowed too, so that a load reads one of the values
+// stored, as a Phi gives one of the values it joins.
+//
+//declscope:shared // closure.go and waiter.go follow a value a closure captures by reference
+func spilledLoads(st *ssa.Store, others bool) (loads []*ssa.UnOp, binders []*ssa.MakeClosure, ok bool) {
 	a, isAlloc := st.Addr.(*ssa.Alloc)
 	if !isAlloc {
 		return nil, nil, false
@@ -22,7 +26,7 @@ func spilledLoads(st *ssa.Store) (loads []*ssa.UnOp, binders []*ssa.MakeClosure,
 		for _, ref := range *v.Referrers() {
 			switch x := ref.(type) {
 			case *ssa.Store:
-				if x != st {
+				if x != st && (!others || v != a || x.Addr != a) {
 					return false
 				}
 			case *ssa.UnOp:
@@ -59,7 +63,7 @@ func spilledUses(v ssa.Value) []ssa.Value {
 		if !isStore || st.Val != v {
 			continue
 		}
-		loads, _, ok := spilledLoads(st)
+		loads, _, ok := spilledLoads(st, false)
 		if !ok {
 			continue
 		}
