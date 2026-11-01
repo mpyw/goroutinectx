@@ -135,10 +135,12 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, s *site.Site, entry registry.E
 // slices a function returns are judged one by one. Otherwise a slice made by
 // a call, as lo.Map makes one, passes when calling one of the call's
 // callbacks gives a task function that derives, whether the call is written
-// in place or held in a variable. A slice variable whose
+// in place or held in a variable, or when the call has no callback and its
+// callee cannot be followed (#301). A slice variable whose
 // elements are not traced, as a parameter, is reported. A slice SSA has no
 // value for passes, as nothing is known of it. A slice a closure captures is
-// judged by the slices stored to it, and passes when they are not traced.
+// judged by the slices stored to it: one a call makes is judged as the call
+// (#304), and the others pass.
 func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *gotaskPolicy) bool {
 	v := spawned.Value
 	if v == nil {
@@ -147,18 +149,13 @@ func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *
 	if elems, ok := gotaskSliceElems(e, v); ok {
 		return !slices.ContainsFunc(elems, func(elem ssa.Value) bool { return !p.passes(elem) })
 	}
-	if _, captured := gotaskCapturedRead(v); captured {
-		// A captured slice that is not traced passes, as nothing is known
-		// of what the closure reads (#263).
-		return true
+	if fv, captured := gotaskCapturedRead(v); captured {
+		return gotaskCapturedSliceDerives(e, fv, p)
 	}
 	if call, ok := v.(*ssa.Call); ok {
 		// The SSA value is judged, not the form written, so a slice a
 		// variable holds is judged as the call that made it (#270).
-		return slices.ContainsFunc(call.Call.Args, func(arg ssa.Value) bool {
-			_, isFunc := arg.Type().Underlying().(*types.Signature)
-			return isFunc && flow.JudgeResult(e.Flow, p, arg).Passes()
-		})
+		return gotaskCallSliceDerives(e, call, p)
 	}
 	ident, ok := ast.Unparen(spawned.Expr).(*ast.Ident)
 	if !ok {
@@ -170,6 +167,60 @@ func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *
 	}
 	_, isSlice := obj.Type().Underlying().(*types.Slice)
 	return !isSlice
+}
+
+// gotaskCapturedSliceDerives judges the slice a closure reads from fv, whose
+// elements are not traced, by the slices stored to it. One a call makes is
+// judged as the call, as gotaskCallSliceDerives judges it (#304). Any other,
+// or one that cannot be followed, passes, as nothing is known of what the
+// closure reads (#263).
+func gotaskCapturedSliceDerives(e *env.Env, fv *ssa.FreeVar, p *gotaskPolicy) bool {
+	sources, complete := e.Flow.CapturedSources(fv)
+	return !complete || !slices.ContainsFunc(sources, func(s flow.Source) bool {
+		call, ok := s.Value.(*ssa.Call)
+		return ok && !gotaskCallSliceDerives(e, call, p)
+	})
+}
+
+// gotaskCallSliceDerives judges a slice call makes, whose elements are not
+// traced. It passes when calling one of the call's callbacks gives a task
+// function that derives, as lo.Map makes one. A call given no callback
+// passes when its callee cannot be followed, as a func variable, a
+// parameter, an interface method or a function with no body, as a factory
+// that cannot be followed does (#301).
+func gotaskCallSliceDerives(e *env.Env, call *ssa.Call, p *gotaskPolicy) bool {
+	given := false
+	for _, arg := range call.Call.Args {
+		if _, isFunc := arg.Type().Underlying().(*types.Signature); !isFunc {
+			continue
+		}
+		given = true
+		if flow.JudgeResult(e.Flow, p, arg).Passes() {
+			return true
+		}
+	}
+	return !given && !gotaskCalleeFollowed(e, call.Common())
+}
+
+// gotaskCalleeFollowed reports whether every function call can call is
+// known and has a body: not an interface method, a func value that cannot
+// be followed, or a function with no body.
+func gotaskCalleeFollowed(e *env.Env, call *ssa.CallCommon) bool {
+	if call.IsInvoke() {
+		return false
+	}
+	callees, complete := e.Flow.Sources(call.Value)
+	return complete && len(callees) > 0 && !slices.ContainsFunc(callees, func(s flow.Source) bool {
+		fn := s.Func()
+		if fn == nil {
+			return true
+		}
+		if fn.Origin() != nil {
+			// An instantiation of a generic function has no body of its own.
+			fn = fn.Origin()
+		}
+		return fn.Blocks == nil
+	})
 }
 
 // policy gives the policy of the task functions of one call.
