@@ -192,6 +192,7 @@ linters:
           external-spawner:
             - github.com/example/workerpool.Pool.Submit
           report-waiters: false
+          report-callee-without-context: false
           spawnerlabel: true
 ```
 
@@ -436,7 +437,7 @@ go backgroundTask()
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> goroutinectx checks a named function by its arguments only. It does not read the body. It reports the call only when the arguments are a <a href="#fresh-contexts">fresh context</a> and nothing else</td>
+<td>⚠️ <b>Not reported.</b> goroutinectx checks a named function by its arguments only. It does not read the body. It reports the call only when the arguments are a <a href="#fresh-contexts">fresh context</a> and nothing else. Use <a href="#-report-callee-without-context"><code>-report-callee-without-context</code></a> to report it</td>
 </tr>
 </tbody>
 </table>
@@ -491,7 +492,7 @@ go backgroundTask()
 ```
 
 </td>
-<td>⚠️ <b>Not reported.</b> goroutinectx checks a named function by its arguments only. It does not read the body. It reports the call only when the arguments are a <a href="#fresh-contexts">fresh context</a> and nothing else</td>
+<td>⚠️ <b>Not reported.</b> goroutinectx checks a named function by its arguments only. It does not read the body. It reports the call only when the arguments are a <a href="#fresh-contexts">fresh context</a> and nothing else. Use <a href="#-report-callee-without-context"><code>-report-callee-without-context</code></a> to report it</td>
 </tr>
 </tbody>
 </table>
@@ -3758,6 +3759,7 @@ goroutinectx -goroutine-deriver=context.WithoutCancel ./...
 | [`-context-carriers`](#-context-carriers) | None | These types count as a context |
 | [`-external-spawner`](#-external-spawner) | None | These functions are spawners |
 | [`-report-waiters`](#-report-waiters) | `false` | A goroutine that only waits and signals is reported too |
+| [`-report-callee-without-context`](#-report-callee-without-context) | `false` | A `go` statement that calls a named function given no context is reported too |
 | `-goroutine`, `-errgroup`, `-waitgroup`, `-conc`, `-spawner`, `-gotask` | `true` | Turns the [checker](#checkers) on or off |
 | `-spawnerlabel` | `false` | Turns the [checker](#spawnerlabel) on or off |
 | `-test` | `true` | Checks test files too. This flag belongs to the driver |
@@ -4038,6 +4040,79 @@ go func() {
 </tr>
 </tbody>
 </table>
+
+### `-report-callee-without-context`
+
+goroutinectx also reports a `go` statement that calls a named function or a method and gives it no context. Only the [`goroutine`](#goroutine) checker reports it. In the golangci-lint plugin, set `report-callee-without-context: true`.
+
+```bash
+goroutinectx -report-callee-without-context ./...
+```
+
+With `-report-callee-without-context`:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go backgroundTask()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Without the flag, it passes</td>
+</tr>
+<tr>
+<td>
+
+```go
+// s holds no context.
+go s.loop()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The receiver gives no context either</td>
+</tr>
+<tr>
+<td>
+
+```go
+go worker(ctx.Done())
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The argument is a <a href="#signals-of-the-context">signal of the context</a></td>
+</tr>
+<tr>
+<td>
+
+```go
+// s has a ctx field.
+go s.run()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The receiver <a href="#values-that-hold-a-context">holds a context</a></td>
+</tr>
+<tr>
+<td>
+
+```go
+// func worker(ctx context.Context)
+go worker(nil)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The function takes a context, so the flag leaves it alone</td>
+</tr>
+</tbody>
+</table>
+
+The flag is off by default. A method that runs an object's own loop, such as `go s.loop()`, is usually intended.
 
 ## Design principles
 
