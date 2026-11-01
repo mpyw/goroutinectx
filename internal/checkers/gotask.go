@@ -242,7 +242,8 @@ func (*gotaskPolicy) Factory(*ssa.Function) bool {
 }
 
 // taskDerives reports whether every task v can be wraps a function that
-// calls the deriver, as Call judges it. A task traced to nothing does not.
+// calls the deriver, as Call judges it, or as factoryDerives judges a task
+// another function returns. A task traced to nothing does not.
 // DoAsync of a CancelableTask runs the Task it embeds. Each task is judged
 // once, and a task made from itself, as t = t.Cancelable() in a loop, by
 // what else it can be.
@@ -264,10 +265,37 @@ func (p *gotaskPolicy) taskDerives(v ssa.Value) bool {
 			return true
 		}
 		v := p.Call(call.Common())
-		return v == flow.Unknown || !v.Passes()
+		if v == flow.Unknown {
+			return !p.factoryDerives(call.Common())
+		}
+		return !v.Passes()
 	})
 	p.judged[v] = derives
 	return derives
+}
+
+// factoryDerives reports whether every task a call of a factory, a function
+// that is not of gotask, can give derives, as taskDerives judges each value
+// the factory returns (#287). What cannot be followed passes, as a func
+// value of a parameter or a function with no body does.
+func (p *gotaskPolicy) factoryDerives(call *ssa.CallCommon) bool {
+	callees, complete := p.e.Flow.Sources(call.Value)
+	if !complete {
+		return true
+	}
+	return !slices.ContainsFunc(callees, func(s flow.Source) bool {
+		fn := s.Func()
+		if fn == nil {
+			return false
+		}
+		if fn.Origin() != nil {
+			// An instantiation of a generic factory has no body of its own.
+			fn = fn.Origin()
+		}
+		return slices.ContainsFunc(p.e.Flow.Returns(fn), func(r flow.Return) bool {
+			return !p.taskDerives(r.Value)
+		})
+	})
 }
 
 // gotaskSpawningCombinators are the gotask functions that build a task

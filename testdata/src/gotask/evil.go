@@ -786,3 +786,105 @@ func goodTaskMadeFromItselfInLoop(ctx context.Context, n int) {
 	}
 	t.DoAsync(ctx, nil)
 }
+
+// ===== TASK FROM A FACTORY (#287) =====
+
+func factoryDerivingTask() gotask.Task[error] {
+	return gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})
+}
+
+func factoryPlainTask() gotask.Task[error] {
+	return gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+}
+
+func factoryEitherTask(deriving bool) gotask.Task[error] {
+	if deriving {
+		return factoryDerivingTask()
+	}
+	return gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+}
+
+func factoryBothDerivingTask(cancelable bool) gotask.Task[error] {
+	if cancelable {
+		return gotask.NewTask(func(ctx context.Context) error {
+			_ = apm.NewGoroutineContext(ctx)
+			return nil
+		})
+	}
+	return factoryDerivingTask()
+}
+
+func factoryGenericTask[T any](v T) gotask.Task[T] {
+	return gotask.NewTask(func(ctx context.Context) T {
+		_ = apm.NewGoroutineContext(ctx)
+		return v
+	})
+}
+
+// [GOOD]: Task from a factory whose task calls deriver
+//
+// The factory is followed to the task it returns.
+func goodFactoryTask(ctx context.Context) {
+	task := factoryDerivingTask()
+	task.DoAsync(ctx, nil)
+}
+
+// [GOOD]: Task from a factory, through a pointer a deferred closure captures
+func goodFactoryTaskCapturedPointer(ctx context.Context) {
+	task := factoryDerivingTask()
+	taskPtr := &task
+	defer func() {
+		(*taskPtr).DoAsync(ctx, nil)
+	}()
+}
+
+// [GOOD]: Task from a generic factory whose task calls deriver
+func goodGenericFactoryTask(ctx context.Context) {
+	task := factoryGenericTask(1)
+	task.DoAsync(ctx, nil)
+}
+
+// [GOOD]: Task from a factory with two returns, both calling deriver
+func goodFactoryTwoReturns(ctx context.Context, cancelable bool) {
+	task := factoryBothDerivingTask(cancelable)
+	task.DoAsync(ctx, nil)
+}
+
+// [GOOD]: Task from a factory a parameter holds
+//
+// The factory is not traced, so its task passes.
+func goodFactoryParam(ctx context.Context, mk func() gotask.Task[error]) {
+	task := mk()
+	task.DoAsync(ctx, nil)
+}
+
+// [GOOD]: Task from a factory a variable whose address is passed on holds
+//
+// The factory is not traced, so its task passes.
+func goodFactoryEscapedVar(ctx context.Context, set func(*func() gotask.Task[error])) {
+	mk := factoryPlainTask
+	set(&mk)
+	task := mk()
+	task.DoAsync(ctx, nil)
+}
+
+// [BAD]: Task from a factory whose task does not call deriver
+func badFactoryTask(ctx context.Context) {
+	task := factoryPlainTask()
+	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}
+
+// [BAD]: Task from a factory with two returns, one without deriver
+//
+// Every task the factory can return is judged.
+func badFactoryTwoReturns(ctx context.Context, deriving bool) {
+	task := factoryEitherTask(deriving)
+	task.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+}

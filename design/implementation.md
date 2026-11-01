@@ -249,6 +249,8 @@ The gotask checker handles the [gotask](https://pkg.go.dev/github.com/siketyan/g
 
 A task is followed back by `Flow.Sources`, through a variable that holds its address too: `p` of `p := &task`, read in a closure as `(*p).DoAsync(ctx, nil)`, is followed to the stores of `task` (#273). The resolver does this for any value, so a func read through a captured pointer is judged too. A variable written through the pointer is not followed.
 
+A task a call of any other function gives, a factory, is followed to what the factory returns, by `Flow.Returns`, and passes when every task it returns derives: `task := mk(); task.DoAsync(ctx, nil)` is judged as the `gotask.NewTask` in `mk` (#287). A generic factory is judged by its origin. A factory that can't be followed passes, as a func value of a parameter, a variable whose address is passed on, or a function with no body does.
+
 **Key insight:** Since gotask tasks run as goroutines, they need to call the deriver function inside their body - there's no way to wrap the context at the call site.
 
 **Known Limitations:**
