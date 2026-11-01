@@ -6,6 +6,7 @@ package conc
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/sourcegraph/conc"
 	"github.com/sourcegraph/conc/iter"
@@ -218,6 +219,27 @@ func goodIterMap(ctx context.Context) {
 		_ = ctx
 		return *item * 2
 	})
+}
+
+// [BAD]: iter.Map without ctx, in the range expression of a range-over-func loop
+//
+// The function around the loop makes the call (#254).
+func badIterMapRangeFuncExpr(ctx context.Context, items []int) {
+	f := func(item *int) int { return *item * 2 }
+	for r := range slices.Values(iter.Map(items, f)) { // want `iter.Map\(\) closure should use context "ctx"`
+		_ = r
+	}
+}
+
+// [GOOD]: iter.Map with ctx, in the range expression of a range-over-func loop
+func goodIterMapRangeFuncExpr(ctx context.Context, items []int) {
+	f := func(item *int) int {
+		_ = ctx
+		return *item * 2
+	}
+	for r := range slices.Values(iter.Map(items, f)) {
+		_ = r
+	}
 }
 
 // ===== iter.MapErr =====

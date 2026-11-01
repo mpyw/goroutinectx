@@ -134,9 +134,13 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, s *site.Site, entry registry.E
 // slices a function returns are judged one by one. Otherwise a slice made by
 // a call, as lo.Map makes one, passes when calling one of the call's
 // callbacks gives a task function that derives. A slice variable whose
-// elements are not traced, as a parameter, is reported.
+// elements are not traced, as a parameter, is reported. A slice SSA has no
+// value for passes, as nothing is known of it.
 func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *gotaskPolicy) bool {
 	v := spawned.Value
+	if v == nil {
+		return true
+	}
 	if elems, ok := gotaskSliceElems(e, v); ok {
 		return !slices.ContainsFunc(elems, func(elem ssa.Value) bool { return !p.passes(elem) })
 	}
