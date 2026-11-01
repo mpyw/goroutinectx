@@ -38,7 +38,9 @@ var waiterMethods = []funcspec.Spec{
 // outside a select and the channel has room for it: see [waiterBuffered].
 // A function literal fn calls or defers in place is part of fn, as
 // [Runs] goes into it, so its body must have the same shape, and its waits
-// and sends count as those of fn (#282).
+// and sends count as those of fn (#282). So is the one closure a variable fn
+// captures can hold, when fn calls it, as go func() { run() }() calls run
+// (#321).
 //
 // A receive from a channel is not a wait here. A goroutine that receives can
 // select on ctx.Done() instead, and it leaks when nothing is ever sent. A
@@ -54,6 +56,9 @@ func (f *Flow) IsWaiter(fn *ssa.Function) bool {
 // function literals it runs in place.
 type waiterShape struct {
 	f *Flow
+	// inside are the functions being fitted, up the stack: a closure that
+	// calls itself through a variable it captures does not fit.
+	inside map[*ssa.Function]bool
 	// waits counts the waits of [waiterMethods].
 	waits int
 	// sends counts the sends outside a select.
@@ -64,9 +69,14 @@ type waiterShape struct {
 // counting its waits and sends, and those of the function literals it runs
 // in place, into w.
 func (w *waiterShape) fits(fn *ssa.Function) bool {
-	if fn == nil || fn.Blocks == nil || waiterHasLoop(fn) {
+	if fn == nil || fn.Blocks == nil || w.inside[fn] || waiterHasLoop(fn) {
 		return false
 	}
+	if w.inside == nil {
+		w.inside = make(map[*ssa.Function]bool)
+	}
+	w.inside[fn] = true
+	defer delete(w.inside, fn)
 	for _, b := range fn.Blocks {
 		for _, instr := range b.Instrs {
 			switch x := instr.(type) {
@@ -75,11 +85,11 @@ func (w *waiterShape) fits(fn *ssa.Function) bool {
 				case waiterIsWait(x.Common()):
 					w.waits++
 				case waiterIsClose(x.Common()):
-				case !w.fits(runCallee(x.Common())):
+				case !w.fitsOneOf(waiterCallees(w.f, x.Common())):
 					return false
 				}
 			case *ssa.Defer:
-				if !waiterIsClose(x.Common()) && !w.fits(runCallee(x.Common())) {
+				if !waiterIsClose(x.Common()) && !w.fitsOneOf(waiterCallees(w.f, x.Common())) {
 					return false
 				}
 			case *ssa.MakeClosure:
@@ -108,6 +118,65 @@ func (w *waiterShape) fits(fn *ssa.Function) bool {
 		}
 	}
 	return true
+}
+
+// waiterCallees gives the function call runs in place, as [runCallee]
+// gives it, or, when call calls the value loaded from a variable the
+// function captures, each closure the variable can hold (#321). Whether
+// such a closure runs once is left to [waiterRunSite], where it counts.
+// None is given when one of the values cannot be followed to a closure.
+func waiterCallees(f *Flow, call *ssa.CallCommon) []*ssa.Function {
+	if fn := runCallee(call); fn != nil {
+		return []*ssa.Function{fn}
+	}
+	load, ok := call.Value.(*ssa.UnOp)
+	if !ok || load.Op != token.MUL {
+		return nil
+	}
+	if _, isFree := load.X.(*ssa.FreeVar); !isFree {
+		return nil
+	}
+	stored, complete := f.CapturedSources(load.X)
+	if !complete {
+		return nil
+	}
+	var fns []*ssa.Function
+	for _, st := range stored {
+		sources, complete := f.Sources(st.Value)
+		for _, src := range sources {
+			fn := src.Func()
+			if !complete || src.Kind != SourceLiteral || fn == nil {
+				return nil
+			}
+			if !slices.Contains(fns, fn) {
+				fns = append(fns, fn)
+			}
+		}
+	}
+	return fns
+}
+
+// fitsOneOf reports whether each of fns fits, as [waiterShape.fits] tells,
+// when a call runs one of them. The fewest waits of one count, and the
+// most sends.
+func (w *waiterShape) fitsOneOf(fns []*ssa.Function) bool {
+	if len(fns) == 1 {
+		return w.fits(fns[0])
+	}
+	waits, sends := 0, 0
+	for i, fn := range fns {
+		one := &waiterShape{f: w.f, inside: w.inside}
+		if !one.fits(fn) {
+			return false
+		}
+		if i == 0 || one.waits < waits {
+			waits = one.waits
+		}
+		sends = max(sends, one.sends)
+	}
+	w.waits += waits
+	w.sends += sends
+	return len(fns) > 0 && w.sends <= 1
 }
 
 // waiterRunInPlace reports whether the closure mk makes is only called or
@@ -286,14 +355,19 @@ func waiterClosureSends(mk *ssa.MakeClosure, v ssa.Value, addr bool) (sends int,
 // outside a loop, which must run it once, as [waiterRunsOnce] tells. A Phi
 // that joins the closure with other values, outside a loop, is followed to
 // its one use in turn, as h := f; if c { h = g }; go h() runs f or g once
-// (#298). A closure that is not used is its own site, as nothing runs it.
+// (#298). So is the one store of it to a local variable, outside a loop, to
+// the one load of the variable, as [waiterSpilledLoad] gives it, as
+// run := f; go func() { run() }() runs f once (#321). A closure that is not
+// used is its own site, as nothing runs it.
 func waiterRunSite(mk *ssa.MakeClosure) (site ssa.Instruction, ok bool) {
 	var v ssa.Value = mk
 	for {
 		var refs []ssa.Instruction
 		for _, ref := range *v.Referrers() {
-			// A Phi that joins v on several edges refers to it once each.
-			if !slices.Contains(refs, ref) {
+			// A Phi that joins v on several edges refers to it once each,
+			// and so may stores of v to one variable, as run := f;
+			// if c { run = f } makes when a closure captures run.
+			if !slices.Contains(refs, ref) && !waiterStoresAgain(refs, ref) {
 				refs = append(refs, ref)
 			}
 		}
@@ -303,12 +377,51 @@ func waiterRunSite(mk *ssa.MakeClosure) (site ssa.Instruction, ok bool) {
 		case len(refs) != 1 || waiterInLoop(refs[0].Block()):
 			return nil, false
 		}
-		phi, isPhi := refs[0].(*ssa.Phi)
-		if !isPhi {
+		switch x := refs[0].(type) {
+		case *ssa.Phi:
+			v = x
+		case *ssa.Store:
+			load, ok := waiterSpilledLoad(x, v)
+			if !ok {
+				return nil, false
+			}
+			v = load
+		default:
 			return refs[0], waiterRunsOnce(refs[0], v)
 		}
-		v = phi
 	}
+}
+
+// waiterStoresAgain reports whether ref stores to the variable a store of
+// refs stores to, outside a loop, as the first one does.
+func waiterStoresAgain(refs []ssa.Instruction, ref ssa.Instruction) bool {
+	st, ok := ref.(*ssa.Store)
+	return ok && !waiterInLoop(st.Block()) && slices.ContainsFunc(refs, func(r ssa.Instruction) bool {
+		first, ok := r.(*ssa.Store)
+		return ok && first.Addr == st.Addr && first.Val == st.Val
+	})
+}
+
+// waiterSpilledLoad gives the one load of the local variable st stores v
+// to, as [spilledLoads] follows it into the closures that capture the
+// variable. Other values stored to the variable are alternatives, as for a
+// Phi: the load runs one of them. Each of those closures must be made outside a loop and run
+// once, as [waiterRunSite] tells, so that the load runs once when it is
+// outside a loop of its own function.
+func waiterSpilledLoad(st *ssa.Store, v ssa.Value) (*ssa.UnOp, bool) {
+	loads, binders, ok := spilledLoads(st, true)
+	if !ok || st.Val != v || len(loads) != 1 || waiterInLoop(loads[0].Block()) {
+		return nil, false
+	}
+	for _, mk := range binders {
+		if waiterInLoop(mk.Block()) {
+			return nil, false
+		}
+		if _, ok := waiterRunSite(mk); !ok {
+			return nil, false
+		}
+	}
+	return loads[0], true
 }
 
 // waiterOnceSpawns are the calls that run the func they are given once, in
