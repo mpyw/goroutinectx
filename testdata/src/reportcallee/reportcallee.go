@@ -61,6 +61,20 @@ func (s *ctxServer) run() { <-s.ctx.Done() }
 
 func (s *ctxServer) Run() { s.run() }
 
+// doneServer holds the channel of a context's Done method.
+type doneServer struct {
+	done <-chan struct{}
+}
+
+func (s *doneServer) wait() { <-s.done }
+
+// cancelServer holds a cancel func.
+type cancelServer struct {
+	cancel context.CancelFunc
+}
+
+func (s *cancelServer) stop() { s.cancel() }
+
 // runner is an interface whose method a go statement calls.
 type runner interface {
 	Run()
@@ -181,6 +195,27 @@ func goodCmdWait(ctx context.Context) {
 // [GOOD]: A method whose receiver holds a context
 func goodMethod(ctx context.Context, s *ctxServer) {
 	go s.run()
+}
+
+// [GOOD]: A method whose receiver is made with the channel of ctx.Done()
+func goodMethodDoneField(ctx context.Context) {
+	s := &doneServer{done: ctx.Done()}
+	go s.wait()
+}
+
+// [GOOD]: A method whose receiver is made with a cancel func of ctx
+func goodMethodCancelField(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s := &cancelServer{cancel: cancel}
+	go s.stop()
+	_ = ctx
+}
+
+// [BAD]: A method whose receiver is made with the channel of a fresh context
+func badMethodFreshDoneField(ctx context.Context) {
+	s := &doneServer{done: context.Background().Done()}
+	go s.wait() // want `goroutine does not propagate context "ctx"`
 }
 
 // [GOOD]: A method value whose receiver holds a context

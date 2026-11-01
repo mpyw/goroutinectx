@@ -199,6 +199,22 @@ func (f *Flow) NamedFuncsWithoutContext(call *ssa.CallCommon, kinds *ctxkind.Cla
 	return bodies, true
 }
 
+// contextInvolvesOrSignals reports whether v is built from a context that
+// is not fresh, as [Flow.InvolvesContext] follows it, or from a signal of
+// one, as [Flow.SignalsContext] tells. A signal counts as a part too, as the
+// channel of ctx.Done() set in a field of &T{done: ctx.Done()}.
+func contextInvolvesOrSignals(f *Flow, v ssa.Value, kinds *ctxkind.Classifier) bool {
+	signals := false
+	involves := kinds.InvolvesUnless(ctxkind.Given, func(part ssa.Value) bool {
+		if f.SignalsContext(part, kinds) {
+			signals = true
+			return true
+		}
+		return contextLeftOut(f, part, kinds)
+	}, f.CapturedValues(v)...)
+	return involves || signals
+}
+
 // contextFuncBody gives the function with a body that fn runs: fn itself, or
 // the method a method value or a method expression wraps. It gives nil for a
 // function built from type information.
@@ -220,18 +236,17 @@ func contextFuncBody(fn *ssa.Function) *ssa.Function {
 //   - a value of [ctxkind.Given], as a context, a carrier or a struct that
 //     holds one. A fresh context can only be given to a parameter of
 //     [ctxkind.Given], which the caller has ruled out;
-//   - the channel of ctx.Done() or a cancel func, as [Flow.SignalsContext]
-//     tells;
-//   - a value built from a context that is not fresh, as
-//     [Flow.InvolvesContext] follows it, as the *exec.Cmd that
-//     exec.CommandContext(ctx, ...) makes;
+//   - a value built from a context that is not fresh, or from a signal of
+//     one, as [contextInvolvesOrSignals] tells: the *exec.Cmd that
+//     exec.CommandContext(ctx, ...) makes, the channel of ctx.Done(), or
+//     &T{done: ctx.Done()};
 //   - a func that may hold a context, as [ctxkind.Classifier.MayHold] judges
 //     it, so a func value that cannot be followed counts;
 //   - an interface that may hold a context, as
 //     [closureInterfaceArgMayHold] judges it.
 func contextTiedTo(f *Flow, v ssa.Value, kinds *ctxkind.Classifier) bool {
 	t := v.Type()
-	if kinds.Is(t, ctxkind.Given) || f.SignalsContext(v, kinds) || f.InvolvesContext(v, kinds) {
+	if kinds.Is(t, ctxkind.Given) || contextInvolvesOrSignals(f, v, kinds) {
 		return true
 	}
 	if _, isFunc := t.Underlying().(*types.Signature); isFunc {
