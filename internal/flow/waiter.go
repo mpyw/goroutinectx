@@ -193,12 +193,12 @@ func waiterRunInPlace(mk *ssa.MakeClosure) bool {
 	return call.Common().Value == mk && !slices.Contains(call.Common().Args, ssa.Value(mk))
 }
 
-// waiterHasLoop reports whether fn has a loop: an edge to a block that
-// dominates the block it leaves.
+// waiterHasLoop reports whether fn has a loop: a block that can be reached
+// again from itself, as [waiterInLoop] tells. A loop made with goto may have
+// two entries, so that no block of it dominates the others, as
+// if c { goto L2 }; L1: wg.Wait(); L2: n++; goto L1 has (#365).
 func waiterHasLoop(fn *ssa.Function) bool {
-	return slices.ContainsFunc(fn.Blocks, func(b *ssa.BasicBlock) bool {
-		return slices.ContainsFunc(b.Succs, func(s *ssa.BasicBlock) bool { return s.Dominates(b) })
-	})
+	return slices.ContainsFunc(fn.Blocks, waiterInLoop)
 }
 
 // waiterIsWait reports whether call is a wait of [waiterMethods].

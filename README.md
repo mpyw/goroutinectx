@@ -1630,6 +1630,26 @@ go func() {
 <td>
 
 ```go
+done := make(chan struct{})
+go func() {
+	if c {
+		goto next
+	}
+wait:
+	wg.Wait()
+next:
+	n++
+	goto wait
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The same for a loop made with <code>goto</code></td>
+</tr>
+<tr>
+<td>
+
+```go
 go func() {
 	_ = srv.Serve(l)
 }()
