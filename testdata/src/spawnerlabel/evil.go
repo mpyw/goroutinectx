@@ -483,3 +483,36 @@ func makeSpawningWorker(n int) func() {
 		_ = g.Wait()
 	}
 }
+
+// [BAD]: Generic factory whose spawning result is run
+//
+// The closure the generic factory returns is followed through the
+// instantiation to its origin (#303).
+func badGenericFactoryResultRun() { // want `function "badGenericFactoryResultRun" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	makeSpawningWorkerG[int](1)()
+}
+
+// [BAD]: Generic factory whose spawning result is held, then run
+//
+// The variable is followed back to the call of the instantiation (#303).
+func badGenericFactoryResultHeldRun() { // want `function "badGenericFactoryResultHeldRun" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	w := makeSpawningWorkerG[string]("x")
+	w()
+}
+
+// [GOOD]: Generic factory whose spawning result is never run
+//
+// Calling the factory only makes the closure.
+func goodGenericFactoryResultNotRun() {
+	w := makeSpawningWorkerG[int](1)
+	_ = w
+}
+
+// makeSpawningWorkerG is makeSpawningWorker, generic.
+func makeSpawningWorkerG[T any](v T) func() {
+	return func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = v; return nil })
+		_ = g.Wait()
+	}
+}
