@@ -216,3 +216,165 @@ func badFuncChanPlainToFactoryInClosureSpawner(ctx context.Context) {
 	}()
 	_ = g.Wait()
 }
+
+// ===== Captured value joined by a Phi =====
+
+// [GOOD]: Captured func through a Phi given to a goroutine in a deferred closure
+//
+// Each value the Phi joins is the func that captures ctx (#297).
+func goodGoArgCapturedFuncPhiInDefer(ctx context.Context) {
+	f := func() { use(ctx) }
+	defer func() {
+		h := f
+		if conditionFlag {
+			h = f
+		}
+		go func(g func()) { g() }(h)
+	}()
+}
+
+// [BAD]: Captured func without ctx through a Phi given to a goroutine in a deferred closure
+//
+// No value the Phi joins uses ctx.
+func badGoArgCapturedFuncPhiInDefer(ctx context.Context) {
+	f := func() {}
+	defer func() {
+		h := f
+		if conditionFlag {
+			h = f
+		}
+		go func(g func()) { g() }(h) // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [GOOD]: Captured channel through a Phi, given to a factory in a closure
+//
+// A func sent on the channel captures ctx (#297).
+func goodFuncChanPhiToFactoryInClosureGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		go runFromChan(c)()
+	}()
+}
+
+// [GOOD]: Captured channel through a Phi, given to a factory in a closure
+//
+// A func sent on the channel captures ctx (#297).
+func goodFuncChanPhiToFactoryInClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		g.Go(runFromChanErr(c))
+	}()
+	_ = g.Wait()
+}
+
+// [GOOD]: Captured channel through a Phi, given to a factory in a closure
+//
+// A func sent on the channel captures ctx (#297).
+func goodFuncChanPhiToFactoryInClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		wg.Go(runFromChan(c))
+	}()
+	wg.Wait()
+}
+
+// [GOOD]: Captured channel through a Phi, given to a factory in a closure
+//
+// A func sent on the channel captures ctx (#297).
+func goodFuncChanPhiToFactoryInClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan func(), 1)
+	ch <- func() { use(ctx) }
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		runWithGroup(g, runFromChanErr(c))
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Captured channel without ctx through a Phi, given to a factory in a closure
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainPhiToFactoryInClosureGoroutine(ctx context.Context) {
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		go runFromChan(c)() // want `goroutine does not propagate context "ctx"`
+	}()
+}
+
+// [BAD]: Captured channel without ctx through a Phi, given to a factory in a closure
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainPhiToFactoryInClosureErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		g.Go(runFromChanErr(c)) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
+
+// [BAD]: Captured channel without ctx through a Phi, given to a factory in a closure
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainPhiToFactoryInClosureWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		wg.Go(runFromChan(c)) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	}()
+	wg.Wait()
+}
+
+// [BAD]: Captured channel without ctx through a Phi, given to a factory in a closure
+//
+// No func sent on the channel captures ctx.
+func badFuncChanPlainPhiToFactoryInClosureSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	ch := make(chan func(), 1)
+	ch <- func() {}
+	func() {
+		c := ch
+		if conditionFlag {
+			c = ch
+		}
+		runWithGroup(g, runFromChanErr(c)) // want `runWithGroup\(\) func argument should use context "ctx"`
+	}()
+	_ = g.Wait()
+}
