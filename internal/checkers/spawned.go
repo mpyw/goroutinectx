@@ -24,11 +24,9 @@ import (
 //declscope:shared // goroutine.go, spawn.go and gotask.go judge spawned functions alike
 func spawnedFuncVerdict(e *env.Env, expr ast.Expr, v ssa.Value, p flow.Policy) flow.Verdict {
 	if lit, ok := ast.Unparen(expr).(*ast.FuncLit); ok && v == nil {
-		fn := e.SSA.FindFuncLit(lit)
-		if fn == nil {
-			return flow.Unknown
+		if fn := e.SSA.FindFuncLit(lit); fn != nil {
+			return p.Literal(fn, flow.SiteSpawned)
 		}
-		return p.Literal(fn, flow.SiteSpawned)
 	}
 	if v == nil {
 		return flow.Unknown

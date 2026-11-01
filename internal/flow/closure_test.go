@@ -16,20 +16,6 @@ import (
 	"github.com/mpyw/goroutinectx/internal/ctxkind"
 )
 
-// closurePolicy judges a function literal by literal, and leaves every
-// call to the built-in rules.
-type closurePolicy struct {
-	literal func(fn *ssa.Function) Verdict
-}
-
-func (p *closurePolicy) Literal(fn *ssa.Function, _ Site) Verdict { return p.literal(fn) }
-
-func (*closurePolicy) Call(*ssa.CallCommon) Verdict { return Unknown }
-
-func (*closurePolicy) FactoryCall(*ssa.CallCommon) bool { return false }
-
-func (*closurePolicy) Factory(*ssa.Function) bool { return false }
-
 // closureParamSrc runs a func parameter in a closure, which captures
 // nothing else.
 const closureParamSrc = `package p
@@ -53,7 +39,7 @@ func TestClosureCapturesContextFuncs(t *testing.T) {
 	if flow.ClosureCapturesContext(closure, kinds, nil) {
 		t.Error("with no policy, the closure counts as capturing a context")
 	}
-	p := &closurePolicy{literal: func(*ssa.Function) Verdict { return Fail }}
+	p := &judgeTestPolicy{literal: func(*ssa.Function) Verdict { return Fail }}
 	if !flow.ClosureCapturesContext(closure, kinds, p) {
 		t.Error("with a policy, the parameter the closure calls does not pass")
 	}
@@ -125,7 +111,7 @@ func TestClosureChainIsLinear(t *testing.T) {
 			kinds := ctxkind.New(pkg.Prog, nil, "")
 			flow := NewFlow()
 			asked := 0
-			p := &closurePolicy{}
+			p := &judgeTestPolicy{}
 			p.literal = func(fn *ssa.Function) Verdict {
 				asked++
 				if flow.ClosureCapturesContext(fn, kinds, p) {
@@ -164,6 +150,8 @@ func closureChainSource(n, captures int) string {
 }
 
 // buildClosurePackage builds src as the package p, with its SSA.
+//
+//declscope:shared // judge_test.go builds its packages alike
 func buildClosurePackage(t *testing.T, src string) *ssa.Package {
 	t.Helper()
 	fset := token.NewFileSet()
