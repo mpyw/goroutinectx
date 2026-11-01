@@ -16,6 +16,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/flow"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 	"github.com/mpyw/goroutinectx/internal/registry"
+	"github.com/mpyw/goroutinectx/internal/site"
 	"github.com/mpyw/goroutinectx/internal/typeutil"
 )
 
@@ -50,87 +51,69 @@ func (*GotaskChecker) Name() checkername.Name {
 	return checkername.Gotask
 }
 
-// CheckCall checks the call expression. A variadic API may give a report
+// CheckCall checks a call to a gotask API. A variadic API may give a report
 // for each argument.
-func (c *GotaskChecker) CheckCall(e *env.Env, _ string, call *ast.CallExpr) []analysis.Diagnostic {
-	if c.derivers.IsEmpty() {
+func (c *GotaskChecker) CheckCall(e *env.Env, _ string, s *site.Site) []analysis.Diagnostic {
+	if c.derivers.IsEmpty() || s.Callee == nil {
 		return nil
 	}
 
-	fn, recvArgs := spawnedCallee(e, call)
-	if fn == nil {
-		return nil
-	}
-
-	entry, ok := registry.MatchFor(checkername.Gotask, fn)
+	entry, ok := registry.MatchFor(checkername.Gotask, s.Callee)
 	if !ok {
 		return nil
 	}
 
 	switch {
 	case entry.AlwaysSpawns:
-		return c.checkDoAsync(e, call, entry, recvArgs)
+		return c.checkDoAsync(e, s, entry)
 	case entry.Variadic:
 		// For variadic APIs, we report each failing argument separately
-		return c.checkVariadic(e, call, entry)
+		return c.checkVariadic(e, s, entry)
 	}
 	return nil
 }
 
-// checkDoAsync checks a DoAsync call. recvArgs is 1 for a method
-// expression, whose first argument is the task.
-func (c *GotaskChecker) checkDoAsync(e *env.Env, call *ast.CallExpr, entry registry.Entry, recvArgs int) []analysis.Diagnostic {
-	instr := e.SSA.CallAt(call)
-	if len(call.Args) <= recvArgs || instr == nil {
+// checkDoAsync checks a DoAsync call, whose receiver is the task.
+func (c *GotaskChecker) checkDoAsync(e *env.Env, s *site.Site, entry registry.Entry) []analysis.Diagnostic {
+	params := s.Params()
+	if len(params) == 0 || s.Instr == nil {
 		return nil
 	}
-	common := instr.Common()
-	args := flow.ResolvedArgs(common, call)
 
 	// Check 1: Is the ctx argument (first arg) a deriver call?
-	if args != nil && c.ctxIsDerived(e, args[recvArgs]) {
+	if ctx := params[0].Value; ctx != nil && c.ctxIsDerived(e, ctx) {
 		return nil
 	}
 
 	// Check 2: Does the task's callback call the deriver?
-	recv := gotaskReceiver(common)
-	if recvArgs == 1 && args != nil {
-		recv = args[0]
-	}
-	if recv != nil && c.policy(e).taskDerives(recv) {
+	if s.Recv != nil && c.policy(e).taskDerives(s.Recv) {
 		return nil
 	}
 
 	// Neither condition satisfied - report at the method name.
-	pos := call.Pos()
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+	pos := s.Call.Pos()
+	if sel, ok := s.Call.Fun.(*ast.SelectorExpr); ok {
 		pos = sel.Sel.Pos()
 	}
-	return []analysis.Diagnostic{{Pos: pos, Message: entry.Spec.FullName() + "() 1st argument should call goroutine deriver"}}
+	return []analysis.Diagnostic{{Pos: pos, Message: fmt.Sprintf(messageTaskCtx, entry.Spec.FullName())}}
 }
 
-func (c *GotaskChecker) checkVariadic(e *env.Env, call *ast.CallExpr, entry registry.Entry) []analysis.Diagnostic {
-	startIdx := entry.CallbackArgIdx
-	if startIdx >= len(call.Args) {
+func (c *GotaskChecker) checkVariadic(e *env.Env, s *site.Site, entry registry.Entry) []analysis.Diagnostic {
+	if entry.CallbackArgIdx >= len(s.Args) {
 		return nil
 	}
 
 	// Check if this is a variadic expansion (e.g., DoAllFns(ctx, slice...))
-	isVariadicExpansion := call.Ellipsis.IsValid()
+	isVariadicExpansion := s.Call.Ellipsis.IsValid()
 
-	args := spawnedCallArgs(e, call)
 	p := c.policy(e)
 	var diags []analysis.Diagnostic
-	for i := startIdx; i < len(call.Args); i++ {
+	for _, arg := range s.Args[entry.CallbackArgIdx:] {
 		var passes bool
-		var v ssa.Value
-		if args != nil {
-			v = args[i]
-		}
 		if isVariadicExpansion {
-			passes = c.expandedArgDerives(e, call.Args[i], v, p)
+			passes = c.expandedArgDerives(e, arg, p)
 		} else {
-			passes = spawnedFuncVerdict(e, call.Args[i], v, p).Passes()
+			passes = e.Index.Judge(e.Flow, p, arg).Passes()
 		}
 		if passes {
 			continue
@@ -138,28 +121,26 @@ func (c *GotaskChecker) checkVariadic(e *env.Env, call *ast.CallExpr, entry regi
 
 		var msg string
 		if isVariadicExpansion {
-			msg = fmt.Sprintf("%s() variadic argument should call goroutine deriver", entry.Spec.FullName())
+			msg = fmt.Sprintf(messageTaskVariadic, entry.Spec.FullName())
 		} else {
-			// Report each failing argument with 1-based position
-			msg = fmt.Sprintf("%s() %s argument should call goroutine deriver",
-				entry.Spec.FullName(), gotaskArgOrdinal(i+1))
+			msg = fmt.Sprintf(messageTaskArg, entry.Spec.FullName(), messageOrdinal(arg.Ordinal))
 		}
-		diags = append(diags, analysis.Diagnostic{Pos: call.Args[i].Pos(), Message: msg})
+		diags = append(diags, analysis.Diagnostic{Pos: arg.Expr.Pos(), Message: msg})
 	}
 	return diags
 }
 
-// expandedArgDerives judges the slice of a variadic expansion, v being its
-// SSA value. The elements of a slice literal, of gotask.TasksFrom, or of the
+// expandedArgDerives judges the slice of a variadic expansion, arg. The elements of a slice literal, of gotask.TasksFrom, or of the
 // slices a function returns are judged one by one. Otherwise a slice made by
 // a call, as lo.Map makes one, passes when calling one of the call's
 // callbacks gives a task function that derives. A slice variable whose
 // elements are not traced, as a parameter, is reported.
-func (c *GotaskChecker) expandedArgDerives(e *env.Env, arg ast.Expr, v ssa.Value, p *gotaskPolicy) bool {
+func (c *GotaskChecker) expandedArgDerives(e *env.Env, spawned site.Spawned, p *gotaskPolicy) bool {
+	v := spawned.Value
 	if elems, ok := gotaskSliceElems(e, v); ok {
 		return !slices.ContainsFunc(elems, func(elem ssa.Value) bool { return !p.passes(elem) })
 	}
-	switch arg := ast.Unparen(arg).(type) {
+	switch arg := ast.Unparen(spawned.Expr).(type) {
 	case *ast.Ident:
 		obj, ok := e.Pass.TypesInfo.ObjectOf(arg).(*types.Var)
 		if !ok {
@@ -230,7 +211,7 @@ func (p *gotaskPolicy) Call(call *ssa.CallCommon) flow.Verdict {
 	case gotaskIsConstructor(fn):
 		return p.verdictOf(len(call.Args) > 0 && p.passes(call.Args[0]))
 	case gotaskIsTaskMethod(fn):
-		return p.verdictOf(p.taskDerives(gotaskReceiver(call)))
+		return p.verdictOf(p.taskDerives(site.Receiver(call)))
 	case gotaskIsCombinator(fn, gotaskSpawningCombinators):
 		return p.verdictOf(gotaskSpawningDerives(p.e, call, p))
 	case gotaskIsCombinator(fn, gotaskSerialCombinators):
@@ -389,43 +370,4 @@ func gotaskIsTaskType(t types.Type) bool {
 	}
 	name := named.Obj().Name()
 	return name == "Task" || name == "CancelableTask"
-}
-
-// gotaskArgOrdinal converts an argument number to its ordinal string (1st, 2nd, 3rd, etc.).
-func gotaskArgOrdinal(n int) string {
-	suffix := "th"
-	switch n % 10 {
-	case 1:
-		if n%100 != 11 {
-			suffix = "st"
-		}
-	case 2:
-		if n%100 != 12 {
-			suffix = "nd"
-		}
-	case 3:
-		if n%100 != 13 {
-			suffix = "rd"
-		}
-	}
-	return fmt.Sprintf("%d%s", n, suffix)
-}
-
-// gotaskReceiver gives the receiver of a static method call, or of a call
-// of a method value, which a bound method wrapper holds. It gives nil for
-// any other call.
-func gotaskReceiver(common *ssa.CallCommon) ssa.Value {
-	if common.IsInvoke() {
-		return nil
-	}
-	if mc, ok := common.Value.(*ssa.MakeClosure); ok {
-		if fn, ok := mc.Fn.(*ssa.Function); ok && flow.Classify(fn) == flow.ClassifiedBound && len(mc.Bindings) == 1 {
-			return mc.Bindings[0]
-		}
-		return nil
-	}
-	if common.Signature().Recv() == nil || len(common.Args) == 0 {
-		return nil
-	}
-	return common.Args[0]
 }

@@ -1,7 +1,7 @@
 package checkers
 
 import (
-	"go/ast"
+	"fmt"
 	"go/types"
 	"slices"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/flow"
+	"github.com/mpyw/goroutinectx/internal/site"
 )
 
 // Goroutine checks that go statements propagate context.
@@ -24,34 +25,22 @@ func (*Goroutine) Name() checkername.Name {
 }
 
 // CheckGoStmt checks a go statement for context propagation.
-func (c *Goroutine) CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic {
-	if c.propagates(e, stmt) {
+func (c *Goroutine) CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic {
+	if c.propagates(e, s) {
 		return nil
 	}
-	return []analysis.Diagnostic{{
-		Pos:     stmt.Pos(),
-		Message: "goroutine does not propagate context \"" + ctxName + "\"",
-	}}
+	return []analysis.Diagnostic{{Pos: s.Go.Pos(), Message: fmt.Sprintf(messageGoroutine, ctxName)}}
 }
 
-func (c *Goroutine) propagates(e *env.Env, stmt *ast.GoStmt) bool {
+func (c *Goroutine) propagates(e *env.Env, s *site.Site) bool {
 	p := newSpawnedContextPolicy(e, nil)
-	if g := e.SSA.GoAt(stmt); g != nil && !g.Call.IsInvoke() {
-		if spawnedGivesNamedFuncOnlyFreshContext(e, &g.Call) {
+	if call := s.Common(); call != nil && !call.IsInvoke() {
+		if spawnedGivesNamedFuncOnlyFreshContext(e, call) {
 			return false
 		}
-		p = newSpawnedGoContextPolicy(e, &g.Call)
+		p = newSpawnedGoContextPolicy(e, call)
 	}
-	return spawnedFuncVerdict(e, stmt.Call.Fun, goroutineSpawnedValue(e, stmt), p).Passes()
-}
-
-// goroutineSpawnedValue gives the SSA value of the function stmt runs, or nil.
-func goroutineSpawnedValue(e *env.Env, stmt *ast.GoStmt) ssa.Value {
-	g := e.SSA.GoAt(stmt)
-	if g == nil || g.Call.IsInvoke() {
-		return nil
-	}
-	return g.Call.Value
+	return e.Index.Judge(e.Flow, p, s.Fn).Passes()
 }
 
 // GoroutineDerive checks that go statements call a deriver function.
@@ -72,40 +61,32 @@ func (*GoroutineDerive) Name() checkername.Name {
 }
 
 // CheckGoStmt checks a go statement for deriver function calls.
-func (c *GoroutineDerive) CheckGoStmt(e *env.Env, _ string, stmt *ast.GoStmt) []analysis.Diagnostic {
-	msg := c.failure(e, stmt)
+func (c *GoroutineDerive) CheckGoStmt(e *env.Env, _ string, s *site.Site) []analysis.Diagnostic {
+	msg := c.failure(e, s)
 	if msg == "" {
 		return nil
 	}
-	return []analysis.Diagnostic{{Pos: stmt.Pos(), Message: msg}}
+	return []analysis.Diagnostic{{Pos: s.Go.Pos(), Message: msg}}
 }
 
-// failure gives the message to report for stmt, or "" when it derives.
-func (c *GoroutineDerive) failure(e *env.Env, stmt *ast.GoStmt) string {
+// failure gives the message to report for s, or "" when it derives.
+func (c *GoroutineDerive) failure(e *env.Env, s *site.Site) string {
 	if c.derivers.IsEmpty() {
 		return ""
 	}
 
 	var given []*types.Func
-	if g := e.SSA.GoAt(stmt); g != nil {
-		given = goroutineArgCalls(&g.Call)
+	if call := s.Common(); call != nil {
+		given = goroutineArgCalls(call)
 	}
 	p := &goroutineDerivePolicy{kinds: e.Kinds, derivers: c.derivers, given: given}
-	switch spawnedFuncVerdict(e, stmt.Call.Fun, goroutineSpawnedValue(e, stmt), p) {
+	switch e.Index.Judge(e.Flow, p, s.Fn) {
 	case flow.Fail:
-		return c.message()
+		return fmt.Sprintf(messageGoroutineDerive, c.derivers.Original)
 	case flow.FailDeferOnly:
-		return c.deferMessage()
+		return fmt.Sprintf(messageGoroutineDeriveDefer, c.derivers.Original)
 	}
 	return ""
-}
-
-func (c *GoroutineDerive) message() string {
-	return "goroutine should call " + c.derivers.Original + " to derive context"
-}
-
-func (c *GoroutineDerive) deferMessage() string {
-	return "goroutine calls " + c.derivers.Original + " in defer, but it should be called at goroutine start"
 }
 
 // goroutineDerivePolicy judges a closure by whether it takes a context or

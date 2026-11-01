@@ -63,6 +63,8 @@ goroutinectx/
 │   │   ├── checkers.go        # The one table of checkers (Defs): flags, defaults, builders
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
 │   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
+│   │   ├── spawned.go         # The context policy the go statement and callback checkers share
+│   │   ├── message.go         # The one table of report formats
 │   │   ├── gotask.go          # gotask library checker
 │   │   └── spawnerlabel.go    # spawnerlabel checker
 │   ├── carrier/               # Context carrier types (-context-carriers)
@@ -77,6 +79,7 @@ goroutinectx/
 │   │                          # spawned-function judge, call walker
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
 │   ├── registry/              # The one table of supported spawning APIs
+│   ├── site/                  # Index: each go statement and call as a Site, built once per pass
 │   └── typeutil/              # Pointers, embedded interfaces, package paths
 ├── testdata/
 │   ├── src/                   # Test fixtures
@@ -115,12 +118,12 @@ goroutinectx/
 // runner applies //goroutinectx:ignore at each report's position.
 type goStmtChecker interface {
     Name() checkername.Name
-    CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
+    CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic
 }
 
 type callChecker interface {
     Name() checkername.Name
-    CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
+    CheckCall(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic
 }
 
 type packageChecker interface {
@@ -131,7 +134,7 @@ type packageChecker interface {
 
 The set of checkers named by an unused-ignore report is the set of checkers built: their `Name()`s.
 
-`Run` builds one `env.Env` for the pass: the pass, the SSA program, the context classifier (`ctxkind.Classifier`, which holds the carriers and the module path), the derivers and the spawners. Every checker is built from it and gets it for each node. The only state of a node is `ctxName`, the first context parameter of the nearest enclosing function that has one (`Kinds.ParamNames`), which the messages name. A node outside such a function is not checked.
+`Run` builds one `env.Env` for the pass: the pass, the SSA program, the index of its go statements, calls and function literals (`site.Index`), the context classifier (`ctxkind.Classifier`, which holds the carriers and the module path), the derivers and the spawners. Every checker is built from it and gets it for each node, with the node as a `site.Site`, made once for all the checkers. The only state of a node is `ctxName`, the first context parameter of the nearest enclosing function that has one (`Kinds.ParamNames`), which the messages name. A node outside such a function is not checked.
 
 **What counts as a context.** `internal/ctxkind` is the one place that says it. `Kind` is a set: `Context` (`context.Context`, an interface that embeds it, a type parameter constrained by one), `Carrier` (a type of `-context-carriers`), `Implements` (implements `context.Context`, as a struct that embeds one) and `Holds` (a struct with such a field the analyzed code can set, #191). Each caller names the set it counts: `ctxkind.Param` (a context or a carrier) for parameters, arguments and operands, `ctxkind.Captured` (also `Implements`) for what a closure captures or reads, and `ctxkind.Context` alone where only a real context will do. The sets do not agree yet; #210 step 2 makes them. `ctxkind.IsFreshCall` (`Background`, `TODO`) and `ctxkind.IsWithCall` (`context.With*`) name the context package once.
 
@@ -297,14 +300,15 @@ type MyChecker struct{}
 func (*MyChecker) Name() checkername.Name { return checkername.My }
 
 // For call expression checks. A spawning API goes in the table in
-// internal/registry, with this checker's name.
-func (c *MyChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic {
+// internal/registry, with this checker's name. s gives the callee, and each
+// argument with its SSA value. The message format goes in message.go.
+func (c *MyChecker) CheckCall(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic {
     // Return nil for a call it does not check, else one diagnostic per
     // report, at its own position
 }
 
 // OR for go statement checks
-func (c *MyChecker) CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic { ... }
+func (c *MyChecker) CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic { ... }
 ```
 
 2. Add its `Def` to `checkers.Defs` in `internal/checkers/checkers.go`, at the same place as in `checkername.All` (see [The Checker Table](#the-checker-table)). That gives it its flag, its `goroutinectx.New` and plugin setting, and its place in `Run`. A checker that is not a go statement or call checker implements `packageChecker`
