@@ -334,7 +334,7 @@ func goodOtherPkgFactoryFreshCtxAndDepsSpawner(ctx context.Context) {
 // [GOOD]: Method of another package given a fresh context
 //
 // A method may get ctx from its receiver, so it is not judged by what it is
-// given, as a method of this package is not.
+// given while its receiver may hold a context (#274).
 func goodOtherPkgMethodFreshCtxGoroutine(ctx context.Context) {
 	s := &ctxworker.Svc{Ctx: ctx}
 	go s.Run(context.Background())
@@ -343,7 +343,7 @@ func goodOtherPkgMethodFreshCtxGoroutine(ctx context.Context) {
 // [GOOD]: Factory method of another package given a fresh context
 //
 // A method may get ctx from its receiver, so it is not judged by what it is
-// given.
+// given while its receiver may hold a context (#274).
 func goodOtherPkgFactoryMethodFreshCtxGoroutine(ctx context.Context) {
 	s := &ctxworker.Svc{Ctx: ctx}
 	go s.Make(context.Background())()
@@ -352,7 +352,7 @@ func goodOtherPkgFactoryMethodFreshCtxGoroutine(ctx context.Context) {
 // [GOOD]: Factory method of another package given a fresh context
 //
 // A method may get ctx from its receiver, so it is not judged by what it is
-// given.
+// given while its receiver may hold a context (#274).
 func goodOtherPkgFactoryMethodFreshCtxErrgroup(ctx context.Context) {
 	s := &ctxworker.Svc{Ctx: ctx}
 	g := new(errgroup.Group)
@@ -363,7 +363,7 @@ func goodOtherPkgFactoryMethodFreshCtxErrgroup(ctx context.Context) {
 // [GOOD]: Factory method of another package given a fresh context
 //
 // A method may get ctx from its receiver, so it is not judged by what it is
-// given.
+// given while its receiver may hold a context (#274).
 func goodOtherPkgFactoryMethodFreshCtxWaitGroup(ctx context.Context) {
 	s := &ctxworker.Svc{Ctx: ctx}
 	var wg sync.WaitGroup
@@ -374,7 +374,7 @@ func goodOtherPkgFactoryMethodFreshCtxWaitGroup(ctx context.Context) {
 // [GOOD]: Factory method of another package given a fresh context
 //
 // A method may get ctx from its receiver, so it is not judged by what it is
-// given.
+// given while its receiver may hold a context (#274).
 func goodOtherPkgFactoryMethodFreshCtxSpawner(ctx context.Context) {
 	s := &ctxworker.Svc{Ctx: ctx}
 	g := new(errgroup.Group)

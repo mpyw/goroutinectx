@@ -54,3 +54,14 @@ func (s *Svc) Make(_ context.Context) func() {
 func (s *Svc) MakeErr(_ context.Context) func() error {
 	return func() error { return s.Ctx.Err() }
 }
+
+// Plain holds nothing.
+type Plain struct{}
+
+// Run uses ctx.
+func (Plain) Run(ctx context.Context) { _ = ctx }
+
+// MakeErr gives a func that uses ctx.
+func (Plain) MakeErr(ctx context.Context) func() error {
+	return func() error { return ctx.Err() }
+}
