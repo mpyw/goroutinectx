@@ -400,37 +400,80 @@ func resolvedScanBack(at, origin ssa.Instruction, visit func(ssa.Instruction) bo
 // resolvedScanFromClosure visits the instructions of origin's function that
 // a load at at, in a closure of that function, can see: those resolvedScanBack
 // visits from the closure's creation, and every one after it, which visit
-// cannot stop. It reports false when it cannot tell: for no at, or when the
-// closure is not made exactly once.
+// cannot stop. When the closure runs at once (#272), as a function literal
+// called in place or the body of a range-over-func loop does, only those
+// resolvedScanBack visits from the call that runs it count. So it is for a
+// closure in it, when each closure between it and at runs before the one it
+// is in returns: at once, or deferred. It reports false when it cannot
+// tell: for no at, or when the closure is not made exactly once.
 func resolvedScanFromClosure(at, origin ssa.Instruction, visit func(ssa.Instruction) bool) bool {
 	if at == nil {
 		return false
 	}
 	outer := origin.Parent()
 	fn := at.Parent()
-	for fn != nil && fn.Parent() != outer {
+	inRun := true
+	for fn.Parent() != outer {
+		if fn.Parent() == nil {
+			return false
+		}
+		inRun = inRun && resolvedRunOf(resolvedMadeOnce(fn)) != nil
 		fn = fn.Parent()
 	}
-	if fn == nil {
+	made := resolvedMadeOnce(fn)
+	if made == nil {
 		return false
 	}
+	if run, atOnce := resolvedRunOf(made).(*ssa.Call); inRun && atOnce {
+		resolvedScanBack(run, origin, visit)
+		return true
+	}
+	resolvedScanBack(made, origin, visit)
+	resolvedScanForward(made, origin, func(instr ssa.Instruction) { visit(instr) })
+	return true
+}
+
+// resolvedMadeOnce gives the one instruction of fn's parent that makes the
+// closure fn, or nil when there is not exactly one.
+func resolvedMadeOnce(fn *ssa.Function) *ssa.MakeClosure {
 	var made *ssa.MakeClosure
-	for _, block := range outer.Blocks {
+	for _, block := range fn.Parent().Blocks {
 		for _, instr := range block.Instrs {
 			if mc, ok := instr.(*ssa.MakeClosure); ok && mc.Fn == fn {
 				if made != nil {
-					return false
+					return nil
 				}
 				made = mc
 			}
 		}
 	}
-	if made == nil {
-		return false
+	return made
+}
+
+// resolvedRunOf gives the call or defer that runs the closure mc makes, and
+// is its only use, when the closure runs before the function that makes it
+// returns: a call or defer of it in place, or the iterator call of a
+// range-over-func loop whose body it is. It gives nil for any other closure,
+// or for no mc.
+func resolvedRunOf(mc *ssa.MakeClosure) ssa.CallInstruction {
+	if mc == nil || len(*mc.Referrers()) != 1 {
+		return nil
 	}
-	resolvedScanBack(made, origin, visit)
-	resolvedScanForward(made, origin, func(instr ssa.Instruction) { visit(instr) })
-	return true
+	var run ssa.CallInstruction
+	switch r := (*mc.Referrers())[0].(type) {
+	case *ssa.Call:
+		run = r
+	case *ssa.Defer:
+		run = r
+	default:
+		return nil
+	}
+	if slices.Contains(run.Common().Args, ssa.Value(mc)) {
+		if _, isCall := run.(*ssa.Call); !isCall || Classify(mc.Fn.(*ssa.Function)) != ClassifiedRangeBody {
+			return nil
+		}
+	}
+	return run
 }
 
 // resolvedScanForward visits the instructions after from, on every path from

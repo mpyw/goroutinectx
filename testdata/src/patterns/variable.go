@@ -338,6 +338,113 @@ func goodFieldReplacedBeforeClosureGoroutine(ctx context.Context) {
 	}()
 }
 
+// ===== Read in a closure that runs at once (#272) =====
+
+// [GOOD]: Read in a closure called in place, replaced after it runs
+//
+// The closure runs before the later store, so only the stores that reach
+// the call count.
+func goodReplacedAfterCalledInPlaceGoroutine(ctx context.Context) {
+	fn := func() { _ = ctx }
+	func() {
+		go fn()
+	}()
+	fn = func() {}
+	_ = fn
+}
+
+// [GOOD]: Read in a closure called in place, replaced after it runs
+//
+// The closure runs before the later store, so only the stores that reach
+// the call count.
+func goodReplacedAfterCalledInPlaceErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	fn := func() error { _ = ctx; return nil }
+	func() {
+		g.Go(fn)
+	}()
+	fn = func() error { return nil }
+	_ = fn
+	_ = g.Wait()
+}
+
+// [GOOD]: Read in a range-over-func body, replaced after the loop
+//
+// The body runs only while the loop does, before the later store.
+func goodReplacedAfterRangeFuncGoroutine(ctx context.Context, seq func(func(int) bool)) {
+	fn := func() { _ = ctx }
+	for range seq {
+		go fn()
+	}
+	fn = func() {}
+	_ = fn
+}
+
+// [GOOD]: Read in a closure deferred in a closure called in place, replaced after it
+//
+// The deferred closure runs before the closure it is in returns.
+func goodReplacedAfterDeferredInCalledInPlace(ctx context.Context) {
+	fn := func() { _ = ctx }
+	func() {
+		defer func() {
+			go fn()
+		}()
+	}()
+	fn = func() {}
+	_ = fn
+}
+
+// [BAD]: Read in a deferred closure, replaced after it is deferred
+//
+// The closure runs when the function returns, after the later store.
+func badReplacedAfterDeferredGoroutine(ctx context.Context) {
+	fn := func() { _ = ctx }
+	defer func() {
+		go fn() // want `goroutine does not propagate context "ctx"`
+	}()
+	fn = func() {}
+}
+
+// [BAD]: Read in a goroutine started in a closure called in place, replaced after it
+//
+// The goroutine may run after the later store, so that store counts.
+func badReplacedAfterGoroutineInCalledInPlace(ctx context.Context) {
+	g := new(errgroup.Group)
+	fn := func() error { _ = ctx; return nil }
+	func() {
+		go func() {
+			g.Go(fn) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		}()
+	}()
+	fn = func() error { return nil }
+	_ = fn
+	_ = g.Wait()
+}
+
+// [BAD]: Read in a range-over-func body, replaced before the loop
+//
+// The store that reaches the loop gives a func without ctx.
+func badReplacedBeforeRangeFuncGoroutine(ctx context.Context, seq func(func(int) bool)) {
+	fn := func() { _ = ctx }
+	fn = func() {}
+	for range seq {
+		go fn() // want `goroutine does not propagate context "ctx"`
+	}
+}
+
+// [BAD]: Read in a range-over-func body, replaced after the loop in an outer loop
+//
+// The store reaches the loop again on the next pass of the outer loop.
+func badReplacedAfterRangeFuncInLoop(ctx context.Context, seq func(func(int) bool)) {
+	fn := func() { _ = ctx }
+	for range 2 {
+		for range seq {
+			go fn() // want `goroutine does not propagate context "ctx"`
+		}
+		fn = func() {}
+	}
+}
+
 // ===== Func from a parameter =====
 
 // [LIMITATION]: Function from parameter - cannot trace
