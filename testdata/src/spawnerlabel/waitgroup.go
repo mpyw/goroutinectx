@@ -33,3 +33,33 @@ func multipleSpawnTypesWithWaitgroup() { // want `function "multipleSpawnTypesWi
 	})
 	wg.Wait()
 }
+
+// [BAD]: Spawning closure called through a Phi (#306)
+//
+// Each value the Phi joins is the closure, so the call runs the spawn.
+func badWaitgroupClosurePhiCall(flag bool) { // want `function "badWaitgroupClosurePhiCall" should have //goroutinectx:spawner directive \(calls sync\.WaitGroup\.Go with func argument\)`
+	f := func() {
+		var wg sync.WaitGroup
+		wg.Go(func() { fmt.Println("work") })
+		wg.Wait()
+	}
+	h := f
+	if flag {
+		h = f
+	}
+	h()
+}
+
+// [GOOD]: Non-spawning closure called through a Phi (#306)
+//
+// The closure the call runs spawns nothing.
+func goodWaitgroupPlainClosurePhiCall(flag bool) {
+	var wg sync.WaitGroup
+	f := func() { fmt.Println("work") }
+	h := f
+	if flag {
+		h = f
+	}
+	h()
+	wg.Wait()
+}

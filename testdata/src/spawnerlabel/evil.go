@@ -516,3 +516,99 @@ func makeSpawningWorkerG[T any](v T) func() {
 		_ = g.Wait()
 	}
 }
+
+// ===== CLOSURES RUN THROUGH A PHI (#306) =====
+
+// phiFlag picks a branch the analyzer cannot predict.
+var phiFlag bool
+
+// [BAD]: Spawning closure called through a Phi
+//
+// Each value the Phi joins is the closure, so the call runs the spawn, as
+// calling it directly does.
+func badSpawningClosurePhiCall(n int) { // want `function "badSpawningClosurePhiCall" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	f := func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}
+	h := f
+	if phiFlag {
+		h = f
+	}
+	h()
+}
+
+// [BAD]: Spawning closure deferred through a Phi
+//
+// The deferred call runs the spawn.
+func badSpawningClosurePhiDefer(n int) { // want `function "badSpawningClosurePhiDefer" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	f := func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}
+	h := f
+	if phiFlag {
+		h = f
+	}
+	defer h()
+}
+
+// [BAD]: Spawning closure run in a goroutine through a Phi
+//
+// The goroutine runs the spawn.
+func badSpawningClosurePhiGo(n int) { // want `function "badSpawningClosurePhiGo" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	f := func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}
+	h := f
+	if phiFlag {
+		h = f
+	}
+	go h()
+}
+
+// [BAD]: One of two closures joined by a Phi spawns
+//
+// The call may run the closure that spawns.
+func badOneSpawningClosurePhiCall(n int) { // want `function "badOneSpawningClosurePhiCall" should have //goroutinectx:spawner directive \(calls errgroup\.Group\.Go with func argument\)`
+	h := func() { fmt.Println(n) }
+	if phiFlag {
+		h = func() {
+			g := new(errgroup.Group)
+			g.Go(func() error { _ = n; return nil })
+			_ = g.Wait()
+		}
+	}
+	h()
+}
+
+// [GOOD]: Closures joined by a Phi that do not spawn
+//
+// Neither closure the call may run spawns.
+func goodPlainClosurePhiCall(n int) {
+	h := func() { fmt.Println(n) }
+	if phiFlag {
+		h = func() { fmt.Println(n + 1) }
+	}
+	h()
+}
+
+// [GOOD]: Spawning closure through a Phi, only made
+//
+// The closure is never run here, so the function spawns nothing.
+func goodSpawningClosurePhiOnlyMade(n int) {
+	f := func() {
+		g := new(errgroup.Group)
+		g.Go(func() error { _ = n; return nil })
+		_ = g.Wait()
+	}
+	h := f
+	if phiFlag {
+		h = f
+	}
+	_ = h
+}
