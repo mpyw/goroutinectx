@@ -9,7 +9,7 @@
 // call with [MatchFor]. The spawnerlabel checker asks [Match] whether a
 // function calls any supported API.
 //
-//	entry, ok := registry.MatchFor(checker.Errgroup, fn)
+//	entry, ok := registry.MatchFor(checkername.Errgroup, fn)
 //	if ok {
 //	    arg := call.Args[entry.CallbackArgIdx]
 //	}

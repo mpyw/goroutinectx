@@ -11,8 +11,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkerdef"
+	"github.com/mpyw/goroutinectx/internal/checkername"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/ignore"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
@@ -73,20 +72,20 @@ func TestBuildCheckers(t *testing.T) {
 		name     string
 		cfg      Config
 		derivers *deriver.Matcher
-		want     []checker.Name
+		want     []checkername.Name
 	}{
 		{
 			name: "defaults",
 			cfg:  DefaultConfig(),
-			want: []checker.Name{checker.Goroutine, checker.Waitgroup, checker.Errgroup, checker.Conc, checker.Spawner},
+			want: []checkername.Name{checkername.Goroutine, checkername.Waitgroup, checkername.Errgroup, checkername.Conc, checkername.Spawner},
 		},
 		{
 			name: "defaults with derivers", cfg: DefaultConfig(), derivers: derivers,
-			want: []checker.Name{checker.Goroutine, checker.GoroutineDerive, checker.Waitgroup, checker.Errgroup, checker.Conc, checker.Spawner, checker.Gotask},
+			want: []checkername.Name{checkername.Goroutine, checkername.GoroutineDerive, checkername.Waitgroup, checkername.Errgroup, checkername.Conc, checkername.Spawner, checkername.Gotask},
 		},
-		{name: "all with derivers", cfg: all, derivers: derivers, want: checkerdef.Names},
+		{name: "all with derivers", cfg: all, derivers: derivers, want: checkername.All},
 		{name: "none", cfg: Config{}},
-		{name: "none with derivers", cfg: Config{}, derivers: derivers, want: []checker.Name{checker.GoroutineDerive}},
+		{name: "none with derivers", cfg: Config{}, derivers: derivers, want: []checkername.Name{checkername.GoroutineDerive}},
 	}
 
 	for _, tt := range tests {
@@ -95,7 +94,7 @@ func TestBuildCheckers(t *testing.T) {
 
 			r := &runner{env: &env.Env{Derivers: tt.derivers}, enabled: make(ignore.EnabledCheckers)}
 			packageCheckers := r.buildCheckers(tt.cfg)
-			var built []checker.Name
+			var built []checkername.Name
 			for _, c := range r.goStmtCheckers {
 				built = append(built, c.Name())
 			}
@@ -105,8 +104,8 @@ func TestBuildCheckers(t *testing.T) {
 			for _, c := range packageCheckers {
 				built = append(built, c.Name())
 			}
-			byDefs := func(a, b checker.Name) int {
-				return slices.Index(checkerdef.Names, a) - slices.Index(checkerdef.Names, b)
+			byDefs := func(a, b checkername.Name) int {
+				return slices.Index(checkername.All, a) - slices.Index(checkername.All, b)
 			}
 			slices.SortFunc(built, byDefs)
 			if !slices.Equal(built, tt.want) {
@@ -131,8 +130,8 @@ func TestConfigUnmarshalJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := DefaultConfig()
-	want.Checkers[checker.Goroutine] = false
-	want.Checkers[checker.Spawnerlabel] = true
+	want.Checkers[checkername.Goroutine] = false
+	want.Checkers[checkername.Spawnerlabel] = true
 	if !maps.Equal(cfg.Checkers, want.Checkers) {
 		t.Errorf("checkers %v, want %v", cfg.Checkers, want.Checkers)
 	}

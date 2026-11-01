@@ -66,13 +66,13 @@ goroutinectx/
 ├── internal/
 │   ├── run/                   # Run: every checker over one package, with a Config;
 │   │                          # the checker interfaces and the runner that applies ignores
-│   ├── checker/               # Checker names
-│   ├── checkerdef/            # The one table of checkers: flags, defaults, builders
+│   ├── checkername/           # Checker names, and checkername.All in table order
 │   ├── checkers/              # Checker implementations
+│   │   ├── checkers.go        # The one table of checkers (Defs): flags, defaults, builders
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
 │   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
 │   │   ├── gotask.go          # gotask library checker
-│   │   └── spawnerlabel/      # spawnerlabel checker
+│   │   └── spawnerlabel.go    # spawnerlabel checker
 │   ├── carrier/               # Context carrier types (-context-carriers)
 │   ├── ctxkind/               # Classifier: what counts as a context, built once per pass
 │   ├── deriver/               # Matcher for OR/AND deriver matching
@@ -112,7 +112,7 @@ goroutinectx/
 
 ### analyzer.go
 
-Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, and a toggle for each checker of `checkerdef.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
+Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`, and from them one `env.Env` for the pass
 2. Builds each checker that is on from the `env.Env`
 3. Maps each function with a context parameter to the name of the first (`Kinds.ParamNames`)
@@ -128,17 +128,17 @@ Core interfaces:
 // Separated interfaces, in internal/run. Each returns its reports, and the
 // runner applies //goroutinectx:ignore at each report's position.
 type goStmtChecker interface {
-    Name() checker.Name
+    Name() checkername.Name
     CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
 }
 
 type callChecker interface {
-    Name() checker.Name
+    Name() checkername.Name
     CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
 }
 
 type packageChecker interface {
-    Name() checker.Name
+    Name() checkername.Name
     Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic
 }
 ```
@@ -228,9 +228,10 @@ It also tells whether a call gives only a fresh context (`GivesOnlyFreshContext`
 
 ```go
 type Found struct {
-    Ignores  []Ignore         // Each //goroutinectx:ignore, its checker names unchecked
+    Ignores  []Ignore         // Each //goroutinectx:ignore that names only known checkers
     Spawners []*ast.FuncDecl  // Each function whose doc comment holds //goroutinectx:spawner
-    Problems []Problem        // Each comment addressed to goroutinectx that does nothing
+    Problems []Problem        // Each comment addressed to goroutinectx that does nothing,
+                              // an ignore naming an unknown checker first
 }
 
 func Scan(file *ast.File) Found
@@ -243,16 +244,16 @@ Checker-specific ignores and unused detection:
 ```go
 type Entry struct {
     pos      token.Pos
-    trailing bool                  // The comment follows code on its line
-    checkers []checker.Name        // Empty = ignore all
-    used     map[checker.Name]bool // Track usage per checker
+    trailing bool                      // The comment follows code on its line
+    checkers []checkername.Name        // Empty = ignore all
+    used     map[checkername.Name]bool // Track usage per checker
 }
 
 type Map map[int]*Entry  // Line numbers with ignore comments
 
-func Build(fset *token.FileSet, file *ast.File, ignores []directive.Ignore) (Map, []directive.Problem)  // Reports an unknown checker name
-func (m Map) Covering(line int, name checker.Name) *Entry  // Same line, and previous line unless that ignore trails code. Marks nothing
-func (e *Entry) MarkUsed(name checker.Name)                // The runner marks the ignore that silenced a report
+func Build(fset *token.FileSet, file *ast.File, ignores []directive.Ignore) Map
+func (m Map) Covering(line int, name checkername.Name) *Entry  // Same line, and previous line unless that ignore trails code. Marks nothing
+func (e *Entry) MarkUsed(name checkername.Name)                // The runner marks the ignore that silenced a report
 func (m Map) GetUnusedIgnores(enabled EnabledCheckers) []UnusedIgnore
 ```
 
@@ -297,7 +298,7 @@ Whether a goroutine calls them is judged by `flow.ClosureCallsDeriver`.
 | conc | internal/checkers/spawn.go | callChecker | Context in sourcegraph/conc pool callbacks |
 | spawner | internal/checkers/spawn.go | callChecker | Context in `//goroutinectx:spawner` marked function calls |
 | gotask | internal/checkers/gotask.go | callChecker | Deriver in gotask task functions |
-| spawnerlabel | internal/checkers/spawnerlabel/ | packageChecker | `//goroutinectx:spawner` missing or unneeded |
+| spawnerlabel | internal/checkers/spawnerlabel.go | packageChecker | `//goroutinectx:spawner` missing or unneeded |
 
 ## Analysis Flow
 
@@ -431,9 +432,9 @@ Separating interfaces allows checkers to implement only what they need, avoiding
 
 ### 4. Package Structure
 
-**Decision:** Keep the go statement and call checkers in one package, `internal/checkers`, one file per kind (`goroutine.go`, `spawn.go`, `gotask.go`). Only spawnerlabel, a package checker that shares nothing with them, has a package of its own.
+**Decision:** Keep every checker and the table of them in one package, `internal/checkers`, one file per kind (`goroutine.go`, `spawn.go`, `gotask.go`, `spawnerlabel.go`), with the table `Defs` in `checkers.go`. The names are a package of their own, `internal/checkername`, which imports nothing.
 
-**Rationale:** The checkers judge spawned functions with the same helpers (`spawned.go`): how a callee and its arguments are found, and how a closure is resolved. Split into packages, each would need those exported from a shared package. In one package, declscope keeps each file's helpers to that file, and the names carry the file (`gotaskIsConstructor`, `spawnedCallee`).
+**Rationale:** The checkers judge spawned functions with the same helpers (`spawned.go`): how a callee and its arguments are found, and how a closure is resolved. Split into packages, each would need those exported from a shared package. In one package, declscope keeps each file's helpers to that file, and the names carry the file (`gotaskIsConstructor`, `spawnedCallee`, `spawnerlabelHasFuncArgs`). spawnerlabel shares none of the helpers, but declscope gives it the same privacy a package would, so it needs no package of its own. The directive packages and the registry need only the names, so they import `checkername` and not the checkers, which import them.
 
 ### 5. Multiple Context Parameter Support
 

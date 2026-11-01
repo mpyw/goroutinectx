@@ -16,8 +16,8 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/goroutinectx/internal/carrier"
-	"github.com/mpyw/goroutinectx/internal/checker"
-	"github.com/mpyw/goroutinectx/internal/checkerdef"
+	"github.com/mpyw/goroutinectx/internal/checkername"
+	"github.com/mpyw/goroutinectx/internal/checkers"
 	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive"
@@ -43,13 +43,13 @@ type Config struct {
 	// Checkers turns each checker that has a flag on or off by its name: on
 	// when its value is true. In JSON each is a key of its own, beside the
 	// keys above.
-	Checkers map[checker.Name]bool `json:"-"`
+	Checkers map[checkername.Name]bool `json:"-"`
 }
 
 // DefaultConfig is the configuration the flags give when none is set.
 func DefaultConfig() Config {
-	cfg := Config{Checkers: make(map[checker.Name]bool)}
-	for _, d := range checkerdef.Defs {
+	cfg := Config{Checkers: make(map[checkername.Name]bool)}
+	for _, d := range checkers.Defs {
 		if d.HasFlag() {
 			cfg.Checkers[d.Name] = d.Default
 		}
@@ -70,8 +70,8 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 		}
 	}
 	nflags := len(fields)
-	var names []checker.Name
-	for _, d := range checkerdef.Defs {
+	var names []checkername.Name
+	for _, d := range checkers.Defs {
 		if d.HasFlag() {
 			fields = append(fields, reflect.StructField{
 				Name: fmt.Sprintf("Checker%d", len(names)),
@@ -109,11 +109,11 @@ func (cfg *Config) UnmarshalJSON(data []byte) error {
 	for i := range nflags {
 		src.FieldByName(fields[i].Name).Set(flat.Field(i))
 	}
-	checkers := make(map[checker.Name]bool, len(names))
+	enabled := make(map[checkername.Name]bool, len(names))
 	for i, name := range names {
-		checkers[name] = flat.Field(nflags + i).Bool()
+		enabled[name] = flat.Field(nflags + i).Bool()
 	}
-	cfg.Checkers = checkers
+	cfg.Checkers = enabled
 	return nil
 }
 
@@ -218,7 +218,7 @@ func Run(pass *analysis.Pass, cfg Config) error {
 // goStmtChecker checks go statements (go func()...).
 type goStmtChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
-	Name() checker.Name
+	Name() checkername.Name
 	// CheckGoStmt gives the reports for one go statement. ctxName is the
 	// first context parameter of the nearest enclosing function that has
 	// one, for the message.
@@ -228,7 +228,7 @@ type goStmtChecker interface {
 // callChecker checks function call expressions.
 type callChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
-	Name() checker.Name
+	Name() checkername.Name
 	// CheckCall gives the reports for one call, none for a call the checker
 	// does not check. ctxName is as for CheckGoStmt.
 	CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
@@ -237,7 +237,7 @@ type callChecker interface {
 // packageChecker checks a whole package once, after the other checkers.
 type packageChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
-	Name() checker.Name
+	Name() checkername.Name
 	// Check gives the reports for the package, skipping skipFiles.
 	Check(pass *analysis.Pass, skipFiles map[string]bool) []analysis.Diagnostic
 }
@@ -339,7 +339,7 @@ func runEnclosingContext(ctxNames map[ast.Node]string, stack []ast.Node) (string
 // nothing to report, so an ignore that silenced nothing was never reported
 // as unused. Only the ignore that silences the report is marked used: the
 // one at its own line, or else the one at the call.
-func (r *runner) report(name checker.Name, diags []analysis.Diagnostic, call token.Pos) {
+func (r *runner) report(name checkername.Name, diags []analysis.Diagnostic, call token.Pos) {
 	for _, d := range diags {
 		e := r.ignoreAt(d.Pos, name)
 		if e == nil && call.IsValid() {
@@ -355,7 +355,7 @@ func (r *runner) report(name checker.Name, diags []analysis.Diagnostic, call tok
 
 // ignoreAt gives the ignore that silences the reports of the checker name
 // at pos, or nil.
-func (r *runner) ignoreAt(pos token.Pos, name checker.Name) *ignore.Entry {
+func (r *runner) ignoreAt(pos token.Pos, name checkername.Name) *ignore.Entry {
 	position := r.env.Pass.Fset.PositionFor(pos, false)
 	return r.ignoreMaps[position.Filename].Covering(position.Line, name)
 }
@@ -375,9 +375,8 @@ func readDirectives(pass *analysis.Pass) (map[string]bool, map[string]ignore.Map
 			continue
 		}
 		found := directive.Scan(file)
-		m, problems := ignore.Build(pass.Fset, file, found.Ignores)
-		ignoreMaps[filename] = m
-		for _, p := range slices.Concat(problems, found.Problems) {
+		ignoreMaps[filename] = ignore.Build(pass.Fset, file, found.Ignores)
+		for _, p := range found.Problems {
 			pass.Reportf(p.Pos, "%s", p.Message)
 		}
 	}
@@ -385,13 +384,13 @@ func readDirectives(pass *analysis.Pass) (map[string]bool, map[string]ignore.Map
 	return skipFiles, ignoreMaps
 }
 
-// buildCheckers builds each checker of [checkerdef.Defs] that cfg turns on,
+// buildCheckers builds each checker of [checkers.Defs] that cfg turns on,
 // and that has the deriver it needs, from r's Env, and marks it enabled. It
 // gives the go statement and call checkers to r, and returns the package
 // checkers.
 func (r *runner) buildCheckers(cfg Config) []packageChecker {
 	var packageCheckers []packageChecker
-	for _, d := range checkerdef.Defs {
+	for _, d := range checkers.Defs {
 		if (d.HasFlag() && !cfg.Checkers[d.Name]) || (d.NeedsDeriver && r.env.Derivers == nil) {
 			continue
 		}

@@ -1,4 +1,7 @@
-// Package checkers provides individual checker implementations for goroutinectx.
+// Package checkers defines goroutinectx's checkers, in one table and one
+// file per kind. The analyzer's flags, the settings of goroutinectx.New and
+// of the golangci-lint plugin, and the checkers Run builds all come from
+// [Defs]. The checkers' names are in internal/checkername.
 //
 // # Checker Overview
 //
@@ -18,6 +21,9 @@
 //	│    - Conc            │ github.com/sourcegraph/conc callbacks        │
 //	│  - SpawnerChecker    │ //goroutinectx:spawner marked functions      │
 //	│  - GotaskChecker     │ gotask library functions                     │
+//	├──────────────────────┼──────────────────────────────────────────────┤
+//	│ PackageChecker       │ Checks the whole package, after the others   │
+//	│  - Spawnerlabel      │ //goroutinectx:spawner missing or unneeded   │
 //	└──────────────────────┴──────────────────────────────────────────────┘
 //
 // # GoStmtChecker
@@ -43,7 +49,7 @@
 // One checker type covers errgroup, waitgroup and conc. It checks the calls
 // to the registry entries of its checker name:
 //
-//	c := NewSpawnCallbackChecker(checker.Errgroup, deriveMatcher)
+//	c := newSpawnCallbackChecker(checkername.Errgroup, deriveMatcher)
 //
 // Example detection:
 //
@@ -78,4 +84,38 @@
 //	        return doWork(ctx)
 //	    }),
 //	)
+//
+// # Spawnerlabel Checker
+//
+// Checks that //goroutinectx:spawner labels the functions that spawn, and
+// only those. It runs with -spawnerlabel.
+//
+// A function needs the label when it calls a supported API, such as
+// errgroup.Group.Go, with a func argument, or calls another spawner with one,
+// or calls gotask's DoAsync:
+//
+//	func runTask(task func() error) { // should have //goroutinectx:spawner
+//	    g := new(errgroup.Group)
+//	    g.Go(task)
+//	    _ = g.Wait()
+//	}
+//
+// The calls made in the closures the function runs count too: IIFEs, a
+// closure called through a variable, the goroutines it starts, and the
+// closures a call returns when that result is called. A closure it only
+// makes, and does not run, does not count. A go statement on its own, as
+// go fn(), is not such a call.
+//
+// A labeled function needs it only while it makes such a call or takes a
+// func parameter, the arguments the spawner checker checks. A type parameter
+// whose constraint allows only func types, as F ~func() does, is one:
+//
+//	//goroutinectx:spawner // unnecessary
+//	func simpleHelper() {
+//	    fmt.Println("hello")
+//	}
+//
+// It runs over the whole pass, after the per-node checkers:
+//
+//	diags := newSpawnerlabelChecker(spawners, ssaProg, f).Check(pass, skipFiles)
 package checkers

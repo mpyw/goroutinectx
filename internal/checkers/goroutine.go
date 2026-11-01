@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkername"
 	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
@@ -19,8 +19,8 @@ import (
 type Goroutine struct{}
 
 // Name returns the checker name for ignore directive matching.
-func (*Goroutine) Name() checker.Name {
-	return checker.Goroutine
+func (*Goroutine) Name() checkername.Name {
+	return checkername.Goroutine
 }
 
 // CheckGoStmt checks a go statement for context propagation.
@@ -78,14 +78,16 @@ type GoroutineDerive struct {
 	derivers *deriver.Matcher
 }
 
-// NewGoroutineDerive creates a new GoroutineDerive checker.
-func NewGoroutineDerive(derivers *deriver.Matcher) *GoroutineDerive {
+// newGoroutineDerive creates a new GoroutineDerive checker.
+//
+//declscope:shared // Defs in checkers.go builds the checker with it
+func newGoroutineDerive(derivers *deriver.Matcher) *GoroutineDerive {
 	return &GoroutineDerive{derivers: derivers}
 }
 
 // Name returns the checker name for ignore directive matching.
-func (*GoroutineDerive) Name() checker.Name {
-	return checker.GoroutineDerive
+func (*GoroutineDerive) Name() checkername.Name {
+	return checkername.GoroutineDerive
 }
 
 // CheckGoStmt checks a go statement for deriver function calls.

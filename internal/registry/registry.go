@@ -3,7 +3,7 @@ package registry
 import (
 	"go/types"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkername"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
 )
 
@@ -12,7 +12,7 @@ import (
 type Entry struct {
 	Spec funcspec.Spec
 	// Checker is the checker that checks calls to the API.
-	Checker checker.Name
+	Checker checkername.Name
 	// CallbackArgIdx is the index of the callback argument, the first one
 	// when the API is variadic.
 	CallbackArgIdx int
@@ -36,40 +36,40 @@ const (
 // entries is the table of every supported API.
 var entries = []Entry{
 	// golang.org/x/sync/errgroup
-	{Spec: funcspec.Spec{PkgPath: errgroupPkg, TypeName: "Group", FuncName: "Go"}, Checker: checker.Errgroup},
-	{Spec: funcspec.Spec{PkgPath: errgroupPkg, TypeName: "Group", FuncName: "TryGo"}, Checker: checker.Errgroup},
+	{Spec: funcspec.Spec{PkgPath: errgroupPkg, TypeName: "Group", FuncName: "Go"}, Checker: checkername.Errgroup},
+	{Spec: funcspec.Spec{PkgPath: errgroupPkg, TypeName: "Group", FuncName: "TryGo"}, Checker: checkername.Errgroup},
 
 	// sync (Go 1.25+)
-	{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, Checker: checker.Waitgroup},
+	{Spec: funcspec.Spec{PkgPath: "sync", TypeName: "WaitGroup", FuncName: "Go"}, Checker: checkername.Waitgroup},
 
 	// github.com/sourcegraph/conc
-	{Spec: funcspec.Spec{PkgPath: concPkg, TypeName: "WaitGroup", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "Pool", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultPool", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ContextPool", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultContextPool", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ErrorPool", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultErrorPool", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: streamPkg, TypeName: "Stream", FuncName: "Go"}, Checker: checker.Conc},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "ForEach"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "ForEachIdx"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "Map"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "MapErr"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Iterator", FuncName: "ForEach"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Iterator", FuncName: "ForEachIdx"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Mapper", FuncName: "Map"}, Checker: checker.Conc, CallbackArgIdx: 1},
-	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Mapper", FuncName: "MapErr"}, Checker: checker.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: concPkg, TypeName: "WaitGroup", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "Pool", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultPool", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ContextPool", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultContextPool", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ErrorPool", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: poolPkg, TypeName: "ResultErrorPool", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: streamPkg, TypeName: "Stream", FuncName: "Go"}, Checker: checkername.Conc},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "ForEach"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "ForEachIdx"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "Map"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, FuncName: "MapErr"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Iterator", FuncName: "ForEach"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Iterator", FuncName: "ForEachIdx"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Mapper", FuncName: "Map"}, Checker: checkername.Conc, CallbackArgIdx: 1},
+	{Spec: funcspec.Spec{PkgPath: iterPkg, TypeName: "Mapper", FuncName: "MapErr"}, Checker: checkername.Conc, CallbackArgIdx: 1},
 
 	// github.com/siketyan/gotask: Do* take tasks or functions after ctx
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAll"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllSettled"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoRace"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllFns"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllFnsSettled"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoRaceFns"}, Checker: checker.Gotask, CallbackArgIdx: 1, Variadic: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAll"}, Checker: checkername.Gotask, CallbackArgIdx: 1, Variadic: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllSettled"}, Checker: checkername.Gotask, CallbackArgIdx: 1, Variadic: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoRace"}, Checker: checkername.Gotask, CallbackArgIdx: 1, Variadic: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllFns"}, Checker: checkername.Gotask, CallbackArgIdx: 1, Variadic: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoAllFnsSettled"}, Checker: checkername.Gotask, CallbackArgIdx: 1, Variadic: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, FuncName: "DoRaceFns"}, Checker: checkername.Gotask, CallbackArgIdx: 1, Variadic: true},
 	// DoAsync spawns its receiver task. CancelableTask gets it by embedding
 	// Task.
-	{Spec: funcspec.Spec{PkgPath: gotaskPkg, TypeName: "Task", FuncName: "DoAsync"}, Checker: checker.Gotask, AlwaysSpawns: true},
+	{Spec: funcspec.Spec{PkgPath: gotaskPkg, TypeName: "Task", FuncName: "DoAsync"}, Checker: checkername.Gotask, AlwaysSpawns: true},
 }
 
 // Match gives the entry fn matches, of any checker.
@@ -83,7 +83,7 @@ func Match(fn *types.Func) (Entry, bool) {
 }
 
 // MatchFor gives the entry of the named checker that fn matches.
-func MatchFor(name checker.Name, fn *types.Func) (Entry, bool) {
+func MatchFor(name checkername.Name, fn *types.Func) (Entry, bool) {
 	for _, e := range entries {
 		if e.Checker == name && e.Spec.Matches(fn) {
 			return e, true

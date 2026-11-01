@@ -9,7 +9,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 
-	"github.com/mpyw/goroutinectx/internal/checker"
+	"github.com/mpyw/goroutinectx/internal/checkername"
 	"github.com/mpyw/goroutinectx/internal/ctxkind"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
@@ -38,14 +38,16 @@ type GotaskChecker struct {
 	derivers *deriver.Matcher
 }
 
-// NewGotaskChecker creates a gotask checker.
-func NewGotaskChecker(derivers *deriver.Matcher) *GotaskChecker {
+// newGotaskChecker creates a gotask checker.
+//
+//declscope:shared // Defs in checkers.go builds the checker with it
+func newGotaskChecker(derivers *deriver.Matcher) *GotaskChecker {
 	return &GotaskChecker{derivers: derivers}
 }
 
 // Name returns the checker name.
-func (*GotaskChecker) Name() checker.Name {
-	return checker.Gotask
+func (*GotaskChecker) Name() checkername.Name {
+	return checkername.Gotask
 }
 
 // CheckCall checks the call expression. A variadic API may give a report
@@ -60,7 +62,7 @@ func (c *GotaskChecker) CheckCall(e *env.Env, _ string, call *ast.CallExpr) []an
 		return nil
 	}
 
-	entry, ok := registry.MatchFor(checker.Gotask, fn)
+	entry, ok := registry.MatchFor(checkername.Gotask, fn)
 	if !ok {
 		return nil
 	}
