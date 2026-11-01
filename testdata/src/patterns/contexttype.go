@@ -1835,3 +1835,31 @@ func goodGoParamCtxHolderSliceKeptSetByCallGoroutine(ctx context.Context) {
 func setGoParamCtxHolders(cs *[]goParamCtxHolder, ctx context.Context) {
 	(*cs)[0].ctx = ctx
 }
+
+// freshGoParamCtxs gives a slice of only a fresh context.
+func freshGoParamCtxs() []context.Context {
+	return []context.Context{context.Background()}
+}
+
+// goParamCtxsOf gives a slice of ctx.
+func goParamCtxsOf(ctx context.Context) []context.Context {
+	return []context.Context{ctx}
+}
+
+// [BAD]: Goroutine given a slice of only fresh contexts a function makes
+//
+// The slices the function returns hold no ctx.
+func badGoParamCtxSliceMadeFreshGoroutine(ctx context.Context) {
+	go func(x []context.Context) { // want `goroutine does not propagate context "ctx"`
+		<-x[0].Done()
+	}(freshGoParamCtxs())
+}
+
+// [GOOD]: Goroutine given a slice of ctx a function makes
+//
+// The slices the function returns hold ctx.
+func goodGoParamCtxSliceMadeGoroutine(ctx context.Context) {
+	go func(x []context.Context) {
+		<-x[0].Done()
+	}(goParamCtxsOf(ctx))
+}

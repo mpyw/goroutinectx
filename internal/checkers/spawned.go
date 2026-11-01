@@ -99,19 +99,16 @@ func (p *spawnedContextPolicy) goParamsPass(fn *ssa.Function) bool {
 	args := p.goCall.Args
 	return slices.ContainsFunc(fn.Params, func(param *ssa.Parameter) bool {
 		i := slices.Index(fn.Params, param)
-		if i >= len(args) {
-			return p.e.Kinds.Is(param.Type(), ctxkind.Given)
+		if p.e.Kinds.Is(param.Type(), ctxkind.Captured) {
+			return i >= len(args) || !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
 		}
-		holds := p.e.Flow.ClosureArgHoldsContext(param, args[i], p.goCall, p.e.Kinds)
-		switch {
-		case p.e.Kinds.Is(param.Type(), ctxkind.Captured):
-			return !p.onlyFresh || !p.e.Flow.IsFreshContext(args[i])
-		case p.e.Kinds.Is(param.Type(), ctxkind.Given):
-			return holds
+		if p.e.Kinds.Is(param.Type(), ctxkind.Given) {
+			return i >= len(args) || p.e.Flow.ClosureArgHoldsContext(param, args[i], p.goCall, p.e.Kinds)
 		}
-		return p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
-			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds) && holds) ||
-			p.e.Flow.ClosureArgCapturesContext(param, args[i], p.goCall, p.e.Kinds, p)
+		return i < len(args) && (p.e.Flow.SignalsContext(args[i], p.e.Kinds) ||
+			(p.e.Kinds.MayHold(param, ctxkind.Given) && p.e.Flow.InvolvesContext(args[i], p.e.Kinds) &&
+				p.e.Flow.ClosureArgHoldsContext(param, args[i], p.goCall, p.e.Kinds)) ||
+			p.e.Flow.ClosureArgCapturesContext(param, args[i], p.goCall, p.e.Kinds, p))
 	})
 }
 
