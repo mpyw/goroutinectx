@@ -23,7 +23,9 @@ import (
 // context, and a call that takes a captured value that holds a context the
 // analyzed code can have put there ([ctxkind.Holds]), as its receiver or as
 // any argument, as a function or method spawned directly with it is left
-// alone. A captured closure that captures a context counts too.
+// alone. A value of an interface type counts when one of the values it can
+// be holds one, or one cannot be followed (#240). A captured closure that
+// captures a context counts too.
 //
 // A func value the closure calls or passes on, read from a variable it
 // captures or from a part of one, counts when funcs passes it, as it would
@@ -165,6 +167,11 @@ func (r *closureReader) reads(v ssa.Value) bool {
 				return true
 			}
 			continue
+		case *ssa.ChangeInterface:
+			if r.givesHolderAsInterface(x, v) {
+				return true
+			}
+			continue
 		case *ssa.Store:
 			// A copy to a local variable, as c := *p makes, is read the same.
 			a, ok := x.Addr.(*ssa.Alloc)
@@ -236,22 +243,73 @@ func (r *closureReader) callsContextMethod(call *ssa.CallCommon, v ssa.Value) bo
 	return false
 }
 
-// callsWithHolder reports whether call takes v, as the receiver of a method
-// or as any argument, and held, past its pointers, holds a context or a
-// carrier that the analyzed code can have put there ([ctxkind.Holds]). held
-// is v, or the value v converts to an interface. Whether the callee reads
-// it is not looked into, as for a function or method spawned directly with
-// the same value. A builtin, as append or len, does not count.
+// callsWithHolder reports whether call takes v, as the receiver of a method,
+// an interface method included, or as any argument, and held, past its
+// pointers, holds a context or a carrier that the analyzed code can have
+// put there ([ctxkind.Holds]). held is v, or the value v converts to an
+// interface. A held of an interface type other than a context or a carrier
+// is judged by the values it can be, as [closureReader.interfaceMayHold]
+// judges it. Whether the callee
+// reads it is not looked into, as for a function or method spawned
+// directly with the same value. A builtin, as append or len, does not
+// count.
 func (r *closureReader) callsWithHolder(call *ssa.CallCommon, v, held ssa.Value) bool {
-	if _, isBuiltin := call.Value.(*ssa.Builtin); isBuiltin || !slices.Contains(call.Args, v) {
+	if _, isBuiltin := call.Value.(*ssa.Builtin); isBuiltin {
 		return false
+	}
+	if !slices.Contains(call.Args, v) && (!call.IsInvoke() || call.Value != v) {
+		return false
+	}
+	if types.IsInterface(held.Type()) {
+		// A context or a carrier is judged where it is read, by carries.
+		return !r.kinds.Is(held.Type(), ctxkind.Captured) && r.interfaceMayHold(held)
 	}
 	return r.kinds.Is(typeutil.UnwrapPointer(held.Type()), ctxkind.Holds)
 }
 
+// interfaceMayHold reports whether v, of an interface type and read from
+// what the closure captures, may have a dynamic value that holds a context
+// or a carrier (#240). Each value v can be, as [Flow.CapturedSources] and
+// [Flow.Sources] give them, is judged by the conversion that makes it: a
+// value of a concrete type counts when the type, past its pointers, is
+// [ctxkind.Captured] or [ctxkind.Holds], as var r Runner = ctxRunner{ctx}
+// is. A value of another interface type is judged the same way, a context
+// counting unless it is fresh, and a nil interface holds nothing. A value
+// that cannot be followed, as a parameter, a field of one or the result of
+// a call, counts only when its interface type is declared in the analyzed
+// module ([ctxkind.Classifier.DeclaredInModule]), as only there can the
+// analyzed code have put a context. One of the standard library, as error,
+// net.Conn or io.Reader, does not count.
+func (r *closureReader) interfaceMayHold(v ssa.Value) bool {
+	captured, complete := r.flow.CapturedSources(v)
+	if !complete {
+		return r.kinds.DeclaredInModule(v.Type())
+	}
+	return slices.ContainsFunc(captured, func(c Source) bool {
+		sources, complete := r.flow.Sources(c.Value)
+		if !complete {
+			return r.kinds.DeclaredInModule(c.Value.Type())
+		}
+		return slices.ContainsFunc(sources, func(s Source) bool {
+			switch x := s.Value.(type) {
+			case *ssa.MakeInterface:
+				return r.kinds.Is(typeutil.UnwrapPointer(x.X.Type()), ctxkind.Captured|ctxkind.Holds)
+			case *ssa.ChangeInterface:
+				if r.kinds.Is(x.X.Type(), ctxkind.Context) {
+					return !r.flow.IsFreshContext(x.X)
+				}
+				return r.interfaceMayHold(x.X)
+			case *ssa.Const:
+				return false
+			}
+			return r.kinds.DeclaredInModule(s.Value.Type())
+		})
+	})
+}
+
 // givesHolderAsInterface reports whether conv, v converted to an interface,
 // is given to a call as [closureReader.callsWithHolder] judges it.
-func (r *closureReader) givesHolderAsInterface(conv *ssa.MakeInterface, v ssa.Value) bool {
+func (r *closureReader) givesHolderAsInterface(conv ssa.Value, v ssa.Value) bool {
 	return slices.ContainsFunc(*conv.Referrers(), func(ref ssa.Instruction) bool {
 		call, ok := ref.(ssa.CallInstruction)
 		return ok && r.callsWithHolder(call.Common(), conv, v)

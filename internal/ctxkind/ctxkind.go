@@ -138,7 +138,10 @@ func (c *Classifier) ParamNames(info *types.Info, fnType *ast.FuncType, k Kind) 
 
 // Involves reports whether any of vs is built from a value of a kind in k:
 // one is that value, or it is among the operands they are made from, however
-// deep, as a closure that captures one.
+// deep, as a closure that captures one. A value put into a variable, a
+// struct, an array, a slice, a map or a channel they are made from counts
+// too, as a context in the struct literal of ctxRunner{ctx} converted to an
+// interface, or a closure sent on a channel or set in a map literal (#240).
 func (c *Classifier) Involves(k Kind, vs ...ssa.Value) bool {
 	seen := make(map[ssa.Value]bool)
 	return slices.ContainsFunc(vs, func(v ssa.Value) bool { return c.involves(v, k, seen) })
@@ -161,7 +164,31 @@ func (c *Classifier) involves(v ssa.Value, k Kind, seen map[ssa.Value]bool) bool
 			return true
 		}
 	}
+	switch v.(type) {
+	case *ssa.Alloc, *ssa.MakeSlice, *ssa.MakeMap, *ssa.MakeChan:
+		return c.involvesPut(v, k, seen)
+	}
 	return false
+}
+
+// involvesPut reports whether a value put into container, or into a field
+// or an element of it, however deep, involves a value of a kind in k.
+func (c *Classifier) involvesPut(container ssa.Value, k Kind, seen map[ssa.Value]bool) bool {
+	return slices.ContainsFunc(*container.Referrers(), func(ref ssa.Instruction) bool {
+		switch x := ref.(type) {
+		case *ssa.Store:
+			return x.Addr == container && c.involves(x.Val, k, seen)
+		case *ssa.FieldAddr:
+			return x.X == container && c.involvesPut(x, k, seen)
+		case *ssa.IndexAddr:
+			return x.X == container && c.involvesPut(x, k, seen)
+		case *ssa.MapUpdate:
+			return x.Map == container && (c.involves(x.Key, k, seen) || c.involves(x.Value, k, seen))
+		case *ssa.Send:
+			return x.Chan == container && c.involves(x.X, k, seen)
+		}
+		return false
+	})
 }
 
 // MayHold reports whether v may hold a value of a kind in k. A function
@@ -256,11 +283,38 @@ func (c *Classifier) holds(t types.Type, seen map[types.Type]bool) bool {
 // When the module is not known, a field outside the standard library may be
 // of the module, so it counts, as a report there could be false.
 func (c *Classifier) canSet(f *types.Var) bool {
-	if f.Exported() || f.Pkg() == c.from {
+	// An unexported field always has a package.
+	return f.Exported() || c.ofModule(f.Pkg())
+}
+
+// DeclaredInModule reports whether t is a named type, or an alias of one,
+// declared in the package of From or a package of the module, as a field
+// is judged for Holds (#191). When the module is not known, a type outside
+// the standard library may be of the module, so it counts. A type with no
+// package, as error or any, does not. An interface of such a type that
+// cannot be followed may hold a value the analyzed code made with a
+// context, and one of the standard library, as net.Conn, is taken to hold
+// none (#240).
+func (c *Classifier) DeclaredInModule(t types.Type) bool {
+	var obj *types.TypeName
+	switch n := t.(type) {
+	case *types.Named:
+		obj = n.Obj()
+	case *types.Alias:
+		obj = n.Obj()
+	default:
+		return false
+	}
+	return obj.Pkg() != nil && c.ofModule(obj.Pkg())
+}
+
+// ofModule reports whether pkg is the package of From or a package of the
+// module, or, when the module is not known, outside the standard library.
+func (c *Classifier) ofModule(pkg *types.Package) bool {
+	if pkg == c.from {
 		return true
 	}
-	// An unexported field always has a package.
-	path := f.Pkg().Path()
+	path := pkg.Path()
 	if c.module == "" {
 		return !isStdPath(path)
 	}
