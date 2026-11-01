@@ -894,6 +894,23 @@ func handler(
 <td>
 
 ```go
+func handler(
+	ctx context.Context,
+	jobs []func(),
+) {
+	go func(fs []func()) {
+		fs[0]()
+	}(jobs)
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The same for a slice, a map or a channel of funcs</td>
+</tr>
+<tr>
+<td>
+
+```go
 go func(v any) {
 	doSomething(v)
 }(context.Background())
