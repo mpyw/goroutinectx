@@ -147,9 +147,8 @@ func (c *SpawnerlabelChecker) checkFunction(pass *analysis.Pass, fnDecl *ast.Fun
 	// Check for missing label
 	if !isMarked && spawnInfo != nil {
 		return []analysis.Diagnostic{{
-			Pos: fnDecl.Name.Pos(),
-			Message: fmt.Sprintf("function %q should have //goroutinectx:spawner directive (calls %s with func argument)",
-				fnDecl.Name.Name, spawnInfo.methodName),
+			Pos:     fnDecl.Name.Pos(),
+			Message: fmt.Sprintf(messageLabelMissing, fnDecl.Name.Name, spawnInfo.methodName),
 		}}
 	}
 
@@ -157,7 +156,7 @@ func (c *SpawnerlabelChecker) checkFunction(pass *analysis.Pass, fnDecl *ast.Fun
 	if isMarked && spawnInfo == nil && !spawnerlabelHasFuncParams(fn) {
 		return []analysis.Diagnostic{{
 			Pos:     fnDecl.Name.Pos(),
-			Message: fmt.Sprintf("function %q has unnecessary //goroutinectx:spawner directive", fnDecl.Name.Name),
+			Message: fmt.Sprintf(messageLabelUnneeded, fnDecl.Name.Name),
 		}}
 	}
 

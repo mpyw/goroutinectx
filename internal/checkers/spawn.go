@@ -6,12 +6,12 @@ import (
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/goroutinectx/internal/checkername"
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/registry"
+	"github.com/mpyw/goroutinectx/internal/site"
 )
 
 // SpawnCallbackChecker checks calls to the supported APIs of one checker
@@ -44,42 +44,24 @@ func (c *SpawnCallbackChecker) Name() checkername.Name {
 	return c.checkerName
 }
 
-// CheckCall checks the call expression.
-func (c *SpawnCallbackChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic {
-	fn, recvArgs := spawnedCallee(e, call)
-	if fn == nil {
+// CheckCall checks the callback argument of a call to one of the
+// checker's APIs.
+func (c *SpawnCallbackChecker) CheckCall(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic {
+	if s.Callee == nil {
 		return nil
 	}
-
-	entry, ok := registry.MatchFor(c.checkerName, fn)
-	if !ok {
+	entry, ok := registry.MatchFor(c.checkerName, s.Callee)
+	if !ok || entry.CallbackArgIdx >= len(s.Params()) {
 		return nil
 	}
-	return c.checkSingleArg(e, ctxName, call, entry, entry.CallbackArgIdx+recvArgs)
-}
-
-// checkSingleArg checks the callback, call's argument at idx.
-func (c *SpawnCallbackChecker) checkSingleArg(e *env.Env, ctxName string, call *ast.CallExpr, entry registry.Entry, idx int) []analysis.Diagnostic {
-	if idx >= len(call.Args) {
+	arg := s.Params()[entry.CallbackArgIdx]
+	if e.Index.Judge(e.Flow, newSpawnedContextPolicy(e, c.derivers), arg).Passes() {
 		return nil
-	}
-
-	var v ssa.Value
-	if args := spawnedCallArgs(e, call); args != nil {
-		v = args[idx]
-	}
-	if spawnedFuncVerdict(e, call.Args[idx], v, newSpawnedContextPolicy(e, c.derivers)).Passes() {
-		return nil
-	}
-
-	// Format error message based on whether deriver is configured
-	msg := fmt.Sprintf("%s() closure should use context %q", entry.Spec.FullName(), ctxName)
-	if !c.derivers.IsEmpty() {
-		msg = fmt.Sprintf("%s() closure should use context %q or call goroutine deriver", entry.Spec.FullName(), ctxName)
 	}
 	// Report at the callback, as the spawner checker reports at each
 	// argument, so that an ignore above the callback silences it.
-	return []analysis.Diagnostic{{Pos: call.Args[idx].Pos(), Message: msg}}
+	format := messageContextFormat(c.derivers, messageCallback, messageCallbackDeriver)
+	return []analysis.Diagnostic{{Pos: arg.Expr.Pos(), Message: fmt.Sprintf(format, entry.Spec.FullName(), ctxName)}}
 }
 
 // =============================================================================
@@ -112,35 +94,18 @@ func (*SpawnerChecker) Name() checkername.Name {
 	return checkername.Spawner
 }
 
-// CheckCall checks the call expression. It reports each failing argument at
-// its own position.
-func (c *SpawnerChecker) CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic {
-	// Get the function being called
-	fn, _ := spawnedCallee(e, call)
-	if fn == nil || !c.spawners.IsSpawner(fn) {
+// CheckCall checks a call to a spawner. It reports each failing func
+// argument at its own position.
+func (c *SpawnerChecker) CheckCall(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic {
+	if s.Callee == nil || !c.spawners.IsSpawner(s.Callee) {
 		return nil
 	}
-
-	// Format error message based on whether deriver is configured
-	msgFormat := "%s() func argument should use context %q"
-	if !c.derivers.IsEmpty() {
-		msgFormat = "%s() func argument should use context %q or call goroutine deriver"
-	}
-
-	// Report each failing func argument at its position.
-	args := spawnedCallArgs(e, call)
+	format := messageContextFormat(c.derivers, messageSpawner, messageSpawnerDeriver)
 	p := newSpawnedContextPolicy(e, c.derivers)
 	var diags []analysis.Diagnostic
-	for i, arg := range call.Args {
-		if !spawnIsFuncArg(e.Pass, arg) {
-			continue
-		}
-		var v ssa.Value
-		if args != nil {
-			v = args[i]
-		}
-		if !spawnedFuncVerdict(e, arg, v, p).Passes() {
-			diags = append(diags, analysis.Diagnostic{Pos: arg.Pos(), Message: fmt.Sprintf(msgFormat, fn.Name(), ctxName)})
+	for _, arg := range s.Args {
+		if spawnIsFuncArg(e.Pass, arg.Expr) && !e.Index.Judge(e.Flow, p, arg).Passes() {
+			diags = append(diags, analysis.Diagnostic{Pos: arg.Expr.Pos(), Message: fmt.Sprintf(format, s.Callee.Name(), ctxName)})
 		}
 	}
 	return diags

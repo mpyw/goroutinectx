@@ -71,6 +71,8 @@ goroutinectx/
 │   │   ├── checkers.go        # The one table of checkers (Defs): flags, defaults, builders
 │   │   ├── goroutine.go       # go statement checkers (goroutine, goroutinederive)
 │   │   ├── spawn.go           # errgroup, waitgroup, conc and spawner checkers
+│   │   ├── spawned.go         # The context policy the go statement and callback checkers share
+│   │   ├── message.go         # The one table of report formats
 │   │   ├── gotask.go          # gotask library checker
 │   │   └── spawnerlabel.go    # spawnerlabel checker
 │   ├── carrier/               # Context carrier types (-context-carriers)
@@ -84,6 +86,7 @@ goroutinectx/
 │   │                          # value resolution, call walker
 │   ├── funcspec/              # pkg/path.Func and pkg/path.Type.Method specs
 │   ├── registry/              # The one table of supported spawning APIs
+│   ├── site/                  # Index: each go statement and call as a Site, built once per pass
 │   └── typeutil/              # Pointers, embedded interfaces, package paths
 ├── testdata/
 │   └── src/                   # Test fixtures for analysistest
@@ -117,7 +120,7 @@ Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-
 2. Builds each checker that is on from the `env.Env`
 3. Maps each function with a context parameter to the name of the first (`Kinds.ParamNames`)
 4. Uses `inspector.WithStack` to traverse the AST, and for each go statement and call finds the nearest enclosing function with a context
-5. Dispatches to the go statement or call checkers, with the `env.Env` and that context's name
+5. Makes the node a `site.Site` once, and dispatches it to the go statement or call checkers, with the `env.Env` and that context's name
 6. Reports each returned diagnostic unless an ignore for that checker sits at its line
 
 ### Checker interfaces (internal/run)
@@ -129,12 +132,12 @@ Core interfaces:
 // runner applies //goroutinectx:ignore at each report's position.
 type goStmtChecker interface {
     Name() checkername.Name
-    CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
+    CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic
 }
 
 type callChecker interface {
     Name() checkername.Name
-    CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
+    CheckCall(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic
 }
 
 type packageChecker interface {
@@ -151,6 +154,7 @@ What the checkers read about the pass, built once per pass by `run.Run`:
 type Env struct {
     Pass     *analysis.Pass
     SSA      *flow.Program
+    Index    *site.Index         // each go statement and call as a site, and each function literal's SSA function
     Kinds    *ctxkind.Classifier // what counts as a context: carriers, module
     Derivers *deriver.Matcher    // nil when -goroutine-deriver is not set
     Spawners *spawner.Map
@@ -186,9 +190,13 @@ It also holds both tests for a context parameter. They differ on purpose:
 
 `IsFreshCall` tells `Background` and `TODO` of `context` and `golang.org/x/net/context`. `IsWithCall` tells the `With*` functions of `context`, which the gotask checker follows back to a deriver.
 
+### internal/site/
+
+Gives each go statement and call as a `Site`: its SSA instruction, the function it calls, the number of arguments before the receiver's parameters (`RecvArgs`), the receiver's value (`Recv`), and each value it may spawn (`Spawned`: its expression, its SSA value, and its ordinal). An `Index` is built once per pass, on `env.Env`. It maps each go statement and call to its instruction, and each function literal to its SSA function, so a node is not found by a scan of the functions. `Index.Judge` judges a spawned value by a policy, as `flow.Judge` does, and finds a function literal SSA has no value for by its syntax. The checkers loop over the values of a site, and take the text of each report from one table, `internal/checkers/message.go`.
+
 ### internal/flow/
 
-Follows values through the package's SSA form: the instruction of a go statement or a call (`Program.GoAt`, `Program.CallAt`), what a closure captures (`ClosureCapturesContext`), what it runs (`ClosureCallsDeriver`, `Runs`), what kind of function it is (`Classify`), and where a spawned function comes from, and how it is judged (`Judge`). It wraps `golang.org/x/tools/go/ssa`, which is imported as `ssa`.
+Follows values through the package's SSA form: what a closure captures (`ClosureCapturesContext`), what it runs (`ClosureCallsDeriver`, `Runs`), what kind of function it is (`Classify`), and where a spawned function comes from, and how it is judged (`Judge`). It wraps `golang.org/x/tools/go/ssa`, which is imported as `ssa`.
 
 `Classify` is the one place that tells a function literal, a range-over-func body, a named function, a method, and the synthetic wrappers (bound method, thunk, promoted method) apart. It classifies an instantiation as its generic origin. A function or method of another package has no syntax, so it is of the external kind. The rule for a named function given only a fresh context takes an external function with no receiver too (#223). `Runs` is the one walk of what a function runs. Its options decide whether it goes into goroutines and into the closures a called factory returns:
 
@@ -312,12 +320,14 @@ insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 
     switch node := n.(type) {
     case *ast.GoStmt:
+        s := r.env.Index.Site(node)
         for _, c := range r.goStmtCheckers {
-            r.report(c.Name(), c.CheckGoStmt(r.env, ctxName, node), token.NoPos)
+            r.report(c.Name(), c.CheckGoStmt(r.env, ctxName, s), token.NoPos)
         }
     case *ast.CallExpr:
+        s := r.env.Index.Site(node)
         for _, c := range r.callCheckers {
-            r.report(c.Name(), c.CheckCall(r.env, ctxName, node), node.Pos())
+            r.report(c.Name(), c.CheckCall(r.env, ctxName, s), node.Pos())
         }
     }
     return true
@@ -437,7 +447,7 @@ Separating interfaces allows checkers to implement only what they need, avoiding
 
 **Decision:** Keep every checker and the table of them in one package, `internal/checkers`, one file per kind (`goroutine.go`, `spawn.go`, `gotask.go`, `spawnerlabel.go`), with the table `Defs` in `checkers.go`. The names are a package of their own, `internal/checkername`, which imports nothing.
 
-**Rationale:** The checkers judge spawned functions with the same helpers (`spawned.go`): how a callee and its arguments are found, and how a closure is resolved. Split into packages, each would need those exported from a shared package. In one package, declscope keeps each file's helpers to that file, and the names carry the file (`gotaskIsConstructor`, `spawnedCallee`, `spawnerlabelHasFuncArgs`). spawnerlabel shares none of the helpers, but declscope gives it the same privacy a package would, so it needs no package of its own. The directive packages and the registry need only the names, so they import `checkername` and not the checkers, which import them.
+**Rationale:** The checkers judge spawned functions with the same policy (`spawned.go`) and the same report table (`message.go`). How a callee and its arguments are found is in `internal/site`. Split into packages, each would need those exported from a shared package. In one package, declscope keeps each file's helpers to that file, and the names carry the file (`gotaskIsConstructor`, `spawnedWaiterPasses`, `spawnerlabelHasFuncArgs`). spawnerlabel shares none of the helpers, but declscope gives it the same privacy a package would, so it needs no package of its own. The directive packages and the registry need only the names, so they import `checkername` and not the checkers, which import them.
 
 ### 5. Multiple Context Parameter Support
 

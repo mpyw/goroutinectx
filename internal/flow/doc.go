@@ -30,15 +30,6 @@
 //	    SrcFuncs []*ssa.Function
 //	}
 //
-// # Finding Function Literals
-//
-// Use [Program.FindFuncLit] to get the SSA function for an AST func literal:
-//
-//	ssaFn := ssaProg.FindFuncLit(astFuncLit)
-//	if ssaFn == nil {
-//	    // Fall back to AST analysis
-//	}
-//
 // # Closure Checks
 //
 // Plain functions check an SSA function for context propagation:
@@ -77,9 +68,8 @@
 //
 // # Resolving Spawned Values
 //
-// [Program.GoAt] and [Program.CallAt] find the instruction of an AST go
-// statement or call, and [ResolvedArgs] lines its SSA arguments up with the
-// AST ones. [Judge] then folds over the sources of a func-typed value, and
+// The site package finds the instruction of an AST go statement or call,
+// and [ResolvedArgs] lines its SSA arguments up with the AST ones. [Judge] then folds over the sources of a func-typed value, and
 // over what the factories it calls return, as Returns gives it, to each
 // function literal it can hold, and asks a [Policy] about each one. The
 // verdict is the worst of the sources; of a factory, the best value it

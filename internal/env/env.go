@@ -11,6 +11,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/directive/spawner"
 	"github.com/mpyw/goroutinectx/internal/flow"
+	"github.com/mpyw/goroutinectx/internal/site"
 )
 
 // Env is what is known about one pass, the same for every node of it.
@@ -19,6 +20,9 @@ type Env struct {
 	Pass *analysis.Pass
 	// SSA is the package's SSA program.
 	SSA *flow.Program
+	// Index gives each go statement and call as a site, and each function
+	// literal's SSA function.
+	Index *site.Index
 	// Kinds tells what counts as a context, with -context-carriers and the
 	// module of the analyzed package.
 	Kinds *ctxkind.Classifier
@@ -47,6 +51,7 @@ func New(pass *analysis.Pass, prog *flow.Program, carriers []carrier.Carrier, de
 	return &Env{
 		Pass:     pass,
 		SSA:      prog,
+		Index:    site.NewIndex(pass, prog),
 		Kinds:    ctxkind.New(prog.Program, carriers, module),
 		Derivers: derivers,
 		Spawners: spawners,

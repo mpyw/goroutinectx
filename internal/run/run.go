@@ -26,6 +26,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/flow"
 	"github.com/mpyw/goroutinectx/internal/funcspec"
+	"github.com/mpyw/goroutinectx/internal/site"
 )
 
 // Config is what the analyzer's flags, or the golangci-lint plugin's
@@ -222,19 +223,19 @@ func Run(pass *analysis.Pass, cfg Config) error {
 type goStmtChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
 	Name() checkername.Name
-	// CheckGoStmt gives the reports for one go statement. ctxName is the
-	// first context parameter of the nearest enclosing function that has
-	// one, for the message.
-	CheckGoStmt(e *env.Env, ctxName string, stmt *ast.GoStmt) []analysis.Diagnostic
+	// CheckGoStmt gives the reports for one go statement, the site s.
+	// ctxName is the first context parameter of the nearest enclosing
+	// function that has one, for the message.
+	CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic
 }
 
 // callChecker checks function call expressions.
 type callChecker interface {
 	// Name returns the checker name, which its reports are ignored by.
 	Name() checkername.Name
-	// CheckCall gives the reports for one call, none for a call the checker
-	// does not check. ctxName is as for CheckGoStmt.
-	CheckCall(e *env.Env, ctxName string, call *ast.CallExpr) []analysis.Diagnostic
+	// CheckCall gives the reports for one call, the site s, none for a call
+	// the checker does not check. ctxName is as for CheckGoStmt.
+	CheckCall(e *env.Env, ctxName string, s *site.Site) []analysis.Diagnostic
 }
 
 // packageChecker checks a whole package once, after the other checkers.
@@ -287,14 +288,21 @@ func (r *runner) checkNodes(insp *inspector.Inspector) {
 			return true // No context in scope
 		}
 
+		// Each node is made a site once, for all its checkers.
 		switch node := n.(type) {
 		case *ast.GoStmt:
-			for _, c := range r.goStmtCheckers {
-				r.report(c.Name(), c.CheckGoStmt(r.env, ctxName, node), token.NoPos)
+			if len(r.goStmtCheckers) > 0 {
+				s := r.env.Index.Site(node)
+				for _, c := range r.goStmtCheckers {
+					r.report(c.Name(), c.CheckGoStmt(r.env, ctxName, s), token.NoPos)
+				}
 			}
 		case *ast.CallExpr:
-			for _, c := range r.callCheckers {
-				r.report(c.Name(), c.CheckCall(r.env, ctxName, node), node.Pos())
+			if len(r.callCheckers) > 0 {
+				s := r.env.Index.Site(node)
+				for _, c := range r.callCheckers {
+					r.report(c.Name(), c.CheckCall(r.env, ctxName, s), node.Pos())
+				}
 			}
 		}
 

@@ -1,8 +1,6 @@
 package checkers
 
 import (
-	"go/ast"
-	"go/types"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -11,28 +9,7 @@ import (
 	"github.com/mpyw/goroutinectx/internal/deriver"
 	"github.com/mpyw/goroutinectx/internal/env"
 	"github.com/mpyw/goroutinectx/internal/flow"
-	"github.com/mpyw/goroutinectx/internal/funcspec"
 )
-
-// spawnedFuncVerdict judges the function a goroutine or a callback runs.
-// expr is its AST expression, and v its SSA value, nil when SSA has none.
-// The value is resolved through SSA to each function literal it can hold,
-// and p judges them, as [flow.Judge] does. A struct field or an element is
-// followed as a part of the variable it is in. A literal SSA has no value
-// for is found by its syntax.
-//
-//declscope:shared // goroutine.go, spawn.go and gotask.go judge spawned functions alike
-func spawnedFuncVerdict(e *env.Env, expr ast.Expr, v ssa.Value, p flow.Policy) flow.Verdict {
-	if lit, ok := ast.Unparen(expr).(*ast.FuncLit); ok && v == nil {
-		if fn := e.SSA.FindFuncLit(lit); fn != nil {
-			return p.Literal(fn, flow.SiteSpawned)
-		}
-	}
-	if v == nil {
-		return flow.Unknown
-	}
-	return flow.Judge(e.Flow, p, v)
-}
 
 // spawnedContextPolicy judges a closure by whether it takes or captures a
 // context, or, when derivers is not empty, calls the deriver at its start.
@@ -163,46 +140,4 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 		return false
 	}
 	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
-}
-
-// spawnedCallArgs gives the SSA value of each argument of call, or nil.
-//
-//declscope:shared // spawn.go and gotask.go read the arguments of a call
-func spawnedCallArgs(e *env.Env, call *ast.CallExpr) []ssa.Value {
-	instr := e.SSA.CallAt(call)
-	if instr == nil {
-		return nil
-	}
-	return flow.ResolvedArgs(instr.Common(), call)
-}
-
-// spawnedCallee gives the function call calls, and the number of arguments
-// the call gives before the function's parameters: 1 for a method
-// expression, as (*errgroup.Group).Go(g, fn), which takes the receiver
-// first, and 0 otherwise. A call through a function or method value, as
-// gofn := wg.Go, or through a method expression in a variable, as
-// gofn := (*errgroup.Group).Go, is found through SSA.
-//
-//declscope:shared // spawn.go and gotask.go find the API a call makes alike
-func spawnedCallee(e *env.Env, call *ast.CallExpr) (*types.Func, int) {
-	if fn := funcspec.ExtractFunc(e.Pass, call); fn != nil {
-		if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok {
-			if s := e.Pass.TypesInfo.Selections[sel]; s != nil && s.Kind() == types.MethodExpr {
-				return fn, 1
-			}
-		}
-		return fn, 0
-	}
-	instr := e.SSA.CallAt(call)
-	if instr == nil || instr.Common().IsInvoke() || instr.Common().StaticCallee() == nil {
-		return nil, 0
-	}
-	common := instr.Common()
-	fn := flow.ExtractCalledFunc(common)
-	// A method value is a bound wrapper that holds the receiver. A method
-	// called any other way is given the receiver first.
-	if flow.Classify(common.StaticCallee()) != flow.ClassifiedBound && fn != nil && fn.Signature().Recv() != nil {
-		return fn, 1
-	}
-	return fn, 0
 }
