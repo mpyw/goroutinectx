@@ -174,6 +174,8 @@ func runIsBody(fn *ssa.Function) bool {
 // iterator call that runs it. SSA builds the body as a synthetic yield
 // closure and passes it to the iterator, which calls it in the same
 // goroutine.
+//
+//declscope:shared // closure.go leaves the iterator call to the body Runs goes into
 func runRangeBody(call *ssa.CallCommon) *ssa.Function {
 	for _, arg := range call.Args {
 		fn, ok := arg.(*ssa.Function)

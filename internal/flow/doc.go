@@ -149,6 +149,9 @@
 //	    doWork(ctx)
 //	}()
 //
+// [Flow.ClosureDerives] also judges each func value the closure calls by a
+// [Policy], as if it were spawned directly (#299).
+//
 // # Helper Functions
 //
 // The package exports helper functions for SSA analysis:
