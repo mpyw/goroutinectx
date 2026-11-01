@@ -126,6 +126,34 @@ func (f *Flow) GivesOnlyFreshContext(call *ssa.CallCommon, kinds *ctxkind.Classi
 	return given
 }
 
+// IsNamedFuncWithoutContext reports whether v is a named function or
+// method, generic or not, of the analyzed package or of another, a method
+// expression, as T.M, or a method value whose receiver cannot hold a
+// context, as [Flow.GivesOnlyFreshContext] judges an argument. Such a
+// function holds no context of its own: a method expression takes its
+// receiver as the first argument of the call, which is judged with the
+// others (#274, #323, #324).
+func (f *Flow) IsNamedFuncWithoutContext(v ssa.Value, kinds *ctxkind.Classifier) bool {
+	if mc, ok := v.(*ssa.MakeClosure); ok {
+		fn, _ := mc.Fn.(*ssa.Function)
+		return Classify(fn) == ClassifiedBound &&
+			!slices.ContainsFunc(mc.Bindings, func(recv ssa.Value) bool {
+				return kinds.MayHold(recv, ctxkind.Given) || f.SignalsContext(recv, kinds)
+			})
+	}
+	fn, ok := v.(*ssa.Function)
+	if !ok {
+		return false
+	}
+	switch Classify(fn) {
+	case ClassifiedNamed, ClassifiedMethod, ClassifiedThunk, ClassifiedExternal:
+		// A function or a method of another package is built from type
+		// information.
+		return true
+	}
+	return false
+}
+
 // SignalsContext reports whether one of the sources of v is a signal of a
 // context that is not fresh, as [Flow.IsFreshContext] judges it: the
 // channel of its Done method, or the func that cancels a context made from

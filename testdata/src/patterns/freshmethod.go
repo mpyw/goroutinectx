@@ -205,6 +205,99 @@ func goodIfaceMethodValueFreshCtxGoroutine(ctx context.Context) {
 	go run(context.Background())
 }
 
+// ===== Method expression, or captured method value, given a fresh context (#337) =====
+
+// [BAD]: Method expression of an empty struct given a fresh context
+//
+// A method expression takes its receiver as the first argument, which can
+// hold no context, so the method does not get ctx.
+func badEmptyRecvMethodExprFreshCtxGoroutine(ctx context.Context) {
+	go emptyRecv.wait(emptyRecv{}, context.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Method expression of an empty struct in a variable given a fresh context
+//
+// The variable holds only the method expression.
+func badEmptyRecvMethodExprVarFreshCtxGoroutine(ctx context.Context) {
+	m := emptyRecv.wait
+	go m(emptyRecv{}, context.TODO()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Method expression of a pointer to an empty struct given a fresh context
+//
+// The receiver can hold no context, so the method does not get ctx.
+func badEmptyRecvPtrMethodExprFreshCtxGoroutine(ctx context.Context) {
+	go (*emptyRecv).wait(&emptyRecv{}, context.Background()) // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured method value of an empty struct called with a fresh context
+//
+// The method value holds a receiver that can hold no context, so the method
+// does not get ctx, the same as when the closure calls it directly.
+func badEmptyRecvCapturedMethodValueFreshCtxGoroutine(ctx context.Context) {
+	run := emptyRecv{}.wait
+	go func() { // want `goroutine does not propagate context "ctx"`
+		run(context.Background())
+	}()
+}
+
+// [BAD]: Captured method expression of an empty struct called with a fresh context
+//
+// The receiver the closure gives can hold no context.
+func badEmptyRecvCapturedMethodExprFreshCtxErrgroup(ctx context.Context) {
+	m := basicRecv.wait
+	g := new(errgroup.Group)
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		m(basicRecv{name: "a"}, context.Background())
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [GOOD]: Method expression of an empty struct given ctx
+//
+// The method is given ctx.
+func goodEmptyRecvMethodExprCtxGoroutine(ctx context.Context) {
+	go emptyRecv.wait(emptyRecv{}, ctx)
+}
+
+// [GOOD]: Method expression of a struct with a context field given a fresh context
+//
+// The method may get ctx from the receiver given first.
+func goodCtxRecvMethodExprFreshCtxGoroutine(ctx context.Context) {
+	go (*ctxRecv).wait(&ctxRecv{ctx: ctx}, context.Background())
+}
+
+// [GOOD]: Method expression of an interface given a fresh context
+//
+// The value behind the interface may hold ctx.
+func goodIfaceMethodExprFreshCtxGoroutine(ctx context.Context) {
+	var w freshMethodWaiter = &ctxRecv{ctx: ctx}
+	go freshMethodWaiter.wait(w, context.Background())
+}
+
+// [GOOD]: Captured method value of a struct with a context field called with a fresh context
+//
+// The method may get ctx from the receiver the method value holds.
+func goodCtxRecvCapturedMethodValueFreshCtxGoroutine(ctx context.Context) {
+	run := (&ctxRecv{ctx: ctx}).wait
+	go func() {
+		run(context.Background())
+	}()
+}
+
+// [GOOD]: Captured method value of an empty struct called with ctx
+//
+// The method is given ctx.
+func goodEmptyRecvCapturedMethodValueCtxGoroutine(ctx context.Context) {
+	run := emptyRecv{}.wait
+	go func() {
+		run(ctx)
+	}()
+}
+
+type freshMethodWaiter interface{ wait(context.Context) }
+
 var freshMethodFlag bool
 
 type emptyRecv struct{}
