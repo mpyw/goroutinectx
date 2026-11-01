@@ -265,15 +265,10 @@ func spawnerlabelFuncParams(fn *ssa.Function) map[ssa.Value]bool {
 func spawnerlabelOnlyCalled(params map[ssa.Value]bool) bool {
 	for p := range params {
 		for _, ref := range *p.Referrers() {
-			switch r := ref.(type) {
-			case *ssa.DebugRef:
-				continue
-			case *ssa.Call:
-				if r.Call.Value == p && !slices.Contains(r.Call.Args, p) {
-					continue
-				}
+			call, ok := ref.(*ssa.Call)
+			if !ok || call.Call.Value != p || slices.Contains(call.Call.Args, p) {
+				return false
 			}
-			return false
 		}
 	}
 	return true
