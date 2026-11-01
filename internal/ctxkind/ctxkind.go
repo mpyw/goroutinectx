@@ -161,8 +161,8 @@ func (c *Classifier) Involves(k Kind, vs ...ssa.Value) bool {
 	return c.InvolvesUnless(k, nil, vs...)
 }
 
-// InvolvesUnless is [Classifier.Involves], but a value of a kind in k for
-// which skip reports true does not count, and is not looked into, as a fresh
+// InvolvesUnless is [Classifier.Involves], but a value for which skip
+// reports true does not count, and is not looked into, as a fresh
 // context.Background() given to a goroutine as an any (#252). skip may be
 // nil.
 func (c *Classifier) InvolvesUnless(k Kind, skip func(ssa.Value) bool, vs ...ssa.Value) bool {
@@ -183,8 +183,11 @@ func (in *involving) involves(v ssa.Value) bool {
 		return false
 	}
 	in.seen[v] = true
+	if in.skip != nil && in.skip(v) {
+		return false
+	}
 	if in.c.Is(v.Type(), in.k) {
-		return in.skip == nil || !in.skip(v)
+		return true
 	}
 	instr, ok := v.(ssa.Instruction)
 	if !ok {

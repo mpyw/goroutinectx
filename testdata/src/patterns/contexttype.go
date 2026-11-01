@@ -904,3 +904,52 @@ func badGoParamStringFromCtxGoroutine(ctx context.Context) {
 		_ = name
 	}(ctxName(ctx))
 }
+
+// newCtxRunner gives a runner that holds ctx.
+func newCtxRunner(ctx context.Context) runner { return ctxRunner{ctx} }
+
+// newCtxRunnerErr gives a runner that holds ctx, and an error.
+func newCtxRunnerErr(ctx context.Context) (runner, error) { return ctxRunner{ctx}, nil }
+
+// ctxRecord is data a call given ctx makes. Its any field may hold
+// anything, but it is not made to hold the context.
+type ctxRecord struct {
+	Name  string
+	Extra any
+}
+
+// listRecords gives the records it lists with ctx.
+func listRecords(ctx context.Context) ([]*ctxRecord, error) { _ = ctx; return nil, nil }
+
+// [GOOD]: Goroutine given an interface a call made from ctx
+//
+// The interface the call gives may hold what it was given (#252).
+func goodGoParamIfaceFromCallGoroutine(ctx context.Context) {
+	go func(r runner) {
+		r.Run()
+	}(newCtxRunner(ctx))
+}
+
+// [GOOD]: Goroutine given an interface a call of two results made from ctx
+//
+// The interface taken from the results may hold what the call was given
+// (#252).
+func goodGoParamIfaceFromCallErrGoroutine(ctx context.Context) {
+	r, _ := newCtxRunnerErr(ctx)
+	go func(r runner) {
+		r.Run()
+	}(r)
+}
+
+// [BAD]: Goroutine given data a call made with ctx
+//
+// The records are data the call listed, not a holder of ctx, though a
+// record may hold anything in its any field.
+func badGoParamDataFromCallGoroutine(ctx context.Context) {
+	records, _ := listRecords(ctx)
+	for _, r := range records {
+		go func(r *ctxRecord) { // want `goroutine does not propagate context "ctx"`
+			_ = r.Name
+		}(r)
+	}
+}
