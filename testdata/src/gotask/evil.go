@@ -450,6 +450,66 @@ func goodPointerDereferenceCallbackDeriver(ctx context.Context) {
 	(*taskPtr).DoAsync(ctx, nil)
 }
 
+// ===== POINTER CAPTURED BY A CLOSURE (#273) =====
+
+// [GOOD]: Pointer captured by a closure called in place, task calls deriver
+//
+// The task is followed through the variable that holds its address.
+func goodCapturedPointerCallbackDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})
+	taskPtr := &task
+	func() {
+		(*taskPtr).DoAsync(ctx, nil)
+	}()
+}
+
+// [GOOD]: Pointer captured by a deferred closure, task calls deriver
+//
+// The task is followed through the variable that holds its address.
+func goodCapturedPointerDeferCallbackDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})
+	taskPtr := &task
+	defer func() {
+		taskPtr.DoAsync(ctx, nil)
+	}()
+}
+
+// [BAD]: Pointer captured by a closure called in place, task without deriver
+//
+// The task behind the pointer does not call the deriver.
+func badCapturedPointerNoDeriver(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	taskPtr := &task
+	func() {
+		(*taskPtr).DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+	}()
+}
+
+// [BAD]: Pointer captured by a closure, task replaced by one without deriver
+//
+// The task stored last before the closure runs does not call the deriver.
+func badCapturedPointerReplacedTask(ctx context.Context) {
+	task := gotask.NewTask(func(ctx context.Context) error {
+		_ = apm.NewGoroutineContext(ctx)
+		return nil
+	})
+	taskPtr := &task
+	task = gotask.NewTask(func(ctx context.Context) error {
+		return nil
+	})
+	defer func() {
+		taskPtr.DoAsync(ctx, nil) // want `gotask\.Task\.DoAsync\(\) 1st argument should call goroutine deriver`
+	}()
+}
+
 // ===== METHOD EXPRESSIONS AND VALUES (#120) =====
 
 // [BAD]: DoAsync as a method expression

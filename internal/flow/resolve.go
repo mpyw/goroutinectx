@@ -240,7 +240,8 @@ func resolvedSliceElems(slice ssa.Value, n int) []ssa.Value {
 // store counts. ok is false when the variable may be written in a
 // way not followed: through a closure, or through its address. A struct
 // field, or an element at a constant index, is followed as a part of the
-// variable it is in, w.depth steps in.
+// variable it is in, w.depth steps in, and a variable whose address is
+// loaded from another, as a whole part of it.
 func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, w resolvedWalk) (stored []ssa.Value, ok bool) {
 	switch a := addr.(type) {
 	case *ssa.Alloc:
@@ -273,6 +274,13 @@ func resolvedStoresAt(addr ssa.Value, at ssa.Instruction, w resolvedWalk) (store
 
 	case *ssa.FieldAddr, *ssa.IndexAddr:
 		return resolvedPartStores(a, nil, at, w)
+
+	case *ssa.UnOp:
+		// An address loaded from a variable, as p of p := &v that a
+		// closure captures holds (#273).
+		if a.Op == token.MUL {
+			return resolvedPartStores(a, nil, at, w)
+		}
 	}
 	return nil, false
 }
