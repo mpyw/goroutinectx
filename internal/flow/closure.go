@@ -413,18 +413,19 @@ func (r *closureReader) waitsDone(v ssa.Value) bool {
 
 // madeWithContext reports whether the captured fv is given to a call in
 // the closure, as the receiver of cmd.Run() or an argument ([closureRuns]),
-// and a value it can be is made by a call given a context other than a
-// fresh one, in an argument or as the receiver, as [Flow.InvolvesContext]
-// judges each. The value must be of a type with a context field
-// ([ctxkind.Classifier.HasContextField]), as exec.CommandContext(ctx, ...),
-// http.NewRequestWithContext(ctx, ...) and req.WithContext(ctx) make
-// (#257): the call has put ctx there, even in a field the analyzed code
-// cannot read. A call of many results is judged by each one taken from it.
-// A go statement's argument counts such a result too
-// ([Flow.InvolvesContext]). A value of an interface or a func type is
-// left to the other rules, as a net.Conn a dial given ctx makes holds no
-// ctx after the dial (#240). A result of another type, as a string made
-// from ctx, holds none.
+// and a value it can be is made by a call of the standard library given a
+// context other than a fresh one, in an argument or as the receiver, as
+// [Flow.InvolvesContext] judges each. The value must be of a type with a
+// context field, exported or not ([contextMadeByStd]), as
+// exec.CommandContext(ctx, ...), http.NewRequestWithContext(ctx, ...) and
+// req.WithContext(ctx) make (#257): the call has put ctx there, in a field
+// the analyzed code cannot read. A call of many results is judged by each
+// one taken from it. A go statement's argument counts such a result too
+// ([Flow.InvolvesContext]). A value of an interface or a func type is left
+// to the other rules, as a net.Conn a dial given ctx makes holds no ctx
+// after the dial (#240). A result of another type, as a string made from
+// ctx, holds none, and a call of another package, as zerolog.Ctx(ctx), may
+// take the value out of ctx.
 func (r *closureReader) madeWithContext(fv *ssa.FreeVar) bool {
 	if !closureRuns(fv, true) {
 		return false
@@ -433,31 +434,11 @@ func (r *closureReader) madeWithContext(fv *ssa.FreeVar) bool {
 	return slices.ContainsFunc(captured, func(c Source) bool {
 		sources, _ := r.flow.Sources(c.Value)
 		return slices.ContainsFunc(sources, func(s Source) bool {
-			call := closureMakingCall(s.Value)
-			if call == nil || !r.kinds.HasContextField(s.Value.Type()) {
-				return false
-			}
-			args := call.Args
-			if call.IsInvoke() {
-				args = append([]ssa.Value{call.Value}, args...)
-			}
-			return slices.ContainsFunc(args, func(arg ssa.Value) bool { return r.flow.InvolvesContext(arg, r.kinds) })
+			call := contextMakingCall(s.Value)
+			return call != nil && contextMadeByStd(call, s.Value.Type(), r.kinds) &&
+				slices.ContainsFunc(call.Args, func(arg ssa.Value) bool { return r.flow.InvolvesContext(arg, r.kinds) })
 		})
 	})
-}
-
-// closureMakingCall gives the call v is the result of, alone or taken from
-// its results, or nil. No builtin gives a struct, so a builtin is never
-// judged a maker.
-func closureMakingCall(v ssa.Value) *ssa.CallCommon {
-	if x, ok := v.(*ssa.Extract); ok {
-		v = x.Tuple
-	}
-	call, ok := v.(*ssa.Call)
-	if !ok {
-		return nil
-	}
-	return call.Common()
 }
 
 // closureRuns reports whether v is called, or given to a call that is not

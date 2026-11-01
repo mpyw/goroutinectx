@@ -285,6 +285,9 @@ func (c *Classifier) typeMayHold(t types.Type, k Kind, seen map[types.Type]bool)
 // cannot set counts too, as the unexported context of an *exec.Cmd or an
 // *http.Request: a call given ctx that makes such a value has put ctx there
 // (#257). A struct a field points to is not looked into.
+//
+// Only a call of the standard library is taken to have put the context
+// it is given there; the caller tells which call made the value.
 func (c *Classifier) HasContextField(t types.Type) bool {
 	return c.hasContextField(typeutil.UnwrapPointer(t), make(map[types.Type]bool))
 }
@@ -455,6 +458,12 @@ func contextInterface(prog *ssa.Program) *types.Interface {
 	}
 	iface, _ := obj.Type().Underlying().(*types.Interface)
 	return iface
+}
+
+// IsStdPackage reports whether pkg is of the standard library: the first
+// element of its path has no dot, as "os/exec" and "net/http".
+func IsStdPackage(pkg *types.Package) bool {
+	return isStdPath(pkg.Path())
 }
 
 // isStdPath reports whether path is of the standard library: its first

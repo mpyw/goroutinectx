@@ -139,13 +139,13 @@ type requestMaker interface {
 	Make(ctx context.Context) *http.Request
 }
 
-// [GOOD]: Request made by an interface method given ctx
+// [BAD]: Request made by an interface method given ctx
 //
-// The interface method is given ctx and makes an *http.Request, which has
-// a context field.
-func goodRequestMakerGoroutine(ctx context.Context, client *http.Client, maker requestMaker) {
+// The method of an interface cannot be followed, and may take the request
+// out of ctx, so the request is not taken to hold ctx.
+func badRequestMakerGoroutine(ctx context.Context, client *http.Client, maker requestMaker) {
 	req := maker.Make(ctx)
-	go func() {
+	go func() { // want `goroutine does not propagate context "ctx"`
 		resp, err := client.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()

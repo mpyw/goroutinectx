@@ -47,32 +47,59 @@ func contextLeftOut(f *Flow, part ssa.Value, kinds *ctxkind.Classifier) bool {
 	if kinds.Is(part.Type(), ctxkind.Context) {
 		return f.IsFreshContext(part)
 	}
-	switch x := part.(type) {
-	case *ssa.Call:
+	if x, ok := part.(*ssa.Call); ok {
 		if _, many := x.Type().(*types.Tuple); many {
 			return false
 		}
-	case *ssa.Extract:
-		if _, ok := x.Tuple.(*ssa.Call); !ok {
-			return false
-		}
-	default:
-		return false
 	}
-	return !contextCallResultMayHold(part.Type(), kinds)
+	call := contextMakingCall(part)
+	return call != nil && !contextCallResultMayHold(call, part.Type(), kinds)
 }
 
-// contextCallResultMayHold reports whether a call result of type t may hold
-// a context the call was given: t is of [ctxkind.Given], an interface or a
-// func, or has a context field of any package, exported or not
-// ([ctxkind.Classifier.HasContextField]), as the *exec.Cmd that
-// exec.CommandContext(ctx, ...) makes (#257).
-func contextCallResultMayHold(t types.Type, kinds *ctxkind.Classifier) bool {
+// contextCallResultMayHold reports whether a result of type t of call may
+// hold a context the call was given: t is of [ctxkind.Given], an interface
+// or a func, or call is of the standard library and t has a context field
+// of any package, exported or not ([contextMadeByStd]).
+func contextCallResultMayHold(call *ssa.CallCommon, t types.Type, kinds *ctxkind.Classifier) bool {
 	switch t.Underlying().(type) {
 	case *types.Interface, *types.Signature:
 		return true
 	}
-	return kinds.Is(t, ctxkind.Given) || kinds.HasContextField(t)
+	return kinds.Is(t, ctxkind.Given) || contextMadeByStd(call, t, kinds)
+}
+
+// contextMadeByStd reports whether call, a function or a method of the
+// standard library and not an interface method, makes a result of type t
+// that has a context field, exported or not
+// ([ctxkind.Classifier.HasContextField]), as the *exec.Cmd that
+// exec.CommandContext(ctx, ...) makes (#257). Such a call given ctx puts it
+// in the field. A call of another package may instead take a value out of
+// ctx, as zerolog.Ctx(ctx) gives the *zerolog.Logger stored in ctx, whose
+// context field is not ctx. A type of the module whose field the analyzed
+// code can set is judged by [ctxkind.Holds] instead.
+//
+//declscope:shared // closure.go judges a captured value a call made with ctx
+func contextMadeByStd(call *ssa.CallCommon, t types.Type, kinds *ctxkind.Classifier) bool {
+	if call.IsInvoke() {
+		return false
+	}
+	fn := ExtractCalledFunc(call)
+	return fn != nil && fn.Pkg() != nil && ctxkind.IsStdPackage(fn.Pkg()) && kinds.HasContextField(t)
+}
+
+// contextMakingCall gives the call v is the result of, alone or taken from
+// its results, or nil.
+//
+//declscope:shared // closure.go finds the call that made a captured value
+func contextMakingCall(v ssa.Value) *ssa.CallCommon {
+	if x, ok := v.(*ssa.Extract); ok {
+		v = x.Tuple
+	}
+	call, ok := v.(*ssa.Call)
+	if !ok {
+		return nil
+	}
+	return call.Common()
 }
 
 // GivesOnlyFreshContext reports whether call gives a fresh
