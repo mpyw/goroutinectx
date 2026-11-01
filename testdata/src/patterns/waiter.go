@@ -2133,6 +2133,128 @@ func badSenderBranchStartsTwiceGoroutine(ctx context.Context, cmd *exec.Cmd) err
 	}
 }
 
+// [GOOD]: One branch of an if starts a sender closure through a Phi, and the other starts it directly
+//
+// The Phi holds the sender either way, and only one of the branches runs,
+// so the sender runs once (#361).
+func goodSenderBranchStartsPhiGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		p := send
+		if again {
+			p = send
+		}
+		go p()
+	} else {
+		go send()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [GOOD]: Each branch of an if starts a sender closure through a Phi
+//
+// Only one of the branches runs, and its Phi runs the sender once (#361).
+func goodSenderBranchesStartPhiGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		p := send
+		if again {
+			p = send
+		}
+		go p()
+	} else {
+		q := send
+		if !again {
+			q = send
+		}
+		go q()
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One branch of an if starts a sender closure through a Phi, and it is started again after the if
+//
+// Both run when the branch is taken, so two senders share the one slot.
+func badSenderBranchStartPhiAndAfterGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		p := send
+		if again {
+			p = send
+		}
+		go p() // want `goroutine does not propagate context "ctx"`
+	}
+	go send() // want `goroutine does not propagate context "ctx"`
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One branch of an if starts a sender closure through a Phi, and the other directly, in a loop
+//
+// The branches run for each pass of the loop, so senders pile up.
+func badSenderBranchStartsPhiInLoopGoroutine(ctx context.Context, cmd *exec.Cmd, n int) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	for i := range n {
+		if i%2 == 0 {
+			p := send
+			if i%3 == 0 {
+				p = send
+			}
+			go p() // want `goroutine does not propagate context "ctx"`
+		} else {
+			go send() // want `goroutine does not propagate context "ctx"`
+		}
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// [BAD]: One branch of an if starts a sender closure twice through a Phi
+//
+// Both starts run when the branch is taken, so the sender runs twice.
+func badSenderBranchStartsPhiTwiceGoroutine(ctx context.Context, cmd *exec.Cmd, again bool) error {
+	errc := make(chan error, 1)
+	send := func() { errc <- cmd.Wait() }
+	if conditionFlag {
+		p := send
+		if again {
+			p = send
+		}
+		go p() // want `goroutine does not propagate context "ctx"`
+		go p() // want `goroutine does not propagate context "ctx"`
+	} else {
+		go send() // want `goroutine does not propagate context "ctx"`
+	}
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // [GOOD]: A closure called in place starts a caller of a captured sender loaded twice and joined by a Phi
 //
 // The Phi holds the caller either way, and it runs once.

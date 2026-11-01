@@ -513,50 +513,57 @@ func waiterRunSiteFrom(mk *ssa.MakeClosure, v ssa.Value, sited map[*ssa.MakeClos
 		sited[mk] = true
 		defer delete(sited, mk)
 	}
-	for {
-		var refs []ssa.Instruction
-		for _, ref := range *v.Referrers() {
-			// A Phi that joins v on several edges refers to it once each,
-			// and so may stores of v to one variable, as run := f;
-			// if c { run = f } makes when a closure captures run.
-			if !slices.Contains(refs, ref) && !waiterStoresAgain(refs, ref) {
-				refs = append(refs, ref)
-			}
+	var refs []ssa.Instruction
+	for _, ref := range *v.Referrers() {
+		// A Phi that joins v on several edges refers to it once each, and
+		// so may stores of v to one variable, as run := f; if c { run = f }
+		// makes when a closure captures run.
+		if !slices.Contains(refs, ref) && !waiterStoresAgain(refs, ref) {
+			refs = append(refs, ref)
 		}
-		switch {
-		case len(refs) == 0 && v == mk:
-			return mk, true
-		case len(refs) > 1:
-			return waiterAlternativeUses(v, refs, sited)
-		case waiterInLoop(refs[0].Block()):
+	}
+	switch len(refs) {
+	case 0:
+		return mk, v == mk
+	case 1:
+		return waiterUseSite(mk, v, refs[0], sited)
+	default:
+		return waiterAlternativeUses(mk, v, refs, sited)
+	}
+}
+
+// waiterUseSite gives the site that runs the closure mk makes through ref,
+// a use of v, which holds it, as [waiterRunSite] tells: ref itself, or the
+// site a Phi or a store to a local variable is followed to. sited is as
+// [waiterRunSiteFrom] has it.
+func waiterUseSite(mk *ssa.MakeClosure, v ssa.Value, ref ssa.Instruction, sited map[*ssa.MakeClosure]bool) (site ssa.Instruction, ok bool) {
+	if waiterInLoop(ref.Block()) {
+		return nil, false
+	}
+	switch x := ref.(type) {
+	case *ssa.Phi:
+		return waiterRunSiteFrom(mk, x, sited)
+	case *ssa.Store:
+		loads, ok := waiterSpilledLoads(x, v, sited)
+		if !ok {
 			return nil, false
 		}
-		switch x := refs[0].(type) {
-		case *ssa.Phi:
-			v = x
-		case *ssa.Store:
-			loads, ok := waiterSpilledLoads(x, v, sited)
+		if len(loads) == 1 {
+			return waiterRunSiteFrom(mk, loads[0], sited)
+		}
+		sites := make([]ssa.Instruction, 0, len(loads))
+		for _, load := range loads {
+			site, ok := waiterRunSiteFrom(mk, load, sited)
 			if !ok {
 				return nil, false
 			}
-			if len(loads) == 1 {
-				v = loads[0]
-				continue
-			}
-			sites := make([]ssa.Instruction, 0, len(loads))
-			for _, load := range loads {
-				site, ok := waiterRunSiteFrom(mk, load, sited)
-				if !ok {
-					return nil, false
-				}
-				sites = append(sites, site)
-			}
-			// Every closure stored to the variable runs at those sites, so
-			// the variable is the site of each, and they are alternatives.
-			return x.Addr.(*ssa.Alloc), waiterExclusive(sites, sited)
-		default:
-			return refs[0], waiterRunsOnce(refs[0], v)
+			sites = append(sites, site)
 		}
+		// Every closure stored to the variable runs at those sites, so the
+		// variable is the site of each, and they are alternatives.
+		return x.Addr.(*ssa.Alloc), waiterExclusive(sites, sited)
+	default:
+		return ref, waiterRunsOnce(ref, v)
 	}
 }
 
@@ -570,17 +577,26 @@ func waiterStoresAgain(refs []ssa.Instruction, ref ssa.Instruction) bool {
 	})
 }
 
-// waiterAlternativeUses gives the site of the closure v holds when refs, its
-// uses, are several sites that exclude each other, as [waiterExclusive]
-// tells, each outside a loop and running it once, as [waiterRunsOnce]
-// tells: if c { go send() } else { go send() } runs send once (#355). v is
-// the closure, a Phi or a load, as [waiterRunSiteFrom] follows it, and the
-// site is its instruction, which comes before each of refs, so that any
-// site that may run with one of them may run with it too.
-func waiterAlternativeUses(v ssa.Value, refs []ssa.Instruction, sited map[*ssa.MakeClosure]bool) (site ssa.Instruction, ok bool) {
-	if slices.ContainsFunc(refs, func(ref ssa.Instruction) bool {
-		return waiterInLoop(ref.Block()) || !waiterRunsOnce(ref, v)
-	}) || !waiterExclusive(refs, sited) {
+// waiterAlternativeUses gives the site of the closure mk makes when refs,
+// the uses of v, which holds it, lead to several sites that exclude each
+// other, as [waiterExclusive] tells, each running it once, as
+// [waiterUseSite] gives them: if c { go send() } else { go send() } runs
+// send once (#355). A use that is a Phi or a store is followed to its site,
+// as if c { p := send; if d { p = send }; go p() } else { go send() } runs
+// send once too (#361). v is the closure, a Phi or a load, as
+// [waiterRunSiteFrom] follows it, and the site is its instruction, which
+// comes before each of refs, so that any site that may run with one of them
+// may run with it too.
+func waiterAlternativeUses(mk *ssa.MakeClosure, v ssa.Value, refs []ssa.Instruction, sited map[*ssa.MakeClosure]bool) (site ssa.Instruction, ok bool) {
+	sites := make([]ssa.Instruction, 0, len(refs))
+	for _, ref := range refs {
+		site, ok := waiterUseSite(mk, v, ref, sited)
+		if !ok {
+			return nil, false
+		}
+		sites = append(sites, site)
+	}
+	if !waiterExclusive(sites, sited) {
 		return nil, false
 	}
 	return v.(ssa.Instruction), true
