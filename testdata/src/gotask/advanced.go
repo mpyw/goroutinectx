@@ -593,6 +593,34 @@ func goodCapturedVariadicSliceUntraced(ctx context.Context, xs []int) {
 	}()
 }
 
+// [LIMITATION]: Variadic slice a closure captures and stores to
+//
+// What a closure stores to a variable it captures isn't followed, so the call
+// passes.
+func limitationCapturedVariadicSliceStored(ctx context.Context) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+	func() {
+		other := fns
+		fns = other
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
+// [LIMITATION]: Variadic slice a closure captures, whose address is passed on
+//
+// What the closure reads can't be followed, so the call passes.
+func limitationCapturedVariadicSliceEscaped(ctx context.Context, escape func(*[]func(context.Context) error)) {
+	fns := []func(context.Context) error{
+		func(ctx context.Context) error { return nil },
+	}
+	escape(&fns)
+	func() {
+		_ = gotask.DoAllFnsSettled(ctx, fns...)
+	}()
+}
+
 // [GOOD]: Variadic slice captured by a range-over-func loop body
 func goodRangeFuncBodyCapturedVariadicSlice(ctx context.Context, xs []int) {
 	fns := []func(context.Context) error{
