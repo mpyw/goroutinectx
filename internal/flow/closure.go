@@ -393,7 +393,9 @@ func closurePackage(closure *ssa.Function) *types.Package {
 // captures, or a captured variable that holds one, is called or given to a
 // call in the closure, and every function it can hold passes, as r.funcs
 // judges a captured value (judgeCaptured). A func value
-// only compared, as with nil, does not count.
+// only compared, as with nil, does not count, nor does one that can be only
+// named functions and is only called with a fresh context, as
+// [closureReader.callsNamedOnlyFresh] tells (#324).
 func (r *closureReader) runsPassing(v ssa.Value) bool {
 	if r.funcs == nil {
 		return false
@@ -405,7 +407,76 @@ func (r *closureReader) runsPassing(v ssa.Value) bool {
 	if _, isFunc := t.Underlying().(*types.Signature); !isFunc || !closureRuns(v, true) {
 		return false
 	}
-	return judgeCaptured(r.flow, r.funcs, v).Passes()
+	return !r.callsNamedOnlyFresh(v) && judgeCaptured(r.flow, r.funcs, v).Passes()
+}
+
+// callsNamedOnlyFresh reports whether every value v can read, as
+// [Flow.CapturedSources] reads it, is a named function or method, of the
+// analyzed package or of another, and v, or a value loaded from it, is
+// used only as the function of calls that each give only a fresh context,
+// as [Flow.GivesOnlyFreshContext] judges them. A named function is not
+// looked into, but one given only a fresh context does not get ctx, as for
+// the same function called in the closure by its name.
+func (r *closureReader) callsNamedOnlyFresh(v ssa.Value) bool {
+	return closureHoldsOnlyNamed(r.flow, v, make(map[ssa.Value]bool)) && closureCallsOnlyFresh(r.flow, v, r.kinds, true)
+}
+
+// closureHoldsOnlyNamed reports whether every value v can read is a named
+// function or method, of the analyzed package or of another. A value
+// loaded from a variable captured by reference reads what is stored to the
+// variable, and a free variable of an outer closure what it is made with,
+// each followed by [Flow.Sources] in turn, as through a Phi.
+func closureHoldsOnlyNamed(f *Flow, v ssa.Value, seen map[ssa.Value]bool) bool {
+	if seen[v] {
+		return true
+	}
+	seen[v] = true
+	if load, ok := v.(*ssa.UnOp); ok && load.Op == token.MUL {
+		if _, isFV := load.X.(*ssa.FreeVar); isFV {
+			v = load.X
+		}
+	}
+	captured, complete := f.CapturedSources(v)
+	if !complete || len(captured) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(captured, func(c Source) bool {
+		if c.Value == v {
+			return true
+		}
+		if _, isFV := c.Value.(*ssa.FreeVar); isFV {
+			return !closureHoldsOnlyNamed(f, c.Value, seen)
+		}
+		sources, complete := f.Sources(c.Value)
+		return !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s Source) bool {
+			fn, ok := s.Value.(*ssa.Function)
+			if !ok {
+				return true
+			}
+			switch Classify(fn) {
+			case ClassifiedNamed, ClassifiedMethod, ClassifiedExternal:
+				return false
+			}
+			return true
+		})
+	})
+}
+
+// closureCallsOnlyFresh reports whether v is used only as the function of
+// calls that give only a fresh context, as [Flow.GivesOnlyFreshContext]
+// judges them. With throughLoads, a value loaded from v, as v is a variable
+// captured by reference, is judged so too. A use of another kind fails.
+func closureCallsOnlyFresh(f *Flow, v ssa.Value, kinds *ctxkind.Classifier, throughLoads bool) bool {
+	return !slices.ContainsFunc(*v.Referrers(), func(ref ssa.Instruction) bool {
+		switch x := ref.(type) {
+		case ssa.CallInstruction:
+			call := x.Common()
+			return call.Value != v || slices.Contains(call.Args, v) || !f.GivesOnlyFreshContext(call, kinds)
+		case *ssa.UnOp:
+			return !throughLoads || x.Op != token.MUL || !closureCallsOnlyFresh(f, x, kinds, false)
+		}
+		return true
+	})
 }
 
 // ClosureArgCapturesContext reports whether arg, which a go statement gives

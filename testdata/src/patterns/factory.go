@@ -1103,6 +1103,105 @@ func goodFactoryPhiCtxSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Captured named function called inside a literal given a fresh context (#324) =====
+
+// [BAD]: Captured named function called inside a literal given a fresh context
+//
+// The variable holds only the named function, which gets only the fresh
+// context, as when the literal calls it by its name.
+func badCapturedNamedFuncFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	go func() { run(context.Background(), "worker") }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured named function through a Phi called inside a literal given a fresh context
+//
+// Each value the variable holds is the same named function.
+func badCapturedNamedFuncPhiFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	if conditionFlag {
+		run = runWithName
+	}
+	go func() { run(context.TODO(), "worker") }() // want `goroutine does not propagate context "ctx"`
+}
+
+// [BAD]: Captured named function of another package called inside a literal given a fresh context
+//
+// The function gets only the fresh context.
+func badCapturedOtherPkgFuncFreshCtxErrgroup(ctx context.Context) {
+	run := ctxworker.Work
+	g := new(errgroup.Group)
+	g.Go(func() error { // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+		run(context.Background())
+		return nil
+	})
+	_ = g.Wait()
+}
+
+// [BAD]: Captured named function deferred inside a literal given a fresh context
+//
+// A deferred call gives the function only the fresh context too.
+func badCapturedNamedFuncDeferFreshCtxWaitGroup(ctx context.Context) {
+	run := runWithName
+	var wg sync.WaitGroup
+	wg.Go(func() { // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+		defer run(context.Background(), "worker")
+	})
+	wg.Wait()
+}
+
+// [GOOD]: Captured named function called inside a literal given ctx
+//
+// The function gets ctx.
+func goodCapturedNamedFuncCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	go func() { run(ctx, "worker") }()
+}
+
+// [GOOD]: Captured named function called inside a literal given a fresh context and a value that holds ctx
+//
+// The function may get ctx from the other argument.
+func goodCapturedNamedFuncFreshCtxDepsGoroutine(ctx context.Context) {
+	run := runWithDeps
+	d := &ctxDeps{ctx: ctx}
+	go func() { run(context.Background(), d) }()
+}
+
+// [GOOD]: Captured named function or closure called inside a literal given a fresh context
+//
+// The closure the variable may hold captures ctx.
+func goodCapturedNamedFuncOrClosureFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	if conditionFlag {
+		run = func(_ context.Context, _ string) { use(ctx) }
+	}
+	go func() { run(context.Background(), "worker") }()
+}
+
+// [GOOD]: Captured named function reassigned inside a literal
+//
+// The literal may run a closure that captures ctx.
+func goodCapturedNamedFuncReassignedFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	go func() {
+		run = func(_ context.Context, _ string) { use(ctx) }
+		run(context.Background(), "worker")
+	}()
+}
+
+// [GOOD]: Captured named function given to a call inside a literal
+//
+// The call it is given to is not looked into, so it passes, as #228 judges
+// a func value given to a call.
+func goodCapturedNamedFuncGivenToCallGoroutine(ctx context.Context) {
+	run := runWithName
+	go func() { callWithFreshName(run) }()
+}
+
+func callWithFreshName(fn func(context.Context, string)) {
+	fn(context.Background(), "worker")
+}
+
 func runWithDeps(_ context.Context, d *ctxDeps) {
 	_ = d.ctx
 }
