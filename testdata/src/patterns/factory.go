@@ -989,6 +989,120 @@ func badFactoryFreshCtxAndBasicPartsSpawner(ctx context.Context) {
 	_ = g.Wait()
 }
 
+// ===== Named function through a Phi given a fresh context (#305) =====
+
+// [BAD]: Named function through a Phi given a fresh context
+//
+// Each value the Phi joins is the same named function, which gets only the
+// fresh context.
+func badNamedFuncPhiFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	if conditionFlag {
+		run = runWithName
+	}
+	go run(context.Background(), "worker") // want `goroutine does not propagate context "ctx"`
+}
+
+// [GOOD]: Named function through a Phi given ctx
+//
+// The function gets ctx.
+func goodNamedFuncPhiCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	if conditionFlag {
+		run = runWithName
+	}
+	go run(ctx, "worker")
+}
+
+// [GOOD]: Named function or closure through a Phi given a fresh context
+//
+// The closure the Phi joins may capture ctx, so the value is left alone.
+func goodNamedFuncOrClosurePhiFreshCtxGoroutine(ctx context.Context) {
+	run := runWithName
+	if conditionFlag {
+		run = func(_ context.Context, _ string) { use(ctx) }
+	}
+	go run(context.Background(), "worker")
+}
+
+// [BAD]: Named factory through a Phi given a fresh context
+//
+// The factory gets only the fresh context.
+func badFactoryPhiFreshCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	mk := makeErrWorkerWithID
+	if conditionFlag {
+		mk = makeErrWorkerWithID
+	}
+	g.Go(mk(context.Background(), 1)) // want `errgroup.Group.Go\(\) closure should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Named factory through a Phi given ctx
+//
+// The factory gets ctx.
+func goodFactoryPhiCtxErrgroup(ctx context.Context) {
+	g := new(errgroup.Group)
+	mk := makeErrWorkerWithID
+	if conditionFlag {
+		mk = makeErrWorkerWithID
+	}
+	g.Go(mk(ctx, 1))
+	_ = g.Wait()
+}
+
+// [BAD]: Named factory through a Phi given a fresh context
+//
+// The factory gets only the fresh context.
+func badFactoryPhiFreshCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	mk := makeWorkerWithID
+	if conditionFlag {
+		mk = makeWorkerWithID
+	}
+	wg.Go(mk(context.TODO(), 1)) // want `sync.WaitGroup.Go\(\) closure should use context "ctx"`
+	wg.Wait()
+}
+
+// [GOOD]: Named factory through a Phi given ctx
+//
+// The factory gets ctx.
+func goodFactoryPhiCtxWaitGroup(ctx context.Context) {
+	var wg sync.WaitGroup
+	mk := makeWorkerWithID
+	if conditionFlag {
+		mk = makeWorkerWithID
+	}
+	wg.Go(mk(ctx, 1))
+	wg.Wait()
+}
+
+// [BAD]: Named factory through a Phi given a fresh context
+//
+// The factory gets only the fresh context.
+func badFactoryPhiFreshCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	mk := makeErrWorkerWithID
+	if conditionFlag {
+		mk = makeErrWorkerWithID
+	}
+	runWithGroup(g, mk(context.Background(), 1)) // want `runWithGroup\(\) func argument should use context "ctx"`
+	_ = g.Wait()
+}
+
+// [GOOD]: Named factory through a Phi given ctx
+//
+// The factory gets ctx.
+func goodFactoryPhiCtxSpawner(ctx context.Context) {
+	g := new(errgroup.Group)
+	mk := makeErrWorkerWithID
+	if conditionFlag {
+		mk = makeErrWorkerWithID
+	}
+	runWithGroup(g, mk(ctx, 1))
+	_ = g.Wait()
+}
+
 func runWithDeps(_ context.Context, d *ctxDeps) {
 	_ = d.ctx
 }
@@ -1014,6 +1128,12 @@ func makeErrWorkerWithID(ctx context.Context, id int) func() error {
 	return func() error {
 		_, _ = ctx, id
 		return nil
+	}
+}
+
+func makeWorkerWithID(ctx context.Context, id int) func() {
+	return func() {
+		_, _ = ctx, id
 	}
 }
 

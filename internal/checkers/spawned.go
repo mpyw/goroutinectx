@@ -145,14 +145,26 @@ func spawnedWaiterPasses(e *env.Env, fn *ssa.Function) bool {
 // given only a fresh context does not get ctx. The receiver of a method is
 // one of the arguments, so a method is reported only when its receiver
 // cannot hold a context, as an empty struct or a struct of basic types
-// cannot (#274). A closure is left alone, as it may capture one.
+// cannot (#274). A closure is left alone, as it may capture one. The
+// function called may be a value that can be only named functions, as
+// [flow.Flow.Sources] follows it through a Phi (#305).
 //
 //declscope:shared // goroutine.go judges a named function a go statement calls alike
 func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) bool {
 	if call.IsInvoke() {
 		return false
 	}
-	fn, ok := call.Value.(*ssa.Function)
+	sources, complete := e.Flow.Sources(call.Value)
+	if !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s flow.Source) bool { return !spawnedIsNamedFunc(s.Value) }) {
+		return false
+	}
+	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
+}
+
+// spawnedIsNamedFunc reports whether v is a named function or method,
+// generic or not, of the analyzed package or of another.
+func spawnedIsNamedFunc(v ssa.Value) bool {
+	fn, ok := v.(*ssa.Function)
 	if !ok {
 		return false
 	}
@@ -160,8 +172,7 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 	case flow.ClassifiedNamed, flow.ClassifiedMethod, flow.ClassifiedExternal:
 		// A function or a method of another package is built from type
 		// information.
-	default:
-		return false
+		return true
 	}
-	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
+	return false
 }
