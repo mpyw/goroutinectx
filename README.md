@@ -1,125 +1,155 @@
-# goroutinectx
+<div align="center">
+  <h1>goroutinectx</h1>
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/mpyw/goroutinectx.svg)](https://pkg.go.dev/github.com/mpyw/goroutinectx)
-[![CI](https://github.com/mpyw/goroutinectx/actions/workflows/ci.yml/badge.svg)](https://github.com/mpyw/goroutinectx/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/gh/mpyw/goroutinectx/graph/badge.svg)](https://codecov.io/gh/mpyw/goroutinectx)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![CI](https://github.com/mpyw/goroutinectx/actions/workflows/ci.yml/badge.svg)](https://github.com/mpyw/goroutinectx/actions/workflows/ci.yml)
+  [![Codecov](https://codecov.io/gh/mpyw/goroutinectx/graph/badge.svg)](https://codecov.io/gh/mpyw/goroutinectx)
+  [![Go Reference](https://pkg.go.dev/badge/github.com/mpyw/goroutinectx.svg)](https://pkg.go.dev/github.com/mpyw/goroutinectx)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+</div>
 
-A Go linter that checks goroutine context propagation.
+Go linter that reports a goroutine that does not get the context of the function that starts it.
 
 ## Overview
 
-`goroutinectx` detects cases where a [`context.Context`](https://pkg.go.dev/context#Context) is available in function parameters but not properly passed to downstream calls that should receive it.
+```go
+package app
 
-A parameter is a context when its type is one of these:
+import "context"
 
-- `context.Context`
-- An alias of it, such as `type Ctx = context.Context` or [`golang.org/x/net/context.Context`](https://pkg.go.dev/golang.org/x/net/context#Context)
-- An interface that embeds it, named or not: `type MyCtx interface{ context.Context }` or `interface{ context.Context; Name() string }`
-- A type parameter whose constraint is one of the above: `[C context.Context]` or `[C MyCtx]`
+func Place(ctx context.Context, o *Order) error {
+	if err := save(ctx, o); err != nil {
+		return err
+	}
+	go func() {
+		notify(context.Background(), o)
+	}()
+	return nil
+}
+```
 
-Only an embedded `context.Context` counts. An interface that declares some or all of its methods itself is not a context.
+```console
+$ goroutinectx ./...
+order.go:9:2: goroutine does not propagate context "ctx"
+```
 
-A parameter of a type that only implements `context.Context`, such as a struct that embeds one, does not make its function checked. Where a goroutine gets a value, such a value counts as a context: captured, as a parameter of the function the goroutine runs, or given to a factory. So does a struct that holds a context your code can have put there. A parameter of another type, such as an interface, a func, a slice or `any`, counts when the `go` statement gives it a value made from a context other than a fresh `context.Background()` or `TODO()`: `go func(r Runner) { r.Run() }(ctxRunner{ctx})` and `go func(f func()) { f() }(func() { <-ctx.Done() })` pass. A result of a call counts only when it is a context, holds one, is made by the standard library with a context field as an `*exec.Cmd` is, or is an interface or a func: the records a call given `ctx` lists are data, not a holder of `ctx`.
+`Place` takes a context, but the goroutine uses a new one. The goroutine is cut off from the request.
 
-## Installation & Usage
+<table>
+<thead>
+<tr><th>Code</th><th>What goes wrong</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
-### <a href="https://mise.jdx.dev/"><img src="https://mise.jdx.dev/logo.svg" height="28" alt=""></a> Using [mise](https://mise.jdx.dev/) (macOS/Linux/Windows)
+```go
+go func() {
+	// ctx is cancelled, but this runs on
+	sendMail(context.Background(), o)
+}()
+```
 
-**Recommended.** goroutinectx is installable directly from GitHub Releases via mise's `github` backend — no extra registry required, and no Go toolchain needed because the binaries are prebuilt:
+</td>
+<td><b>The work outlives the request.</b> A cancel or a deadline of <code>ctx</code> does not stop it</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	// no trace ID, no request values
+	audit(o)
+}()
+```
+
+</td>
+<td><b>The trace breaks.</b> The values that <code>ctx</code> carries do not reach the goroutine</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	for {
+		poll()
+	}
+}()
+```
+
+</td>
+<td><b>The goroutine can leak.</b> Nothing tells it to stop</td>
+</tr>
+</tbody>
+</table>
+
+The code compiles, and a test passes. goroutinectx finds it from the source.
+
+It checks a function that takes a context. In that function, it checks each `go` statement and each callback of a library that runs it in a goroutine. The goroutine passes when it uses the context.
+
+> [!NOTE]
+> In the tables below, code without a `func` runs inside `func handler(ctx context.Context)`. The other names it uses, such as `wg` or `doSomething`, are declared outside that function.
+
+## Install
+
+| Method | Command | Needs |
+| --- | --- | --- |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/goroutinectx@0.14.1"` | Nothing. Installs the prebuilt binary |
+| `go tool` | `go get -tool github.com/mpyw/goroutinectx/cmd/goroutinectx@latest` | Go 1.27+ |
+| `go install` | `go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest` | Go 1.27+ |
+| Release archive | See below | Nothing |
 
 ```bash
-mise use "github:mpyw/goroutinectx@0.14.1"
 goroutinectx ./...
 ```
 
-Run it in the project root. It pins the version in the project's `mise.toml`, so every checkout and CI run the same one:
+> [!IMPORTANT]
+> Building goroutinectx from source requires Go 1.27 or later.
+
+> [!CAUTION]
+> To prevent supply chain attacks, pin a version tag in CI, such as `@v0.14.1`, instead of `@latest`.
+
+<details>
+<summary>Pin a version, run without installing, install from an archive, or use golangci-lint or a Go program</summary>
+
+`mise use` works on macOS, Linux and Windows. Run it in the project root. It pins the version in the project's `mise.toml`, so every checkout and CI run the same one. Add `-g` to install it for every project on your machine instead.
 
 ```toml
 [tools]
 "github:mpyw/goroutinectx" = "0.14.1"
 ```
 
-Add `-g` to install it for every project on your machine instead.
-
-> [!IMPORTANT]
-> Building goroutinectx from source requires Go 1.27 or later.
-
-### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool)
+As a tool dependency in `go.mod`:
 
 ```bash
-# Add to go.mod as a tool dependency
 go get -tool github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
-
-# Run via go tool
 go tool goroutinectx ./...
 ```
 
-### Using [`go install`](https://pkg.go.dev/cmd/go#hdr-Compile_and_install_packages_and_dependencies)
-
-```bash
-go install github.com/mpyw/goroutinectx/cmd/goroutinectx@latest
-goroutinectx ./...
-```
-
-### Using [`go run`](https://pkg.go.dev/cmd/go#hdr-Compile_and_run_Go_program)
+Without installing anything:
 
 ```bash
 go run github.com/mpyw/goroutinectx/cmd/goroutinectx@latest ./...
 ```
 
-> [!CAUTION]
-> To prevent supply chain attacks, pin to a specific version tag instead of `@latest` in CI/CD pipelines (e.g., `@v0.14.1`).
-
-<details>
-<summary><a href="https://curl.se/"><img src="https://cdn.simpleicons.org/curl" height="20" alt=""></a> Downloading the tarball directly (macOS/Linux/Windows)</summary>
-
-No package manager? Grab the archive for your platform from [GitHub Releases](https://github.com/mpyw/goroutinectx/releases):
+From a release archive on [GitHub Releases](https://github.com/mpyw/goroutinectx/releases), verified against the published checksums:
 
 ```bash
-export VERSION=0.14.1
-export OS=linux    # or darwin
-export ARCH=amd64  # or arm64
-export BASE_URL="https://github.com/mpyw/goroutinectx/releases/download/v${VERSION}"
-
-# Download the archive and the release's checksum list
-curl -LO "${BASE_URL}/goroutinectx_${VERSION}_${OS}_${ARCH}.tar.gz"
-curl -LO "${BASE_URL}/checksums.txt"
-
-# Verify before installing (use `shasum -a 256 -c` on macOS)
+VERSION=0.14.1
+OS=linux    # or darwin
+ARCH=amd64  # or arm64
+REPO=https://github.com/mpyw/goroutinectx
+BASE="${REPO}/releases/download/v${VERSION}"
+curl -LO "${BASE}/goroutinectx_${VERSION}_${OS}_${ARCH}.tar.gz"
+curl -LO "${BASE}/checksums.txt"
+# on macOS: shasum -a 256 -c checksums.txt --ignore-missing
 sha256sum --ignore-missing -c checksums.txt
-
 tar xzf "goroutinectx_${VERSION}_${OS}_${ARCH}.tar.gz"
 sudo mv goroutinectx /usr/local/bin/
 ```
 
-On Windows, download `goroutinectx_${VERSION}_windows_${ARCH}.zip` and extract `goroutinectx.exe` somewhere on your `PATH`.
+On Windows, download `goroutinectx_${VERSION}_windows_${ARCH}.zip`. Extract `goroutinectx.exe` to a directory on your `PATH`.
 
-</details>
-
-### As a Library
-
-```go
-package main
-
-import (
-    "github.com/mpyw/goroutinectx"
-    "golang.org/x/tools/go/analysis/singlechecker"
-)
-
-func main() {
-    singlechecker.Main(goroutinectx.Analyzer)
-}
-```
-
-See [`singlechecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/singlechecker) for details.
-
-Or use it with [`multichecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/multichecker) alongside other analyzers.
-
-<details>
-<summary>Using <a href="https://golangci-lint.run/">golangci-lint</a> (module plugin)</summary>
-
-goroutinectx is not bundled with golangci-lint. Build a binary that holds it as a [module plugin](https://golangci-lint.run/plugins/module-plugins/). Write `.custom-gcl.yml`:
+Inside golangci-lint, as a [module plugin](https://golangci-lint.run/plugins/module-plugins/). goroutinectx is not bundled with golangci-lint, so build a binary that holds it. Write `.custom-gcl.yml`:
 
 ```yaml
 version: v2.15.0  # the golangci-lint release to build
@@ -129,7 +159,7 @@ plugins:
     version: v0.14.1
 ```
 
-Turn it on in `.golangci.yml`. The keys under `settings` are the names of the [flags](#flags). `external-spawner` and `context-carriers` are lists here, not comma-separated strings. A key left out keeps its default. An unknown key stops the run:
+Turn it on in `.golangci.yml`. The keys under `settings` are the names of the [flags](#flags). A key left out keeps its default. An unknown key stops the run:
 
 ```yaml
 version: "2"
@@ -143,10 +173,12 @@ linters:
         description: Checks goroutine context propagation.
         settings:
           goroutine-deriver: github.com/my-example-app/telemetry/apm.NewGoroutineContext
+          # One name per item, not comma-separated.
           context-carriers:
             - github.com/labstack/echo/v4.Context
           external-spawner:
             - github.com/example/workerpool.Pool.Submit
+          report-waiters: false
           spawnerlabel: true
 ```
 
@@ -157,239 +189,1620 @@ golangci-lint custom  # writes ./custom-gcl
 ./custom-gcl run ./...
 ```
 
-From a Go program of your own, build an analyzer with `goroutinectx.New`. It takes the same settings as a `goroutinectx.Config`, and has no flags. `goroutinectx.Analyzer` is the one with flags:
+From a Go program of your own, run `goroutinectx.Analyzer` with [`singlechecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/singlechecker). Or run it beside other analyzers with [`multichecker`](https://pkg.go.dev/golang.org/x/tools/go/analysis/multichecker).
+
+```go
+package main
+
+import (
+	"github.com/mpyw/goroutinectx"
+	"golang.org/x/tools/go/analysis/singlechecker"
+)
+
+func main() {
+	singlechecker.Main(goroutinectx.Analyzer)
+}
+```
+
+`goroutinectx.Analyzer` takes its settings from flags. `goroutinectx.New` builds an analyzer without flags. It takes the same settings as a `goroutinectx.Config`:
 
 ```go
 a, err := goroutinectx.New(goroutinectx.Config{
-	ContextCarriers: []string{"github.com/labstack/echo/v4.Context"},
-	Checkers:        map[string]bool{"spawnerlabel": true},
+	ContextCarriers: []string{
+		"github.com/labstack/echo/v4.Context",
+	},
+	Checkers: map[string]bool{"spawnerlabel": true},
 })
 ```
 
 </details>
 
-## What It Checks
+## Checkers
 
-### goroutines
+| Checker | Default | Reports |
+| --- | --- | --- |
+| [`goroutine`](#goroutine) | 🟢 On | A `go` statement that does not use the context |
+| [`errgroup`](#errgroup) | 🟢 On | A callback of `errgroup.Group.Go` or `TryGo` that does not use the context |
+| [`waitgroup`](#waitgroup) | 🟢 On | A callback of `sync.WaitGroup.Go` that does not use the context |
+| [`conc`](#conc) | 🟢 On | A callback of [conc](https://pkg.go.dev/github.com/sourcegraph/conc) that does not use the context |
+| [`spawner`](#spawner) | 🟢 On | A func argument of a [spawner](#goroutinectxspawner) that does not use the context |
+| [`spawnerlabel`](#spawnerlabel) | ⚪ Off | A spawner without `//goroutinectx:spawner`, or the directive where it is not needed |
+| [`goroutinederive`](#goroutinederive) | With [`-goroutine-deriver`](#-goroutine-deriver) | A goroutine that does not call the deriver |
+| [`gotask`](#gotask) | With [`-goroutine-deriver`](#-goroutine-deriver) | A task of [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) that does not call the deriver |
 
-Detects goroutines that don't propagate context:
+Each checker except `goroutinederive` has a flag of its name:
+
+```bash
+# every checker except errgroup, plus spawnerlabel
+goroutinectx -errgroup=false -spawnerlabel ./...
+```
+
+The name of a checker is what [`//goroutinectx:ignore`](#goroutinectxignore) takes. A report does not print it. The report reads:
+
+| Checker | Report |
+| --- | --- |
+| `goroutine` | `goroutine does not propagate context "ctx"` |
+| `errgroup` | `errgroup.Group.Go() closure should use context "ctx"` |
+| `waitgroup` | `sync.WaitGroup.Go() closure should use context "ctx"` |
+| `conc` | `pool.Pool.Go() closure should use context "ctx"` |
+| `spawner` | `runAsync() func argument should use context "ctx"` |
+| `spawnerlabel` | `function "runTask" should have //goroutinectx:spawner directive (calls errgroup.Group.Go with func argument)` |
+| `goroutinederive` | `goroutine should call github.com/my-example-app/telemetry/apm.NewGoroutineContext to derive context` |
+| `gotask` | `gotask.DoAllFnsSettled() 2nd argument should call goroutine deriver` |
+
+### Files
+
+Test files are checked too. `-test=false` leaves them out:
+
+```bash
+goroutinectx -test=false ./...
+```
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
 ```go
-func handler(ctx context.Context) {
-    // Bad: goroutine doesn't use ctx
-    go func() {
-        doSomething()
-    }()
+// handler_test.go
+package app
 
-    // Good: goroutine uses ctx
-    go func() {
-        doSomething(ctx)
-    }()
+import "context"
+
+func handler(ctx context.Context) {
+	go func() {
+		doSomething()
+	}()
 }
 ```
 
-A goroutine passes when its function captures the context, in its own body or in any closure inside it. Each `go` statement is checked on its own, so the inner goroutine below must use the context too:
+</td>
+<td>❌️ <b>Reported.</b> A test file is checked like any other file. With <code>-test=false</code>, it is not</td>
+</tr>
+<tr>
+<td>
 
 ```go
+// Code generated by mockgen. DO NOT EDIT.
+
+package app
+
+import "context"
+
 func handler(ctx context.Context) {
-    // Good: the deferred closure inside the goroutine uses ctx
-    go func() {
-        defer func() {
-            doSomething(ctx)
-        }()
-    }()
-
-    // Good: the outer goroutine captures ctx through the inner one
-    go func() {
-        go func() {
-            doSomething(ctx)
-        }()
-    }()
-
-    // Bad: the inner goroutine does not use ctx
-    go func() {
-        _ = ctx
-        go func() {
-            doSomething()
-        }()
-    }()
+	go func() {
+		doSomething()
+	}()
 }
 ```
 
-A context made with [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) does not count, wherever the goroutine gets it. This holds for a carrier that is a context too, and for an interface that has the methods of `context.Context`. A named function or method given only such a context is reported, as `go worker(context.Background())` is. For a method, this holds only when its receiver can't hold a context, such as an empty struct or a struct of basic types: `go W{}.run(context.Background())` is reported. A method whose receiver may hold one, such as a struct with a context or an interface field, is left alone, as it may get `ctx` from there.
+</td>
+<td>✅️ <b>Passes.</b> A generated file is never checked. No flag turns it on</td>
+</tr>
+<tr>
+<td>
 
-A context the goroutine reads from a field or an element of a value it captures counts. That includes an element of a slice, a map or a channel, as `m[k]`, `<-ch` or a `range` over one gives, and a value a type assertion such as `v.(context.Context)` gives. A map or a channel is not traced to what was put there, so a context read from one counts even when it is only `context.Background()`. A value whose type implements `context.Context`, such as a struct that embeds one, counts too. A method called on a captured value counts too when it returns a context, as `req.Context()` does. A call that takes a captured value that holds a context your code can have put there counts too, whether the value is the receiver, as in `s.run()`, or an argument, as in `handle(s)`. The callee is not looked into, the same as for `go s.run()` and `go handle(s)`. A captured value of an interface type, such as `var r Runner = ctxRunner{ctx}`, is judged by the values it can hold: `r.Run()` and `handle(r)` count when one of them holds a context. An interface whose value can't be traced, such as a parameter, a field or the result of a call, may hold one when the interface is declared in your module, so it counts too, the same as for `go r.Run()`. One of the standard library, such as `error`, `net.Conn` or `io.Reader`, does not count, so `go func() { conn.Close() }()` with a `net.Conn` parameter is reported. A context field counts when it is exported, or when it is declared in your package or another package of your module. When the driver does not tell which module, a field of any package outside the standard library counts. So the unexported context of a `*testing.T` or an `*http.Request` does not count, and `go func() { t.Log("x") }()` is reported. A captured value that a call of the standard library given `ctx` made counts, even when its context field is unexported, when its type has a context field: `cmd := exec.CommandContext(ctx, ...)`, `req, _ := http.NewRequestWithContext(ctx, ...)` and `req = req.WithContext(ctx)` hold `ctx`, so `go func() { _ = cmd.Run() }()` passes. A call given only `context.Background()` or `TODO()`, `exec.Command(...)`, a result of a type with no context field, such as a string made from `ctx`, and a call of another package, which may take a value out of `ctx` as `zerolog.Ctx(ctx)` does, do not count.
+```go
+// Code generated by goyacc. DO NOT EDIT.
 
-A goroutine that takes a signal of the context, not the context itself, passes too. The signal can be captured or given as an argument, to a function literal or a named function. It is one of these:
+package app
+
+import "context"
+
+//line parser.y:10
+func handler(ctx context.Context) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> Code below a <code>//line</code> directive is still in the generated file</td>
+</tr>
+</tbody>
+</table>
+
+## What counts as a context
+
+### Functions that are checked
+
+A function is checked when a parameter is a context. A goroutine in an unchecked function is never reported.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+func handler(ctx context.Context) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The parameter is a <code>context.Context</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+type Ctx = context.Context
+
+func handler(ctx Ctx) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> An alias is the same type. So is <a href="https://pkg.go.dev/golang.org/x/net/context#Context"><code>golang.org/x/net/context.Context</code></a></td>
+</tr>
+<tr>
+<td>
+
+```go
+type MyCtx interface {
+	context.Context
+}
+
+func handler(ctx MyCtx) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The interface embeds <code>context.Context</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(ctx interface {
+	context.Context
+	Name() string
+}) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> An unnamed interface that embeds it counts too, beside methods of its own</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler[C context.Context](ctx C) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The constraint of the type parameter is a context. A constraint such as <code>[C MyCtx]</code> counts too</td>
+</tr>
+<tr>
+<td>
+
+```go
+type Doner interface {
+	Deadline() (time.Time, bool)
+	Done() <-chan struct{}
+	Err() error
+	Value(key any) any
+}
+
+func handler(ctx Doner) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The function is not checked. The interface declares the methods itself. Only an embedded <code>context.Context</code> counts</td>
+</tr>
+<tr>
+<td>
+
+```go
+type Request struct {
+	context.Context
+}
+
+func handler(r Request) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The function is not checked. The struct implements <code>context.Context</code>, but is not one</td>
+</tr>
+</tbody>
+</table>
+
+A type of a web framework can count too. See [`-context-carriers`](#-context-carriers).
+
+### Fresh contexts
+
+A context made with [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) does not count, wherever the goroutine gets it.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func() {
+	doSomething(context.TODO())
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The goroutine uses only a fresh context</td>
+</tr>
+<tr>
+<td>
+
+```go
+go worker(context.Background())
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A named function given only a fresh context is reported too</td>
+</tr>
+<tr>
+<td>
+
+```go
+var c MyCtx = context.Background()
+go func() {
+	doSomething(c)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A fresh context held as a carrier that is a context does not count either</td>
+</tr>
+<tr>
+<td>
+
+```go
+var d Doner = context.Background()
+go func() {
+	<-d.Done()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Nor does one held as an interface with the methods of <code>context.Context</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go Worker{}.run(context.Background())
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The receiver cannot hold a context. It is an empty struct, or a struct of basic types</td>
+</tr>
+<tr>
+<td>
+
+```go
+w := &Server{ctx: ctx}
+go w.run(context.Background())
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The receiver may hold a context, in a context field or an interface field. The method may get <code>ctx</code> from there</td>
+</tr>
+</tbody>
+</table>
+
+### Values that hold a context
+
+A goroutine can get the context through another value. These count:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+j := &Job{ctx: ctx}
+go func() {
+	doSomething(j.ctx)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It reads a field of a value it captures</td>
+</tr>
+<tr>
+<td>
+
+```go
+ctxs := []context.Context{ctx}
+go func() {
+	doSomething(ctxs[0])
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It reads an element of a slice. An element of a map or a channel counts too, as <code>m[k]</code>, <code>&lt;-ch</code> or a <code>range</code> gives</td>
+</tr>
+<tr>
+<td>
+
+```go
+m := map[string]context.Context{
+	"a": context.Background(),
+}
+go func() {
+	doSomething(m["a"])
+}()
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> A map or a channel is not traced to what was put there. So this counts, although it holds only <code>context.Background()</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+var v any = ctx
+go func() {
+	doSomething(v.(context.Context))
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A type assertion to a context gives one</td>
+</tr>
+<tr>
+<td>
+
+```go
+r := Request{ctx}
+go func() {
+	doSomething(r)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> <code>Request</code> embeds a context, so it implements <code>context.Context</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	req *http.Request,
+) {
+	go func() {
+		doSomething(req.Context())
+	}()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A method of a captured value that returns a context counts</td>
+</tr>
+<tr>
+<td>
+
+```go
+s := &Server{ctx: ctx}
+go func() {
+	s.run()
+	handle(s)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A call given a value that holds a context counts, as the receiver or as an argument. The callee is not read, the same as for <code>go s.run()</code></td>
+</tr>
+</tbody>
+</table>
+
+A context field counts when your code can have put the context there:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	t *testing.T,
+) {
+	go func() {
+		t.Log("x")
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The context field of <code>*testing.T</code> is unexported, in the standard library. So is the one of <code>*http.Request</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+l := zerolog.Ctx(ctx)
+go func() {
+	l.Print("x")
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A call of another package may take a value out of <code>ctx</code>. Its result does not hold <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+cmd := exec.CommandContext(ctx, "sync")
+go func() {
+	_ = cmd.Run()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A call of the standard library given <code>ctx</code> made it, and its type has a context field. So do <code>http.NewRequestWithContext(ctx, ...)</code> and <code>req.WithContext(ctx)</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+cmd := exec.Command("sync")
+go func() {
+	_ = cmd.Run()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The call was not given <code>ctx</code>. A call given only <code>context.Background()</code> does not count either</td>
+</tr>
+<tr>
+<td>
+
+```go
+id := fmt.Sprint(ctx.Value(key))
+go func() {
+	doSomething(id)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A string has no context field, even when made from <code>ctx</code></td>
+</tr>
+</tbody>
+</table>
+
+A field counts when it is exported, or declared in your module. When the driver does not tell the module, a field of any package outside the standard library counts.
+
+### Interfaces
+
+A captured value of an interface type is judged by the values it can hold:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+var r Runner = ctxRunner{ctx}
+go func() {
+	r.Run()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A value it holds holds a context. <code>handle(r)</code> counts too</td>
+</tr>
+<tr>
+<td>
+
+```go
+var r Runner = noopRunner{}
+go func() {
+	r.Run()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> No value it holds holds a context</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	r Runner,
+) {
+	go func() {
+		r.Run()
+	}()
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The value of a parameter cannot be traced. <code>Runner</code> is declared in your module, so it may hold one. A field or the result of a call is the same</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	conn net.Conn,
+) {
+	go func() {
+		conn.Close()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> An interface of the standard library does not count, as <code>error</code>, <code>net.Conn</code> or <code>io.Reader</code></td>
+</tr>
+</tbody>
+</table>
+
+### Arguments of the goroutine
+
+A parameter of the function the goroutine runs counts as a captured value does:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func(ctx context.Context) {
+	doSomething(ctx)
+}(ctx)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It is given the context</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(r Request) {
+	doSomething(r)
+}(Request{ctx})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A value that implements <code>context.Context</code> counts</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(j *Job) {
+	doSomething(j.ctx)
+}(&Job{ctx: ctx})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A struct that holds a context your code can have put there counts</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(r Runner) {
+	r.Run()
+}(ctxRunner{ctx})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A parameter of another type, as an interface, a func, a slice or <code>any</code>, counts when it is given a value made from <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(f func()) {
+	f()
+}(func() { <-ctx.Done() })
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The same, for a func</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(v any) {
+	doSomething(v)
+}(context.Background())
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The value is made from a fresh context</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(rs []Record) {
+	store(rs)
+}(list(ctx))
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The records a call given <code>ctx</code> lists are data, not a holder of <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(r Runner) {
+	r.Run()
+}(newRunner(ctx))
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The result of a call counts when it is a context, holds one, or is an interface or a func</td>
+</tr>
+</tbody>
+</table>
+
+### Signals of the context
+
+A goroutine that takes a signal of the context, not the context itself, passes too. It can capture the signal, or take it as an argument. The signal is one of these:
 
 - The channel of `ctx.Done()`
-- The cancel func of a context made from `ctx`, by `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` or `WithDeadlineCause`, or by `WithCancel`, `WithTimeout` or `WithDeadline` of `golang.org/x/net/context`
+- The cancel func of a context made from `ctx`. `context.WithCancel`, `WithCancelCause`, `WithTimeout`, `WithDeadline`, `WithTimeoutCause` and `WithDeadlineCause` make one. So do `WithCancel`, `WithTimeout` and `WithDeadline` of `golang.org/x/net/context`.
 
-A signal of a context made from `context.Background()` or `TODO()` does not count. A channel that can't be followed, such as a parameter, does not count either:
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
 ```go
-func handler(ctx context.Context) {
-    // Good: the goroutine ends when ctx is done
-    done := ctx.Done()
-    go func() {
-        <-done
-        cleanup()
-    }()
+done := ctx.Done()
+go func() {
+	<-done
+	cleanup()
+}()
+```
 
-    // Good: the goroutine cancels a context made from ctx
-    ctx, cancel := context.WithCancel(ctx)
-    defer cancel()
-    go func() {
-        waitSignal()
-        cancel()
-    }()
+</td>
+<td>✅️ <b>Passes.</b> The goroutine ends when <code>ctx</code> is done</td>
+</tr>
+<tr>
+<td>
 
-    // Good: worker is given ctx.Done() along with a fresh context
-    go worker(context.Background(), ctx.Done())
+```go
+ctx, cancel := context.WithCancel(ctx)
+defer cancel()
+go func() {
+	waitSignal()
+	cancel()
+}()
+```
 
-    // Bad: the context it cancels is not made from ctx
-    _, stop := context.WithCancel(context.Background())
-    go func() {
-        stop()
-    }()
+</td>
+<td>✅️ <b>Passes.</b> The goroutine cancels a context made from <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go worker(
+	context.Background(),
+	ctx.Done(),
+)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A named function given the signal passes, beside a fresh context</td>
+</tr>
+<tr>
+<td>
+
+```go
+_, stop := context.WithCancel(
+	context.Background(),
+)
+go func() {
+	stop()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The context it cancels is not made from <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	done <-chan struct{},
+) {
+	go func() {
+		<-done
+	}()
 }
 ```
 
-A func value the goroutine calls is judged as if it were spawned directly, when the goroutine gets it from a variable it captures. A func that can't be traced passes, in both cases. Examples are a parameter, a field of a parameter, a slice element read in a loop, a value of a map or a channel, as `handlers[k]()` or `for job := range jobs { job() }`, and a result of a call that returns several values. A func returned by a factory that is given the context passes too. This includes a factory given a struct that holds `ctx` as an interface, and a factory given a channel or a map of funcs that use `ctx`:
+</td>
+<td>❌️ <b>Reported.</b> A channel that cannot be followed, as a parameter, does not count</td>
+</tr>
+</tbody>
+</table>
+
+### Func values
+
+A goroutine that calls a func value from a variable it captures is judged as if it ran the func directly. A func that cannot be traced passes.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
 ```go
-func handler(ctx context.Context, f func()) {
-    // Good: f can't be traced, the same as for go f()
-    go func() {
-        f()
-    }()
+work := func() { doSomething() }
+go func() {
+	work()
+}()
+```
 
-    // Good: serve is given ctx, the same as for go run()
-    run, _ := serve(ctx)
-    go func() {
-        _ = run()
-    }()
+</td>
+<td>❌️ <b>Reported.</b> <code>work</code> is followed to a closure that does not use <code>ctx</code></td>
+</tr>
+<tr>
+<td>
 
-    // Bad: work is followed to a closure that does not use ctx
-    work := func() { doSomething() }
-    go func() {
-        work()
-    }()
+```go
+func handler(
+	ctx context.Context,
+	f func(),
+) {
+	go func() {
+		f()
+	}()
 }
 ```
 
-#### Goroutines that only wait and signal
+</td>
+<td>⚠️ <b>Not reported.</b> A parameter cannot be traced, the same as for <code>go f()</code>. Nor can a field of a parameter</td>
+</tr>
+<tr>
+<td>
 
-A goroutine that only waits and then tells the caller is not reported. It has no use for `ctx`, as the caller selects on `ctx.Done()` itself:
+```go
+for _, f := range fs {
+	go func() {
+		f()
+	}()
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> A slice element read in a loop cannot be traced</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	jobs <-chan func(),
+	handlers map[string]func(),
+) {
+	go func() {
+		for job := range jobs {
+			job()
+		}
+		handlers["a"]()
+	}()
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> Nor can a value of a channel or a map</td>
+</tr>
+<tr>
+<td>
+
+```go
+run, _ := split()
+go func() {
+	_ = run()
+}()
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> Nor can a result of a call that returns several values</td>
+</tr>
+<tr>
+<td>
+
+```go
+run := serve(ctx)
+go func() {
+	_ = run()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A factory is given <code>ctx</code>, the same as for <code>go run()</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+run := serveWith(holder{ctx})
+go func() {
+	_ = run()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> So does a factory given a struct that holds <code>ctx</code> as an interface</td>
+</tr>
+<tr>
+<td>
+
+```go
+fns := map[string]func(){
+	"a": func() { doSomething(ctx) },
+}
+run := serveAll(fns)
+go func() {
+	_ = run()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> So does a factory given a map or a channel of funcs that use <code>ctx</code></td>
+</tr>
+</tbody>
+</table>
+
+### Nested closures
+
+A goroutine passes when its function uses the context, in its own body or in any closure inside it. Each `go` statement is checked on its own.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func() {
+	defer func() {
+		doSomething(ctx)
+	}()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The deferred closure inside the goroutine uses <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	go func() {
+		doSomething(ctx)
+	}()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> Both pass. The outer goroutine uses <code>ctx</code> through the inner one</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	_ = ctx
+	go func() {
+		doSomething()
+	}()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The inner goroutine does not use <code>ctx</code>. The outer one passes</td>
+</tr>
+</tbody>
+</table>
+
+## `goroutine`
+
+The checker for the `go` statement. [What counts as a context](#what-counts-as-a-context) shows how it judges one.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func() {
+	doSomething()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The goroutine does not use <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	doSomething(ctx)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The goroutine uses <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go worker(ctx)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The function is given <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+go backgroundTask()
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> A named function is judged by its arguments only. Its body is not read. It is reported only when it is given a <a href="#fresh-contexts">fresh context</a> and nothing else</td>
+</tr>
+</tbody>
+</table>
+
+### Goroutines that only wait and signal
+
+A goroutine that only waits and then tells the caller is not reported. It has no use for `ctx`, because the caller selects on `ctx.Done()` itself:
 
 ```go
 func run(ctx context.Context) error {
-    var wg sync.WaitGroup
-    // ... start workers with wg ...
+	var wg sync.WaitGroup
+	// ... start workers with wg ...
 
-    // Good: the goroutine only waits and signals
-    done := make(chan struct{})
-    go func() {
-        wg.Wait()
-        close(done)
-    }()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
-    select {
-    case <-done:
-        return nil
-    case <-ctx.Done():
-        return ctx.Err()
-    }
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 ```
 
-The shape is narrow. The function makes at least one of these waits:
+The shape is narrow. The goroutine makes at least one of these waits:
 
 - [`sync.WaitGroup.Wait`](https://pkg.go.dev/sync#WaitGroup.Wait)
 - [`errgroup.Group.Wait`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Wait)
 - [`exec.Cmd.Wait`](https://pkg.go.dev/os/exec#Cmd.Wait), [`os.Process.Wait`](https://pkg.go.dev/os#Process.Wait)
 - `Wait` of [conc](https://pkg.go.dev/github.com/sourcegraph/conc): `conc.WaitGroup`, the `pool` types and `stream.Stream`
 
-Besides the waits, it only does these:
+Besides the waits, it may only do these:
 
-| It may | Note |
-| --- | --- |
-| Close a channel | Also in `defer` |
-| Send on a channel | Only when the send cannot block. Either the send is a case of a `select` with a `default`, or all of these hold: it is the goroutine's only send outside a `select`, the channel is made with `make(chan T, n)` for a constant `n` of at least 1, and there are at most `n` sends on the channel in all, counting every goroutine and closure, none in a loop. A closure that sends or starts a sender must run once: by a `go` statement, a direct or deferred call, or a `Go` of `errgroup`, `sync.WaitGroup` or conc. A closure given to any other call, such as a spawner, may run more than once |
-| Assign to a variable | As `err = cmd.Wait()` |
-| Return | As `return inner.Wait()` |
-| Branch | As `if err := cmd.Wait(); err != nil { ... }`. A loop is not allowed |
-| Call a function literal in place | As `func() { wg.Wait(); close(done) }()`, also in `defer`. Its body follows the same rules, and its sends count with the goroutine's own |
-
-Anything else is reported as before: a call that is not a wait, as a log line after the wait, a loop, a server's `Serve`, and a goroutine that receives from a channel. These may leak when ctx is cancelled:
-
-- **A receive** can wait for ever when nothing is sent. The goroutine could select on `ctx.Done()` instead.
-- **A send on an unbuffered channel** blocks for ever when the caller has returned on `ctx.Done()`. So does a send on a channel that can't be followed, such as a parameter.
-- **More senders than slots** block the same way. Two goroutines that send on a `make(chan error, 1)`, one goroutine that sends twice, or goroutines started in a loop all leave a send waiting after the first receive. A sender counts wherever it is: in a `go` statement, a callback, or a closure. A channel given to a call is not followed, so its sends are reported.
-
-The rule holds for a `go` statement and for the callback of `errgroup`, `sync.WaitGroup.Go`, conc and spawners. A spawner's callback that sends on a channel is still reported, since a spawner may run it more than once. It does not change `-goroutine-deriver`: a goroutine and a callback must still call the deriver, or a callback capture `ctx`. Set [`-report-waiters`](#-report-waiters) to report these goroutines too.
-
-### [`errgroup.Group`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)
-
-Detects [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) and [`errgroup.Group.TryGo`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.TryGo) closures that don't use context:
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
 ```go
-func handler(ctx context.Context) {
-    g := new(errgroup.Group)
+done := make(chan struct{})
+go func() {
+	defer close(done)
+	wg.Wait()
+}()
+```
 
-    // Bad: closure doesn't use ctx
-    g.Go(func() error {
-        return doSomething()
-    })
+</td>
+<td>✅️ <b>Passes.</b> It closes a channel, also in <code>defer</code></td>
+</tr>
+<tr>
+<td>
 
-    // Good: closure uses ctx
-    g.Go(func() error {
-        return doSomething(ctx)
-    })
+```go
+errCh := make(chan error, 1)
+go func() {
+	errCh <- g.Wait()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The send cannot block. The channel has a buffer, and this is its only send</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	wg.Wait()
+	select {
+	case done <- struct{}{}:
+	default:
+	}
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A send in a <code>select</code> with a <code>default</code> cannot block</td>
+</tr>
+<tr>
+<td>
+
+```go
+var err error
+done := make(chan struct{})
+go func() {
+	err = cmd.Wait()
+	close(done)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It assigns to a variable</td>
+</tr>
+<tr>
+<td>
+
+```go
+g.Go(func() error {
+	return inner.Wait()
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It returns</td>
+</tr>
+<tr>
+<td>
+
+```go
+failed := make(chan struct{})
+go func() {
+	if err := cmd.Wait(); err != nil {
+		close(failed)
+	}
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It branches. A loop is not allowed</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	func() {
+		wg.Wait()
+		close(done)
+	}()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It calls a function literal in place. The body of the literal follows the same rules</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	defer func() {
+		close(done)
+	}()
+	wg.Wait()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The same for a function literal deferred in place</td>
+</tr>
+</tbody>
+</table>
+
+A send outside a `select` cannot block when all of these hold:
+
+- It is the goroutine's only send outside a `select`.
+- The channel is made with `make(chan T, n)` for a constant `n` of at least 1.
+- There are at most `n` sends on the channel in all, none in a loop. Every goroutine and every closure counts.
+
+A closure that sends, or starts a sender, must run once. A `go` statement, a direct or deferred call, and a `Go` of `errgroup`, `sync.WaitGroup` or conc run it once. Any other call, such as a spawner, may run it more than once.
+
+Anything else is reported as before. These may leak when `ctx` is cancelled:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	wg.Wait()
+	log.Print("done")
+	close(done)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A call that is not a wait, as a log line</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	for range 3 {
+		wg.Wait()
+	}
+	close(done)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A loop</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	_ = srv.Serve(l)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A server's <code>Serve</code> is not a wait</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	wg.Wait()
+	<-ready
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A receive can wait for ever when nothing is sent. The goroutine could select on <code>ctx.Done()</code> instead</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	wg.Wait()
+	done <- struct{}{}
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A send on an unbuffered channel blocks for ever when the caller has returned on <code>ctx.Done()</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	done chan<- struct{},
+) {
+	var wg sync.WaitGroup
+	go func() {
+		wg.Wait()
+		done <- struct{}{}
+	}()
 }
 ```
 
-### [`sync.WaitGroup`](https://pkg.go.dev/sync#WaitGroup) (Go 1.25+)
-
-Detects [`sync.WaitGroup.Go`](https://pkg.go.dev/sync#WaitGroup.Go) closures that don't use context:
+</td>
+<td>❌️ <b>Reported.</b> The same for a channel that cannot be followed, as a parameter</td>
+</tr>
+<tr>
+<td>
 
 ```go
-func handler(ctx context.Context) {
-    var wg sync.WaitGroup
+errCh := make(chan error, 1)
+go func() {
+	errCh <- g1.Wait()
+}()
+go func() {
+	errCh <- g2.Wait()
+}()
+```
 
-    // Bad: closure doesn't use ctx
-    wg.Go(func() {
-        doSomething()
-    })
+</td>
+<td>❌️ <b>Reported.</b> Two reports. More senders than slots block the same way. The second send waits after the first receive</td>
+</tr>
+<tr>
+<td>
 
-    // Good: closure uses ctx
-    wg.Go(func() {
-        doSomething(ctx)
-    })
+```go
+errCh := make(chan error, 1)
+go func() {
+	errCh <- g.Wait()
+	errCh <- g.Wait()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The same for one goroutine that sends twice</td>
+</tr>
+<tr>
+<td>
+
+```go
+errCh := make(chan error, 1)
+for _, g := range groups {
+	go func() {
+		errCh <- g.Wait()
+	}()
 }
 ```
 
-### [conc](https://pkg.go.dev/github.com/sourcegraph/conc)
-
-Detects [conc](https://pkg.go.dev/github.com/sourcegraph/conc) API calls where closures don't use context:
+</td>
+<td>❌️ <b>Reported.</b> The same for goroutines started in a loop</td>
+</tr>
+<tr>
+<td>
 
 ```go
-func handler(ctx context.Context) {
-    p := pool.New()
-
-    // Bad: closure doesn't use ctx
-    p.Go(func() {
-        doSomething()
-    })
-
-    // Good: closure uses ctx
-    p.Go(func() {
-        doSomething(ctx)
-    })
-}
+errCh := make(chan error, 1)
+watch(errCh)
+go func() {
+	errCh <- g.Wait()
+}()
 ```
 
-Supported APIs:
+</td>
+<td>❌️ <b>Reported.</b> A channel given to a call is not followed, so its sends are reported</td>
+</tr>
+<tr>
+<td>
+
+```go
+errCh := make(chan error, 1)
+go func() {
+	errCh <- g.Wait()
+	func() {
+		errCh <- g.Wait()
+	}()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The sends of a literal called in place count with the goroutine's own. These are two sends on one slot</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	f := func() {
+		wg.Wait()
+		close(done)
+	}
+	f()
+	f()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A closure called twice is not called in place</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	later(func() {
+		wg.Wait()
+		close(done)
+	})
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A closure given to a call is not called in place</td>
+</tr>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+go func() {
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The outer goroutine only starts a closure, and does not wait. The inner goroutine passes</td>
+</tr>
+</tbody>
+</table>
+
+The rule holds for a `go` statement and for a callback of `errgroup`, `sync.WaitGroup.Go`, conc and spawners:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+done := make(chan struct{})
+eg.Go(func() error {
+	wg.Wait()
+	close(done)
+	return nil
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A callback of <code>errgroup</code> that only waits and signals</td>
+</tr>
+<tr>
+<td>
+
+```go
+errCh := make(chan error, 1)
+runAsync(func() {
+	errCh <- g.Wait()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A spawner may run its callback more than once, so a send in it may block</td>
+</tr>
+</tbody>
+</table>
+
+It does not change [`-goroutine-deriver`](#-goroutine-deriver). A goroutine must still call the deriver, and a callback must still call it or use `ctx`. [`-report-waiters`](#-report-waiters) reports these goroutines too.
+
+## `errgroup`
+
+The checker for [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) and [`errgroup.Group.TryGo`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.TryGo). A callback is judged as a goroutine is.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+g := new(errgroup.Group)
+g.Go(func() error {
+	return doSomething()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The callback does not use <code>ctx</code>. <code>TryGo</code> is the same</td>
+</tr>
+<tr>
+<td>
+
+```go
+g := new(errgroup.Group)
+g.Go(func() error {
+	return doSomething(ctx)
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The callback uses <code>ctx</code></td>
+</tr>
+</tbody>
+</table>
+
+## `waitgroup`
+
+The checker for [`sync.WaitGroup.Go`](https://pkg.go.dev/sync#WaitGroup.Go), which Go 1.25 added.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+var wg sync.WaitGroup
+wg.Go(func() {
+	doSomething()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The callback does not use <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+var wg sync.WaitGroup
+wg.Go(func() {
+	doSomething(ctx)
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The callback uses <code>ctx</code></td>
+</tr>
+</tbody>
+</table>
+
+## `conc`
+
+The checker for [conc](https://pkg.go.dev/github.com/sourcegraph/conc).
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+p := pool.New()
+p.Go(func() {
+	doSomething()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The callback does not use <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+p := pool.New()
+p.Go(func() {
+	doSomething(ctx)
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The callback uses <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+iter.ForEach(items, func(it *Item) {
+	doSomething(it)
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The <code>iter</code> functions run the callback in goroutines too</td>
+</tr>
+</tbody>
+</table>
+
+It checks these:
+
 - [`conc.WaitGroup.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#WaitGroup.Go)
 - [`pool.Pool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#Pool.Go), [`pool.ResultPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultPool.Go), [`pool.ContextPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ContextPool.Go), [`pool.ResultContextPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultContextPool.Go)
 - [`pool.ErrorPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ErrorPool.Go), [`pool.ResultErrorPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultErrorPool.Go)
@@ -398,217 +1811,787 @@ Supported APIs:
 - [`iter.Iterator.ForEach`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Iterator.ForEach), [`iter.Iterator.ForEachIdx`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Iterator.ForEachIdx)
 - [`iter.Mapper.Map`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Mapper.Map), [`iter.Mapper.MapErr`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Mapper.MapErr)
 
-### [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) (requires `-goroutine-deriver`)
+## `spawner`
 
-Detects [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) calls where task functions don't call the context deriver. Since tasks run as goroutines, they need to call the deriver function (e.g., `apm.NewGoroutineContext`) inside their body - there's no way to wrap the context at the call site.
-
-Supported functions:
-- [`gotask.DoAll`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAll)
-- [`gotask.DoAllFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllFns)
-- [`gotask.DoAllSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllSettled)
-- [`gotask.DoAllFnsSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllFnsSettled)
-- [`gotask.DoRace`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRace)
-- [`gotask.DoRaceFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRaceFns)
-- [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync)
-- `gotask.CancelableTask.DoAsync`, the [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync) a [`CancelableTask`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask) embeds
-
-```go
-func handler(ctx context.Context) {
-    // Bad: task function doesn't call deriver
-    _ = gotask.DoAllFnsSettled(
-        ctx,
-        func(ctx context.Context) error {
-            return doSomething(ctx)  // ctx is NOT derived!
-        },
-    )
-
-    // Good: task function calls deriver
-    _ = gotask.DoAllFnsSettled(
-        ctx,
-        func(ctx context.Context) error {
-            ctx = apm.NewGoroutineContext(ctx)  // Properly derived
-            return doSomething(ctx)
-        },
-    )
-}
-```
-
-For [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), on a `Task` or a `CancelableTask`, the context argument must be derived: a deriver call, or a context that a `With*` function of `context` or `golang.org/x/net/context` makes from one. A task whose own function calls the deriver passes too:
-
-```go
-func handler(ctx context.Context) {
-    task := gotask.NewTask(func(ctx context.Context) error {
-        return nil
-    })
-
-    // Bad: ctx is not derived
-    task.DoAsync(ctx, errChan)
-
-    // Good: ctx is derived
-    task.DoAsync(apm.NewGoroutineContext(ctx), errChan)
-}
-```
-
-A task built by a combinator is judged by what it is given:
-
-| Combinator | Judged by |
-|------------|-----------|
-| [`gotask.Parallel`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Parallel), [`gotask.ParallelSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#ParallelSettled), [`gotask.Race`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Race) | Passes when every task calls the deriver. Each task runs in a goroutine of its own |
-| [`gotask.Then`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Then), [`gotask.Catch`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Catch) | Passes when the task or the function calls the deriver. Both run in one goroutine, so one call is enough, as in a `go` statement |
-
-```go
-func handler(ctx context.Context) {
-    bad := gotask.NewTask(func(ctx context.Context) gotask.Result[int] {
-        return gotask.ResultOk(1)
-    })
-
-    // Bad: Parallel runs bad without the deriver
-    _ = gotask.DoAll(ctx, gotask.Parallel(bad))
-}
-```
-
-> [!NOTE]
-> A combinator given a slice of tasks whose elements can't be traced, as a slice parameter (`gotask.Parallel(tasks...)`), is not reported.
-
-**Note**: This checker only activates when `-goroutine-deriver` is set.
-
-## Directives
-
-Only `//goroutinectx:name` is a directive: a line comment, a lowercase name, and no spaces. A reason goes after `//`. A reason after ` - ` is also accepted, for compatibility. Any other comment that starts with `goroutinectx:` does nothing and is reported, as is an unknown directive or checker name.
-
-### `//goroutinectx:ignore`
-
-Suppress warnings for a specific line:
-
-```go
-func handler(ctx context.Context) {
-    //goroutinectx:ignore // intentionally not passing context
-    go func() {
-        backgroundTask()
-    }()
-}
-```
-
-The comment can be on the same line or the line above. A comment after code on its line covers that line only. For a call that spans several lines, an ignore above the call covers every argument, and an ignore above one argument covers that argument.
-
-#### Checker-Specific Ignore
-
-You can specify which checker(s) to ignore:
-
-```go
-func handler(ctx context.Context) {
-    //goroutinectx:ignore goroutine // only ignore goroutine checker
-    go func() {
-        backgroundTask()
-    }()
-}
-```
-
-Separate several names with commas. With `-goroutine-deriver` set, this goroutine gets a report from `goroutine` and one from `goroutinederive`. The ignore silences both:
-
-```go
-func handler(ctx context.Context) {
-    //goroutinectx:ignore goroutine,goroutinederive // ignore both checkers
-    go func() {
-        backgroundTask()
-    }()
-}
-```
-
-> [!NOTE]
-> Name only the checkers that report there. Without `-goroutine-deriver`, the `goroutinederive` checker does not run, so the ignore above is reported as unused for `goroutinederive`.
-
-**Available checker names:**
-- `goroutine` - `go func()` statements
-- `goroutinederive` - goroutine derive function requirement
-- `waitgroup` - [`sync.WaitGroup.Go`](https://pkg.go.dev/sync#WaitGroup.Go) calls
-- `errgroup` - [`errgroup.Group.Go`](https://pkg.go.dev/golang.org/x/sync/errgroup#Group.Go) calls
-- `conc` - [conc](https://pkg.go.dev/github.com/sourcegraph/conc) library checks
-- `spawner` - spawner directive checks
-- `spawnerlabel` - spawner label requirement
-- `gotask` - [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) library checks
-
-#### Unused Ignore Detection
-
-An ignore that silences no report is reported as unused.
-
-### `//goroutinectx:spawner`
-
-Mark a function as one that spawns goroutines with its func arguments. The analyzer will check that func arguments passed to marked functions properly use context.
-
-The directive goes anywhere in the function's doc comment. Anywhere else, it has no effect and is reported. An exported spawner is also a spawner for calls from other packages, as long as goroutinectx analyzes the package that declares it (as `go vet` and golangci-lint do).
+The checker for a function marked as a spawner. A spawner runs its func arguments in goroutines. Mark one of your own with [`//goroutinectx:spawner`](#goroutinectxspawner), and one of another module with [`-external-spawner`](#-external-spawner).
 
 ```go
 //goroutinectx:spawner
 func runAsync(g *errgroup.Group, fn func() error) {
-    g.Go(fn)
-}
-
-func handler(ctx context.Context) {
-    g := new(errgroup.Group)
-
-    // Bad: func argument doesn't use ctx
-    runAsync(g, func() error {
-        return doSomething()
-    })
-
-    // Good: func argument uses ctx
-    runAsync(g, func() error {
-        return doSomething(ctx)
-    })
+	g.Go(fn)
 }
 ```
 
-This is useful for wrapper functions that abstract away goroutine spawning patterns.
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+g := new(errgroup.Group)
+runAsync(g, func() error {
+	return doSomething()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The func argument does not use <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+g := new(errgroup.Group)
+runAsync(g, func() error {
+	return doSomething(ctx)
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The func argument uses <code>ctx</code></td>
+</tr>
+</tbody>
+</table>
+
+## `spawnerlabel`
+
+Off by default. Turn it on with `-spawnerlabel`. It checks that a function has `//goroutinectx:spawner` exactly when it is a spawner.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+func runTask(task func() error) {
+	g := new(errgroup.Group)
+	g.Go(task)
+	_ = g.Wait()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> It gives a func argument to a spawn call, without the directive</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:spawner
+func runTask(task func() error) {
+	g := new(errgroup.Group)
+	g.Go(task)
+	_ = g.Wait()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It has the directive</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:spawner
+func simpleHelper() {
+	fmt.Println("hello")
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The directive is not needed. The function spawns nothing, and has no func parameter</td>
+</tr>
+</tbody>
+</table>
+
+## `goroutinederive`
+
+Runs only with [`-goroutine-deriver`](#-goroutine-deriver). A goroutine must call the deriver. The examples run with `-goroutine-deriver=github.com/my-example-app/telemetry/apm.NewGoroutineContext`:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func() {
+	doSomething(ctx)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The goroutine uses <code>ctx</code>, but does not call the deriver</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	ctx := apm.NewGoroutineContext(ctx)
+	doSomething(ctx)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The goroutine calls the deriver</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(ctx context.Context) {
+	doSomething(ctx)
+}(ctx)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A function that takes a context of its own is not checked for the deriver. A value that implements <code>context.Context</code> counts as one</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func(j *Job) {
+	doSomething(j.ctx)
+}(j)
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A struct that only holds a context is not one. The function must still call the deriver</td>
+</tr>
+<tr>
+<td>
+
+```go
+g := new(errgroup.Group)
+g.Go(func() error {
+	return doSomething(ctx)
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A callback passes when it uses <code>ctx</code> or calls the deriver</td>
+</tr>
+<tr>
+<td>
+
+```go
+g := new(errgroup.Group)
+g.Go(func() error {
+	return doSomething()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A callback that does neither is reported once, by <code>errgroup</code></td>
+</tr>
+</tbody>
+</table>
+
+## `gotask`
+
+The checker for [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2). Runs only with [`-goroutine-deriver`](#-goroutine-deriver). A task runs in a goroutine, and the call site cannot wrap its context. So the task function must call the deriver in its body. The examples run with `-goroutine-deriver=github.com/my-example-app/telemetry/apm.NewGoroutineContext`:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+_ = gotask.DoAllFnsSettled(
+	ctx,
+	func(ctx context.Context) error {
+		return doSomething(ctx)
+	},
+)
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The task function does not call the deriver. <code>ctx</code> is not derived</td>
+</tr>
+<tr>
+<td>
+
+```go
+_ = gotask.DoAllFnsSettled(
+	ctx,
+	func(ctx context.Context) error {
+		ctx = apm.NewGoroutineContext(ctx)
+		return doSomething(ctx)
+	},
+)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The task function calls the deriver</td>
+</tr>
+</tbody>
+</table>
+
+It checks these:
+
+- [`gotask.DoAll`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAll), [`gotask.DoAllFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllFns)
+- [`gotask.DoAllSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllSettled), [`gotask.DoAllFnsSettled`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoAllFnsSettled)
+- [`gotask.DoRace`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRace), [`gotask.DoRaceFns`](https://pkg.go.dev/github.com/siketyan/gotask/v2#DoRaceFns)
+- [`gotask.Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync)
+- `gotask.CancelableTask.DoAsync`, the [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync) that a [`CancelableTask`](https://pkg.go.dev/github.com/siketyan/gotask/v2#CancelableTask) embeds
+
+For `DoAsync`, on a `Task` or a `CancelableTask`, the context argument must be derived:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+task := gotask.NewTask(
+	func(ctx context.Context) error {
+		return nil
+	},
+)
+task.DoAsync(ctx, errChan)
+```
+
+</td>
+<td>❌️ <b>Reported.</b> <code>ctx</code> is not derived</td>
+</tr>
+<tr>
+<td>
+
+```go
+task := gotask.NewTask(
+	func(ctx context.Context) error {
+		return nil
+	},
+)
+task.DoAsync(
+	apm.NewGoroutineContext(ctx),
+	errChan,
+)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The argument is a deriver call</td>
+</tr>
+<tr>
+<td>
+
+```go
+task := gotask.NewTask(
+	func(ctx context.Context) error {
+		return nil
+	},
+)
+dctx := apm.NewGoroutineContext(ctx)
+tctx, cancel := context.WithTimeout(
+	dctx,
+	time.Second,
+)
+defer cancel()
+task.DoAsync(tctx, errChan)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A <code>With*</code> function of <code>context</code> or <code>golang.org/x/net/context</code> made it from a derived context</td>
+</tr>
+<tr>
+<td>
+
+```go
+task := gotask.NewTask(
+	func(ctx context.Context) error {
+		ctx = apm.NewGoroutineContext(ctx)
+		return doSomething(ctx)
+	},
+)
+task.DoAsync(ctx, errChan)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The task's own function calls the deriver</td>
+</tr>
+</tbody>
+</table>
+
+A task built by a combinator is judged by what it is given:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+bad := gotask.NewTask(
+	func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	},
+)
+_ = gotask.DoAll(ctx, gotask.Parallel(bad))
+```
+
+</td>
+<td>❌️ <b>Reported.</b> <a href="https://pkg.go.dev/github.com/siketyan/gotask/v2#Parallel"><code>Parallel</code></a> runs each task in a goroutine of its own. Every task must call the deriver. <a href="https://pkg.go.dev/github.com/siketyan/gotask/v2#ParallelSettled"><code>ParallelSettled</code></a> and <a href="https://pkg.go.dev/github.com/siketyan/gotask/v2#Race"><code>Race</code></a> are the same</td>
+</tr>
+<tr>
+<td>
+
+```go
+bad := gotask.NewTask(
+	func(ctx context.Context) gotask.Result[int] {
+		return gotask.ResultOk(1)
+	},
+)
+next := gotask.Then(
+	bad,
+	func(
+		ctx context.Context,
+		n int,
+	) gotask.Result[int] {
+		_ = apm.NewGoroutineContext(ctx)
+		return gotask.ResultOk(n)
+	},
+)
+_ = gotask.DoAll(ctx, next)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> <a href="https://pkg.go.dev/github.com/siketyan/gotask/v2#Then"><code>Then</code></a> runs the task and the function in one goroutine. One call of the deriver is enough, as in a <code>go</code> statement. <a href="https://pkg.go.dev/github.com/siketyan/gotask/v2#Catch"><code>Catch</code></a> is the same</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(
+	ctx context.Context,
+	tasks []gotask.Task[gotask.Result[int]],
+) {
+	_ = gotask.DoAll(
+		ctx,
+		gotask.Parallel(tasks...),
+	)
+}
+```
+
+</td>
+<td>⚠️ <b>Not reported.</b> The elements of a slice parameter cannot be traced</td>
+</tr>
+</tbody>
+</table>
+
+## Directives
+
+A directive is a line comment `//goroutinectx:name`. The name is lowercase, with no spaces. A reason goes after `//`. A reason after ` - ` is also accepted, for compatibility.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore // runs after the request
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The directive silences it. The reason goes after <code>//</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore - runs after the request
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A reason after <code> - </code> works the same</td>
+</tr>
+<tr>
+<td>
+
+```go
+// goroutinectx:ignore
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Two reports. A comment with a space does nothing, and is reported as malformed. So are <code>/* goroutinectx:ignore */</code> and <code>//goroutinectx:Ignore</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:skip
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Two reports. An unknown directive does nothing, and is reported</td>
+</tr>
+</tbody>
+</table>
+
+### `//goroutinectx:ignore`
+
+It silences the reports of a line. It can be on the line above, or at the end of the line.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func() { backgroundTask() }() //goroutinectx:ignore
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A directive after code covers its own line</td>
+</tr>
+<tr>
+<td>
+
+```go
+_ = ctx //goroutinectx:ignore
+go func() { backgroundTask() }()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Two reports. A directive after code does not cover the line below. It silences nothing, so it is reported as unused</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore
+_ = gotask.DoAllFnsSettled(
+	ctx,
+	func(ctx context.Context) error {
+		return nil
+	},
+	func(ctx context.Context) error {
+		return nil
+	},
+)
+```
+
+</td>
+<td>✅️ <b>Passes.</b> A directive above a call covers every argument of it. Run with <code>-goroutine-deriver</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+_ = gotask.DoAllFnsSettled(
+	ctx,
+	//goroutinectx:ignore
+	func(ctx context.Context) error {
+		return nil
+	},
+	func(ctx context.Context) error {
+		return nil
+	},
+)
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A directive above one argument covers only that argument. The second one is reported. Run with <code>-goroutine-deriver</code></td>
+</tr>
+</tbody>
+</table>
+
+It takes the names of the [checkers](#checkers) to silence, separated by commas. Without a name, it silences every checker.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore goroutine // reason
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It names the checker that reports</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore errgroup // reason
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Two reports. It names another checker. The goroutine is reported, and the directive is reported as unused</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore goroutine,goroutinederive
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> With <code>-goroutine-deriver</code>, the goroutine gets a report from <code>goroutine</code> and one from <code>goroutinederive</code>. It silences both</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore goroutine,goroutinederive
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>⚠️ <b>Reported.</b> Without <code>-goroutine-deriver</code>, <code>goroutinederive</code> does not run. The directive is reported as unused for it</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore gorutine
+go func() {
+	backgroundTask()
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Two reports. An unknown checker name is reported, and the directive does nothing</td>
+</tr>
+<tr>
+<td>
+
+```go
+//goroutinectx:ignore
+go func() {
+	backgroundTask(ctx)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> A directive that silences no report is reported as unused</td>
+</tr>
+</tbody>
+</table>
+
+> [!TIP]
+> Name only the checkers that report there. A name of a checker that does not run makes the directive unused.
+
+### `//goroutinectx:spawner`
+
+It marks a function as a [spawner](#spawner). The [`spawner`](#spawner) checker then checks the func arguments of each call.
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+// runAsync runs fn in g.
+//
+//goroutinectx:spawner
+func runAsync(g *errgroup.Group, fn func() error) {
+	g.Go(fn)
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The directive can be anywhere in the doc comment</td>
+</tr>
+<tr>
+<td>
+
+```go
+func runAsync(g *errgroup.Group, fn func() error) {
+	//goroutinectx:spawner
+	g.Go(fn)
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> Anywhere else, it has no effect, and is reported</td>
+</tr>
+<tr>
+<td>
+
+```go
+// package workers
+//
+//goroutinectx:spawner
+func Run(fn func()) { go fn() }
+
+// package app
+func handler(ctx context.Context) {
+	workers.Run(func() {
+		doSomething()
+	})
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> An exported spawner works for calls from other packages too. goroutinectx must analyze the package that declares it. <code>go vet</code> and golangci-lint do</td>
+</tr>
+</tbody>
+</table>
 
 ## Flags
 
-### `-goroutine-deriver`
+A flag that names a function or a type takes the full import path of its package. A short name such as `apm.NewGoroutineContext` would never match, so it is rejected:
 
-Require goroutines to call a specific function to derive context. Useful for APM libraries like New Relic.
-
-Name each function with the full import path of its package. A short name such as `apm.NewGoroutineContext` would never match, so it is rejected (standard library packages such as `context` are fine). The same holds for `-external-spawner` and `-context-carriers`.
-
-```bash
-# Single deriver - require apm.NewGoroutineContext() in goroutines
-goroutinectx -goroutine-deriver='github.com/my-example-app/telemetry/apm.NewGoroutineContext' ./...
-
-# AND (plus) - require BOTH txn.NewGoroutine() AND newrelic.NewContext()
-goroutinectx -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext' ./...
-
-# Mixed AND/OR - (txn.NewGoroutine AND NewContext) OR apm.NewGoroutineContext
-goroutinectx -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext' ./...
+```console
+$ goroutinectx -goroutine-deriver=apm.NewGoroutineContext ./...
+invalid value "apm.NewGoroutineContext" for flag -goroutine-deriver: -goroutine-deriver: "apm.NewGoroutineContext": "apm" is not an import path; write the full path of the package, as github.com/org/apm.NewGoroutineContext
 ```
 
-**Format:**
-- `pkg/path.Func` for functions
-- `pkg/path.Type.Method` for methods
-- `,` (comma) for OR - at least one group must be satisfied
-- `+` (plus) for AND - all functions in the group must be called
+The usage follows that line, and the run stops.
 
-A goroutine or a callback whose function takes a context of its own, such as `go func(ctx context.Context) { ... }(ctx)`, is not checked for the deriver. A value whose type implements `context.Context` counts as one. A struct that only holds a context does not: `go func(j *Job) { work(j.Ctx) }(j)` must still call the deriver.
+A package of the standard library needs no more than its path:
+
+```bash
+goroutinectx -goroutine-deriver=context.WithoutCancel ./...
+```
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| [`-goroutine-deriver`](#-goroutine-deriver) | None | A goroutine must call this function |
+| [`-context-carriers`](#-context-carriers) | None | These types count as a context |
+| [`-external-spawner`](#-external-spawner) | None | These functions are spawners |
+| [`-report-waiters`](#-report-waiters) | `false` | A goroutine that only waits and signals is reported too |
+| `-goroutine`, `-errgroup`, `-waitgroup`, `-conc`, `-spawner`, `-gotask` | `true` | Turns the [checker](#checkers) on or off |
+| `-spawnerlabel` | `false` | Turns the [checker](#spawnerlabel) on or off |
+| `-test` | `true` | Checks test files too. A flag of the driver |
+
+### `-goroutine-deriver`
+
+A goroutine must call this function to derive its context. It is for an APM library such as New Relic. It turns on [`goroutinederive`](#goroutinederive) and [`gotask`](#gotask).
+
+```bash
+goroutinectx \
+  -goroutine-deriver='github.com/my-example-app/telemetry/apm.NewGoroutineContext' \
+  ./...
+```
+
+| Spelling | Meaning |
+| --- | --- |
+| `pkg/path.Func` | A function |
+| `pkg/path.Type.Method` | A method |
+| `A+B` | AND. The goroutine must call every function of the group |
+| `A,B` | OR. The goroutine must satisfy at least one group |
+
+With `-goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext'`:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+go func() {
+	txn := newrelic.FromContext(ctx).
+		NewGoroutine()
+	ctx := newrelic.NewContext(
+		context.Background(),
+		txn,
+	)
+	doSomething(ctx)
+}()
+```
+
+</td>
+<td>✅️ <b>Passes.</b> It calls both functions of the group</td>
+</tr>
+<tr>
+<td>
+
+```go
+go func() {
+	ctx := newrelic.NewContext(
+		ctx,
+		newrelic.FromContext(ctx),
+	)
+	doSomething(ctx)
+}()
+```
+
+</td>
+<td>❌️ <b>Reported.</b> It calls only one</td>
+</tr>
+</tbody>
+</table>
+
+Add a group after a comma, as `A+B,C`, and a goroutine that calls `C` alone passes too:
+
+```bash
+goroutinectx \
+  -goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-example-app/telemetry/apm.NewGoroutineContext' \
+  ./...
+```
 
 > [!TIP]
-> When both parent and child goroutines require instrumentation inheritance (e.g., [New Relic Go Agent](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic)), you need to call [`Transaction.NewGoroutine`](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic#Transaction.NewGoroutine) and [`NewContext`](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic#NewContext):
+> With the [New Relic Go Agent](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic), a child goroutine needs [`Transaction.NewGoroutine`](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic#Transaction.NewGoroutine) and [`NewContext`](https://pkg.go.dev/github.com/newrelic/go-agent/v3/newrelic#NewContext), as above. A wrapper function that takes a [`context.Context`](https://pkg.go.dev/context#Context) and returns one is common:
 >
 > ```go
-> go func() {
->     txn := newrelic.FromContext(ctx).NewGoroutine()
->     ctx := newrelic.NewContext(context.Background(), txn)
->     doSomething(ctx)
-> }()
-> ```
->
-> It's common to define a wrapper function that takes [`context.Context`](https://pkg.go.dev/context#Context) and returns [`context.Context`](https://pkg.go.dev/context#Context):
->
-> ```go
-> // apm.NewGoroutineContext derives context for goroutine instrumentation
-> func NewGoroutineContext(ctx context.Context) context.Context {
->     txn := newrelic.FromContext(ctx)
->     if txn == nil {
->         return ctx
->     }
->     return newrelic.NewContext(ctx, txn.NewGoroutine())
+> // NewGoroutineContext derives a context
+> // for goroutine instrumentation.
+> func NewGoroutineContext(
+> 	ctx context.Context,
+> ) context.Context {
+> 	txn := newrelic.FromContext(ctx)
+> 	if txn == nil {
+> 		return ctx
+> 	}
+> 	return newrelic.NewContext(ctx, txn.NewGoroutine())
 > }
 > ```
 >
@@ -616,133 +2599,168 @@ A goroutine or a callback whose function takes a context of its own, such as `go
 
 ### `-context-carriers`
 
-Treat additional types as context carriers (like [`context.Context`](https://pkg.go.dev/context#Context)). Useful for web frameworks that have their own context types.
+These types count as a context. It is for a web framework that has a context type of its own, as [`echo.Context`](https://pkg.go.dev/github.com/labstack/echo/v4#Context) or [`cli.Context`](https://pkg.go.dev/github.com/urfave/cli/v2#Context). Separate several types with commas.
 
 ```bash
-# Treat echo.Context as a context carrier
-goroutinectx -context-carriers='github.com/labstack/echo/v4.Context' ./...
-
-# Multiple carriers (comma-separated)
-goroutinectx -context-carriers='github.com/labstack/echo/v4.Context,github.com/urfave/cli/v2.Context' ./...
+goroutinectx \
+  -context-carriers='github.com/labstack/echo/v4.Context,github.com/urfave/cli/v2.Context' \
+  ./...
 ```
 
-Name each type with the full import path of its package, as for `-goroutine-deriver`.
+With `-context-carriers='github.com/labstack/echo/v4.Context'`:
 
-Example with [`echo.Context`](https://pkg.go.dev/github.com/labstack/echo/v4#Context) and [`cli.Context`](https://pkg.go.dev/github.com/urfave/cli/v2#Context).
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
-When a function has a context carrier parameter, goroutinectx will check that it's properly propagated to goroutines and other APIs. An alias of a carrier, an interface that embeds one, and a type parameter constrained by one, count as the carrier, the same as for `context.Context`.
+```go
+func handler(c echo.Context) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The function takes a carrier, so it is checked. Without the flag, it is not</td>
+</tr>
+<tr>
+<td>
+
+```go
+func handler(c echo.Context) {
+	go func() {
+		doSomething(c)
+	}()
+}
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The goroutine uses the carrier</td>
+</tr>
+<tr>
+<td>
+
+```go
+type AppCtx interface {
+	echo.Context
+}
+
+func handler(c AppCtx) {
+	go func() {
+		doSomething()
+	}()
+}
+```
+
+</td>
+<td>❌️ <b>Reported.</b> An interface that embeds a carrier counts as the carrier. So do an alias and a type parameter constrained by one, the same as for <code>context.Context</code></td>
+</tr>
+</tbody>
+</table>
 
 ### `-external-spawner`
 
-Mark external package functions as spawners. This is the flag-based alternative to `//goroutinectx:spawner` directive for functions you don't control.
+These functions are [spawners](#spawner). It does what [`//goroutinectx:spawner`](#goroutinectxspawner) does, for code you cannot edit. Separate several functions with commas. The spelling is `pkg/path.Func` or `pkg/path.Type.Method`.
 
 ```bash
-# Single external spawner
-goroutinectx -external-spawner='github.com/example/workerpool.Pool.Submit' ./...
-
-# Multiple external spawners (comma-separated)
-goroutinectx -external-spawner='github.com/example/workerpool.Pool.Submit,github.com/example/workerpool.Run' ./...
+goroutinectx \
+  -external-spawner='github.com/example/workerpool.Pool.Submit,github.com/example/workerpool.Run' \
+  ./...
 ```
 
-**Format:**
-- `pkg/path.Func` for package-level functions
-- `pkg/path.Type.Method` for methods
+With `-external-spawner='github.com/example/workerpool.Pool.Submit'`:
 
-When an external spawner is called, goroutinectx checks that func arguments properly use context.
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+p := &workerpool.Pool{}
+p.Submit(func() {
+	doSomething()
+})
+```
+
+</td>
+<td>❌️ <b>Reported.</b> The func argument does not use <code>ctx</code></td>
+</tr>
+<tr>
+<td>
+
+```go
+p := &workerpool.Pool{}
+p.Submit(func() {
+	doSomething(ctx)
+})
+```
+
+</td>
+<td>✅️ <b>Passes.</b> The func argument uses <code>ctx</code></td>
+</tr>
+</tbody>
+</table>
 
 ### `-report-waiters`
 
-Also report goroutines that only wait and signal (default: false). See [Goroutines that only wait and signal](#goroutines-that-only-wait-and-signal).
+Also reports [goroutines that only wait and signal](#goroutines-that-only-wait-and-signal). In the golangci-lint plugin, set `report-waiters: true`.
 
 ```bash
 goroutinectx -report-waiters ./...
 ```
 
-In the golangci-lint plugin, set `report-waiters: true`.
+With `-report-waiters`:
 
-### Checker Enable/Disable Flags
-
-Most checkers are enabled by default. Use these flags to enable or disable specific checkers:
-
-Available flags:
-- `-goroutine` (default: true)
-- `-waitgroup` (default: true)
-- `-errgroup` (default: true)
-- `-conc` (default: true) - Check [conc](https://pkg.go.dev/github.com/sourcegraph/conc) APIs:
-  - [`conc.WaitGroup.Go`](https://pkg.go.dev/github.com/sourcegraph/conc#WaitGroup.Go)
-  - [`pool.Pool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#Pool.Go), [`pool.ResultPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultPool.Go), [`pool.ContextPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ContextPool.Go), [`pool.ResultContextPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultContextPool.Go)
-  - [`pool.ErrorPool.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ErrorPool.Go), [`pool.ResultErrorPool[T].Go`](https://pkg.go.dev/github.com/sourcegraph/conc/pool#ResultErrorPool.Go)
-  - [`stream.Stream.Go`](https://pkg.go.dev/github.com/sourcegraph/conc/stream#Stream.Go)
-  - [`iter.ForEach`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#ForEach), [`iter.ForEachIdx`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#ForEachIdx), [`iter.Map`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Map), [`iter.MapErr`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#MapErr)
-  - [`iter.Iterator.ForEach`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Iterator.ForEach), [`iter.Iterator.ForEachIdx`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Iterator.ForEachIdx)
-  - [`iter.Mapper.Map`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Mapper.Map), [`iter.Mapper.MapErr`](https://pkg.go.dev/github.com/sourcegraph/conc/iter#Mapper.MapErr)
-- `-spawner` (default: true)
-- `-spawnerlabel` (default: false) - Check that spawner functions are properly labeled
-- `-gotask` (default: true, requires `-goroutine-deriver`)
-
-### File Filtering
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-test` | `true` | Analyze test files (`*_test.go`) — built-in driver flag |
-
-Generated files (containing `// Code generated ... DO NOT EDIT.`) are always excluded and cannot be opted in. This includes code below a `//line` directive in a generated file.
-
-```bash
-# Exclude test files from analysis
-goroutinectx -test=false ./...
-```
-
-### `-spawnerlabel`
-
-When enabled, checks that functions calling spawn methods with func arguments have the `//goroutinectx:spawner` directive:
+<table>
+<thead>
+<tr><th>Code</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
 ```go
-// Bad: calls errgroup.Group.Go() with func argument but missing directive
-func runTask(task func() error) {  // Warning: should have //goroutinectx:spawner
-    g := new(errgroup.Group)
-    g.Go(task)
-    _ = g.Wait()
-}
-
-// Good: properly labeled
-//goroutinectx:spawner
-func runTask(task func() error) {
-    g := new(errgroup.Group)
-    g.Go(task)
-    _ = g.Wait()
-}
+done := make(chan struct{})
+go func() {
+	wg.Wait()
+	close(done)
+}()
 ```
 
-Also warns about unnecessary labels on functions that don't spawn and have no func parameters:
+</td>
+<td>❌️ <b>Reported.</b> Without the flag, it passes</td>
+</tr>
+</tbody>
+</table>
 
-```go
-// Bad: unnecessary directive (no spawn calls, no func parameters)
-//goroutinectx:spawner
-func simpleHelper() {  // Warning: unnecessary //goroutinectx:spawner
-    fmt.Println("hello")
-}
-```
+## Design principles
 
-## Design Principles
-
-1. **Zero false positives** - Prefer missing issues over false alarms
-2. **Type-safe analysis** - Uses [`go/types`](https://pkg.go.dev/go/types) for accurate detection
-3. **Nested function support** - Correctly tracks context through closures
+1. **Zero false positives.** It prefers a missed report to a false one.
+2. **Type-safe analysis.** It uses [`go/types`](https://pkg.go.dev/go/types), not names.
+3. **Nested functions.** It follows the context through closures.
 
 ## Documentation
 
-- [Architecture](./docs/ARCHITECTURE.md) - Technical specification and design decisions
-- [Tutorial](./docs/TUTORIAL.md) - Step-by-step learning guide
-- [AGENTS.md](./AGENTS.md) - Repository instructions for contributors and coding agents
+- [Architecture](./docs/ARCHITECTURE.md): the technical specification and the design decisions
+- [Tutorial](./docs/TUTORIAL.md): a guide, step by step
+- [AGENTS.md](./AGENTS.md): instructions for contributors and coding agents
 
-## Related Tools
+## Related tools
 
-- [contextcheck](https://github.com/kkHAIKE/contextcheck) - Detects [`context.Background`](https://pkg.go.dev/context#Background)/[`context.TODO`](https://pkg.go.dev/context#TODO) usage and missing context parameters
+[contextcheck](https://github.com/kkHAIKE/contextcheck) reports [`context.Background`](https://pkg.go.dev/context#Background) or [`context.TODO`](https://pkg.go.dev/context#TODO) where a context should be passed on. It also reports a missing context parameter. The two complement each other:
 
-`goroutinectx` is complementary to `contextcheck`:
-- `contextcheck` warns about creating new contexts when one should be propagated
-- `goroutinectx` warns about not using an available context in specific APIs
+| Tool | Reports |
+| --- | --- |
+| contextcheck | A new context made where one should be passed on |
+| goroutinectx | A context that is at hand, but not used in a goroutine |
 
 ## AI usage
 
@@ -750,4 +2768,4 @@ goroutinectx is developed with AI coding agents (Claude Code). The fixtures unde
 
 ## License
 
-MIT
+[MIT](LICENSE)
