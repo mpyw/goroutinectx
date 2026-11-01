@@ -146,7 +146,9 @@ func spawnedWaiterPasses(e *env.Env, fn *ssa.Function) bool {
 // one of the arguments, so a method is reported only when its receiver
 // cannot hold a context, as an empty struct or a struct of basic types
 // cannot (#274). A method value, as run := r.work, is its method, judged
-// by the receiver it holds by the same rule (#323). A closure is left
+// by the receiver it holds by the same rule (#323). A method expression,
+// as R.work, is its method, with the receiver as the first argument (#337).
+// [flow.Flow.IsNamedFuncWithoutContext] tells all of these. A closure is left
 // alone, as it may capture one. The function called may be a value that
 // can be only named functions, as [flow.Flow.Sources] follows it through a
 // Phi (#305).
@@ -157,33 +159,8 @@ func spawnedGivesNamedFuncOnlyFreshContext(e *env.Env, call *ssa.CallCommon) boo
 		return false
 	}
 	sources, complete := e.Flow.Sources(call.Value)
-	if !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s flow.Source) bool { return !spawnedIsNamedFunc(e, s.Value) }) {
+	if !complete || len(sources) == 0 || slices.ContainsFunc(sources, func(s flow.Source) bool { return !e.Flow.IsNamedFuncWithoutContext(s.Value, e.Kinds) }) {
 		return false
 	}
 	return e.Flow.GivesOnlyFreshContext(call, e.Kinds)
-}
-
-// spawnedIsNamedFunc reports whether v is a named function or method,
-// generic or not, of the analyzed package or of another, or a method value
-// whose receiver cannot hold a context, as
-// [flow.Flow.GivesOnlyFreshContext] judges an argument.
-func spawnedIsNamedFunc(e *env.Env, v ssa.Value) bool {
-	if mc, ok := v.(*ssa.MakeClosure); ok {
-		fn, _ := mc.Fn.(*ssa.Function)
-		return flow.Classify(fn) == flow.ClassifiedBound &&
-			!slices.ContainsFunc(mc.Bindings, func(recv ssa.Value) bool {
-				return e.Kinds.MayHold(recv, ctxkind.Given) || e.Flow.SignalsContext(recv, e.Kinds)
-			})
-	}
-	fn, ok := v.(*ssa.Function)
-	if !ok {
-		return false
-	}
-	switch flow.Classify(fn) {
-	case flow.ClassifiedNamed, flow.ClassifiedMethod, flow.ClassifiedExternal:
-		// A function or a method of another package is built from type
-		// information.
-		return true
-	}
-	return false
 }

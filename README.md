@@ -525,7 +525,7 @@ go Worker{}.run(context.Background())
 ```
 
 </td>
-<td>❌️ <b>Reported.</b> The receiver cannot hold a context. It is an empty struct, or a struct of basic types. A method value, as <code>run := Worker{}.run</code>, is judged the same way</td>
+<td>❌️ <b>Reported.</b> The receiver cannot hold a context. It is an empty struct, or a struct of basic types. A method value, as <code>run := Worker{}.run</code>, and a method expression, as <code>go Worker.run(Worker{}, context.Background())</code>, are judged the same way</td>
 </tr>
 <tr>
 <td>
@@ -1175,7 +1175,7 @@ go func() {
 ```
 
 </td>
-<td>❌️ <b>Reported.</b> A named function given only a fresh context does not get <code>ctx</code>, the same as for <code>go worker(context.Background())</code></td>
+<td>❌️ <b>Reported.</b> A named function given only a fresh context does not get <code>ctx</code>, the same as for <code>go worker(context.Background())</code>. So does a method value whose receiver cannot hold a context, as <code>run := Worker{}.run</code></td>
 </tr>
 <tr>
 <td>
