@@ -27,7 +27,7 @@ However, developers often forget to pass context to goroutines, breaking the pro
 
 1. Auto-fixing (may be added later)
 2. Runtime checking
-3. Configuration files (flags only for v1)
+3. A configuration file of its own. Settings come from flags, from `goroutinectx.New`'s `Config`, or from the golangci-lint plugin settings
 4. Custom rule definition (future version)
 
 ## Design Principles
@@ -49,11 +49,15 @@ All modern Go linters use [`go/analysis`](https://pkg.go.dev/golang.org/x/tools/
 ### 3. Library-First Design
 
 goroutinectx is designed as an importable library:
-- `analyzer.go` - Main analyzer definition
-- `internal/` - Implementation packages
-- No standalone CLI (use with singlechecker or multichecker)
 
-This enables both standalone usage and programmatic integration.
+| Part | What it is |
+|------|------------|
+| `analyzer.go` | Main analyzer definition: `Analyzer` and `New` |
+| `internal/` | Implementation packages |
+| `cmd/goroutinectx/` | The standalone command, a `singlechecker` of `Analyzer` |
+| `plugin/` | The golangci-lint module plugin |
+
+You can also run `Analyzer` with your own `singlechecker` or `multichecker`.
 
 ## Directory Structure
 
@@ -89,18 +93,8 @@ goroutinectx/
 │   ├── site/                  # Index: each go statement and call as a Site, built once per pass
 │   └── typeutil/              # Pointers, embedded interfaces, package paths
 ├── testdata/
-│   └── src/                   # Test fixtures for analysistest
-│       ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
-│       ├── patternsderive/    # The same, with -goroutine-deriver
-│       ├── goroutine/         # goroutine-only cases
-│       ├── errgroup/          # errgroup-only cases
-│       ├── waitgroup/         # waitgroup-only cases
-│       ├── spawner/           # spawner tests
-│       ├── goroutinederive/   # Single deriver tests
-│       ├── goroutinederiveand/    # AND deriver tests
-│       ├── goroutinederivemixed/  # Mixed AND/OR tests
-│       ├── gotask/            # gotask checker tests
-│       └── carrier/           # Context carrier tests
+│   ├── src/                   # Test fixtures for analysistest (see the table below)
+│   └── receivermodule/        # A module and a module it replaces, for which receivers count (#191)
 ├── docs/
 │   ├── ARCHITECTURE.md        # Technical specification (this file)
 │   └── TUTORIAL.md            # Learning guide
@@ -111,11 +105,47 @@ goroutinectx/
 └── README.md
 ```
 
+### Test Fixtures
+
+Each directory of `testdata/src` is one fixture package. The settings each runs with are in the table of `TestAnalyzer` in `analyzer_test.go`.
+
+| Directory | What it tests |
+|-----------|---------------|
+| `patterns/` | Cases the goroutine, errgroup, waitgroup and spawner checkers share, one file per pattern |
+| `patternsderive/` | The same, with `-goroutine-deriver` |
+| `reportwaiters/` | The goroutines of `patterns` that only wait and signal, with `-report-waiters` |
+| `goroutine/` | goroutine-only cases |
+| `errgroup/` | errgroup-only cases |
+| `waitgroup/` | waitgroup-only cases |
+| `conc/` | conc checker cases |
+| `resolve/` | Closures given through variables, resolved through SSA |
+| `resolvederive/` | The same, with `-goroutine-deriver` |
+| `goroutinederive/` | A single deriver |
+| `goroutinederiveand/` | AND derivers |
+| `goroutinederivemixed/` | Mixed AND/OR derivers |
+| `gotask/` | gotask checker cases |
+| `carrier/` | `-context-carriers` |
+| `carrierderive/` | `-context-carriers` with `-goroutine-deriver` |
+| `spawner/` | `//goroutinectx:spawner` |
+| `spawnerfact/`, `spawnerfactlib/` | Spawners called from another package |
+| `spawnermarked/` | The facts `spawner.Analyzer` exports |
+| `spawnerlabel/` | The spawnerlabel checker |
+| `spawnerlabeldoc/` | spawnerlabel with the directive on any doc comment line |
+| `externalspawner/` | `-external-spawner` |
+| `generics/` | Generic functions, generic types and generic methods |
+| `genericsderive/` | The same for gotask, with a deriver |
+| `genericslabel/` | spawnerlabel with generic spawners |
+| `directive/` | Which comments are read as directives |
+| `ignoreforms/` | How `//goroutinectx:ignore` is read |
+| `filefilter/` | Generated files are skipped |
+| `linedirective/`, `linedirectivegen/`, `linedirectivelabel/` | `//line` directives do not move ignores and spawner directives |
+| `github.com/`, `golang.org/` | Stubs of the libraries the fixtures import |
+
 ## Core Components
 
 ### analyzer.go
 
-Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-context-carriers`, `-report-waiters`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
+Main entry point. `Analyzer` defines the flags (`-goroutine-deriver`, `-external-spawner`, `-context-carriers`, `-report-waiters`, and a toggle for each checker of `checkers.Defs` that has a flag) and resolves them into a `run.Config`. `New` builds an analyzer of its own, with no flags, from a `Config` resolved the same way. `internal/run` does the rest, so the golangci-lint plugin in `plugin/` runs the same code through `New`, without touching the flags. `run.Run`:
 1. Builds the ignore maps, spawners and derivers from the `run.Config`, and from them one `env.Env` for the pass
 2. Builds each checker that is on from the `env.Env`
 3. Maps each function with a context parameter to the name of the first (`Kinds.ParamNames`)
@@ -152,13 +182,14 @@ What the checkers read about the pass, built once per pass by `run.Run`:
 
 ```go
 type Env struct {
-    Pass     *analysis.Pass
-    SSA      *flow.Program
-    Index    *site.Index         // each go statement and call as a site, and each function literal's SSA function
-    Kinds    *ctxkind.Classifier // what counts as a context: carriers, package, module
-    Derivers *deriver.Matcher    // nil when -goroutine-deriver is not set
-    Spawners *spawner.Map
-    Flow     *flow.Flow          // follows values, one bound per question, remembered for the pass
+    Pass          *analysis.Pass
+    SSA           *flow.Program
+    Index         *site.Index         // each go statement and call as a site, and each function literal's SSA function
+    Kinds         *ctxkind.Classifier // what counts as a context: carriers, package, module
+    Derivers      *deriver.Matcher    // nil when -goroutine-deriver is not set
+    Spawners      *spawner.Map        // marked spawners and -external-spawner
+    ReportWaiters bool                // -report-waiters
+    Flow          *flow.Flow          // follows values, one bound per question, remembered for the pass
 }
 ```
 
@@ -202,7 +233,7 @@ It also holds both tests for a context parameter. They differ on purpose:
 | `HasParam` | SSA parameters | Counts | Counts | The checkers, for spawned closures and factories. `_` and a receiver are given a value, so they count |
 | `ParamNames` | Syntax of a declaration or literal | Left out | Left out | The runner, to find the enclosing context and its name. A message cannot name `_`, and the receiver is not in the `FuncType` |
 
-`IsFreshCall` tells `Background` and `TODO` of `context` and `golang.org/x/net/context`. `IsWithCall` tells the `With*` functions of both, which the gotask checker follows back to a deriver and `IsCancelCall` takes the cancel funcs of. The `With*` functions of `golang.org/x/net/context` call those of `context`.
+`IsFreshCall` tells `Background` and `TODO` of `context` and `golang.org/x/net/context`. `IsWithCall` tells the `With*` functions of both, which the gotask checker follows back to a deriver and `IsCancelCall` takes the cancel funcs of. The `With*` functions of `golang.org/x/net/context` call those of `context`. That package has only `WithCancel`, `WithDeadline`, `WithTimeout` and `WithValue`, so it has no `Cause` forms.
 
 ### internal/site/
 
@@ -235,7 +266,7 @@ Every check that follows a value is a fold over these:
 | `Judge` | The worst `Verdict` of the sources: a literal by `Policy.Literal`, a call by `Policy.Call` and then the factory rules. Of a factory, the best of the values `Returns` gives counts. `Unknown` counts as `Pass` |
 | `judgeCaptured` | `Judge` of each value `CapturedSources` gives, at `SiteCaptured`, or `Unknown` when they cannot all be followed |
 | `Flow.IsFreshContext` | Every source is a `Background()` or `TODO()` call, and the list is complete |
-| `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `With*` call of `context` or `golang.org/x/net/context`, and that context is not fresh |
+| `Flow.SignalsContext` | A source is `Done()` of a context, or the cancel func of a `With*` call, and that context is not fresh. The calls are `WithCancel`, `WithTimeout`, `WithDeadline` and their `Cause` forms of `context`. Of `golang.org/x/net/context`, they are `WithCancel`, `WithTimeout` and `WithDeadline` |
 | `Flow.ClosureCapturesContext` | A captured context, or one read from a part of a captured value (a field, an element of a slice, a map or a channel, a range over one, or a type assertion, #253), counts unless `IsFreshContext` of each value `CapturedSources` gives. A captured interface given to a call counts when one of the values `CapturedSources` and `Sources` give is a `MakeInterface` of a type that holds a context, or cannot be followed and is of an interface declared in the module (`DeclaredInModule`, #240). A captured func variable counts when one of them is a closure that captures a context. A func value the closure calls, read from what it captures, counts when `judgeCaptured` passes it, as if it were spawned directly |
 | `Flow.IsWaiter` | The closure only waits (`WaitGroup.Wait`, `errgroup.Group.Wait`, `Cmd.Wait`, ...) and signals, with no loop. A send outside a select must be its only one. The channel must have room for it: every value `CapturedSources` gives has only `make(chan T, n)` sources, `n` a constant of at least 1, and the function of each makes at most `n` sends on it, its own or in the closures it gives the channel to, none in a loop. Each such closure is run once: by a go statement, a direct or deferred call, or a `Go` of errgroup, `sync.WaitGroup` or conc (#230, #242, #255) |
 | `Flow.ResolvedSliceElems` | The elements of a slice literal, or of each slice a factory `Returns` |
@@ -355,7 +386,12 @@ insp.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 The goroutine checker detects whether a goroutine's function captures a context, from its SSA free variables:
 
 ```go
-func (f *Flow) ClosureCapturesContext(closure *ssa.Function, kinds *ctxkind.Classifier) bool // in internal/flow
+// in internal/flow
+func (f *Flow) ClosureCapturesContext(
+    closure *ssa.Function,
+    kinds *ctxkind.Classifier,
+    funcs Policy, // judges a func value the closure runs; may be nil
+) bool
 ```
 
 **Key behaviors:**
@@ -381,9 +417,13 @@ It takes the sources of the value from `Flow.Sources`, which goes through Phi no
 
 When `-goroutine-deriver` is set, goroutines must call the specified function(s):
 
-- **OR (comma)**: `pkg1.Func1,pkg2.Func2` - at least one must be called
-- **AND (plus)**: `pkg1.Func1+pkg2.Func2` - all must be called
-- **Mixed**: `pkg1.A+pkg1.B,pkg2.C` - (A AND B) OR C
+| Form | Example | Meaning |
+|------|---------|---------|
+| OR (comma) | `example.com/a.F1,example.com/b.F2` | At least one must be called |
+| AND (plus) | `example.com/a.F1+example.com/b.F2` | All must be called |
+| Mixed | `example.com/a.A+example.com/a.B,example.com/b.C` | (A AND B) OR C |
+
+Each function is named with the full import path of its package, as `pkg/path.Func` or `pkg/path.Type.Method`.
 
 ## Testing
 
@@ -393,15 +433,20 @@ All checker tests use [`analysistest`](https://pkg.go.dev/golang.org/x/tools/go/
 
 ```go
 func TestGoroutine(t *testing.T) {
-    testdata := analysistest.TestData()
-    analysistest.Run(t, testdata, goroutinectx.Analyzer, "goroutine")
+    a, err := goroutinectx.New(goroutinectx.Config{})
+    if err != nil {
+        t.Fatal(err)
+    }
+    analysistest.Run(t, analysistest.TestData(), a, "goroutine")
 }
 ```
+
+The real tests are one table, `TestAnalyzer` in `analyzer_test.go`. Each case builds its own analyzer with `goroutinectx.New`.
 
 Test fixtures use `// want` comments:
 ```go
 func bad(ctx context.Context) {
-    go func() {  // want "goroutine does not use context"
+    go func() { // want `goroutine does not propagate context "ctx"`
         doSomething()
     }()
 }
@@ -484,7 +529,6 @@ Separating interfaces allows checkers to implement only what they need, avoiding
 ## Future Considerations
 
 Potential enhancements (not currently planned):
-- golangci-lint integration
 - More context carrier patterns
 - Cross-function context tracking
 

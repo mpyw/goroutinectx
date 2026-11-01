@@ -36,7 +36,8 @@ var ErrNoSpawners = run.ErrNoSpawners
 // default.
 type Config struct {
 	// GoroutineDeriver requires goroutines to call this function to derive
-	// their context, such as pkg.Func or pkg.Type.Method.
+	// their context, such as github.com/org/pkg.Func or
+	// github.com/org/pkg.Type.Method.
 	GoroutineDeriver string
 	// ExternalSpawner names external functions that spawn goroutines.
 	ExternalSpawner []string
@@ -80,7 +81,7 @@ func analyzerWithFlags() *analysis.Analyzer {
 	c := new(run.DefaultConfig())
 	a := analyzerBuild(c)
 	a.Flags.Var(analyzerDeriver{&c.GoroutineDeriver}, "goroutine-deriver",
-		"require goroutines to call this function to derive context (e.g., pkg.Func or pkg.Type.Method)")
+		"require goroutines to call this function to derive context (e.g., github.com/org/pkg.Func or github.com/org/pkg.Type.Method)")
 	a.Flags.Var(analyzerList{&c.ExternalSpawner, func(l []string) error { return run.Config{ExternalSpawner: l}.Validate() }}, "external-spawner",
 		"comma-separated list of external spawner functions (e.g., pkg.Func or pkg.Type.Method)")
 	a.Flags.Var(analyzerList{&c.ContextCarriers, func(l []string) error { return run.Config{ContextCarriers: l}.Validate() }}, "context-carriers",

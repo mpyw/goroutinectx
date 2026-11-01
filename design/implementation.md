@@ -17,9 +17,10 @@ This file records design decisions and implementation details. The short, always
   - Flag: `-external-spawner=pkg/path.Func` or `-external-spawner=pkg/path.Type.Method` for external functions
 - **goroutine-derive**: Detect goroutines that don't call a specified context-derivation function (e.g., `apm.NewGoroutineContext`)
   - Activated via flag: `-goroutine-deriver=pkg/path.Func` or `-goroutine-deriver=pkg/path.Type.Method`
-  - OR (comma): `-goroutine-deriver=pkg1.Func1,pkg2.Func2` - at least one must be called
-  - AND (plus): `-goroutine-deriver=pkg1.Func1+pkg2.Func2` - all must be called
-  - Mixed: `-goroutine-deriver=pkg1.Func1+pkg2.Func2,pkg3.Func3` - (Func1 AND Func2) OR Func3
+  - OR (comma): `-goroutine-deriver=example.com/a.F1,example.com/b.F2` - at least one must be called
+  - AND (plus): `-goroutine-deriver=example.com/a.F1+example.com/b.F2` - all must be called
+  - Mixed: `-goroutine-deriver=example.com/a.F1+example.com/a.F2,example.com/b.F3` - (F1 AND F2) OR F3
+  - A short name such as `apm.F1` is rejected: each function needs the full import path of its package
 - **gotask**: Detect [gotask](https://pkg.go.dev/github.com/siketyan/gotask/v2) task functions without context derivation (requires `-goroutine-deriver`)
   - `Do*` functions: checks that task arguments call the deriver
   - [`Task.DoAsync`](https://pkg.go.dev/github.com/siketyan/gotask/v2#Task.DoAsync), also on a `CancelableTask`, which embeds `Task`: checks that ctx argument is derived
@@ -82,18 +83,7 @@ goroutinectx/
 │   ├── site/                  # Index: each go statement and call as a Site, built once per pass
 │   └── typeutil/              # Pointers, embedded interfaces, package paths
 ├── testdata/
-│   ├── src/                   # Test fixtures
-│   │   ├── patterns/          # Cases the goroutine, errgroup, waitgroup and spawner checkers share
-│   │   ├── patternsderive/    # The same, with -goroutine-deriver
-│   │   ├── goroutine/         # goroutine-only cases
-│   │   ├── errgroup/          # errgroup-only cases
-│   │   ├── waitgroup/         # waitgroup-only cases
-│   │   ├── spawner/           # spawner directive tests
-│   │   ├── goroutinederive/   # Single deriver tests
-│   │   ├── goroutinederiveand/    # AND (all must be called) tests
-│   │   ├── goroutinederivemixed/  # Mixed AND/OR tests
-│   │   ├── gotask/            # gotask checker tests
-│   │   └── carrier/           # Context carrier tests
+│   ├── src/                   # Test fixtures, one package each (listed in ARCHITECTURE)
 │   └── receivermodule/        # A module and a module it replaces, for which receivers count (#191)
 ├── docs/                      # Documentation
 ├── .github/workflows/         # CI configuration
@@ -192,7 +182,7 @@ Four checkers handle goroutine context propagation:
 
 The rule stops where a waiter can leak when ctx is cancelled. A receive from a channel is not a wait: the goroutine could select on `ctx.Done()`, and it blocks for ever when nothing is sent. A send counts as a signal only when it cannot block: it is a case of a select with a default, or it is the closure's only send outside a select, on a channel made with a constant buffer of at least one, as `Flow.CapturedSources` and `Flow.Sources` follow it, that has room for it (#242). `waiterChanSends` counts the sends on the channel from its `MakeChan`: in the function that makes it, through the variable it is stored to, and in each closure that captures it. A send in a select counts too, as it fills the buffer all the same. More sends than the buffer holds fail, and so does a send in a loop, a closure made in a loop or used more than once, a closure used other than as the function of a go statement or of a direct or deferred call, or as the func given to a `Go` of errgroup, `sync.WaitGroup` or conc, which run it once (`waiterRunsOnce`, #255), and any other use of the channel than a receive, `close`, `len` or `cap`, such as giving it to a call or sending it on another channel. Without that, two goroutines sending on a buffer of one, or senders started in a loop, would leave a send blocked after the first receive. A send on an unbuffered channel blocks for ever once the caller has returned on `ctx.Done()`, and so may one on a channel that cannot be followed, such as a parameter. A wait of the list ends without ctx when what it waits for does, and those goroutines and processes are checked where they start.
 
-**A parameter of a factory followed from a call does not pass for being a parameter.** `callPasses` follows what a factory returns only after it has found that the call gives it no func that passes (the decorator rule). So a parameter of that factory holds such a func, and `sourcePasses` fails it while `Flow.called` marks the factory. `go identityFunc(func() {})()` and the closure a decorator returns, which runs the func it is given, are reported. A parameter of any other function still passes.
+**A parameter of a factory followed from a call does not pass for being a parameter.** `judgement.call` follows what a factory returns only after it has found that the call gives it no func that passes (the decorator rule). So a parameter of that factory holds such a func, and `judgement.source` fails it while `Flow.called` marks the factory. `go identityFunc(func() {})()` and the closure a decorator returns, which runs the func it is given, are reported. A parameter of any other function still passes.
 
 **Only a context field the analyzed code can set counts for a receiver** (#191). That is a field that is exported, or that is declared in the analyzed package or in another package of its module (`pass.Module`, by import path prefix). Counting every field made `go func() { t.Log("x") }()` pass, as `*testing.T`, `*http.Request` and `*exec.Cmd` hold a context of their own in an unexported field, which is not `ctx`. When the driver does not give the module (`pass.Module` is nil or has no path, as in GOPATH mode), a field of any package outside the standard library counts, since it may be of the module and a report there could be false. A package is of the standard library when the first element of its path has no dot, as `testing` and `net/http`. So `*testing.T`, `*http.Request` and `*exec.Cmd` are still reported. golangci-lint v2 gives the module: its runner sets `Pass.Module` from `packages.Module`, and asks for `packages.NeedModule`. The `patterns` tests run in GOPATH mode and so take the path without a module. `testdata/receivermodule` runs in module mode, with a second module through `replace`, to test the module path.
 
@@ -239,9 +229,9 @@ func (m *Matcher) MatchesFunc(fn *types.Func) bool
 `flow.ClosureCallsDeriver(fn, matcher, given...)` walks a goroutine's function with `flow.Runs`, which also goes into the body of a range-over-func loop (the synthetic `range-over-func yield` closure SSA passes to the iterator), keeping whether it is deferred, and tells whether an OR group is fully called at its start (`FoundAtStart`) or only in defer (`FoundOnlyInDefer`). `given` are the functions called for it before it starts, in the arguments of its `go` statement.
 
 **Parsing Logic:**
-- `pkg.Func1,pkg.Func2` → OR: either Func1 or Func2
-- `pkg.Func1+pkg.Func2` → AND: both Func1 and Func2
-- `pkg.A+pkg.B,pkg.C` → Mixed: (A AND B) OR C
+- `example.com/pkg.F1,example.com/pkg.F2` → OR: either F1 or F2
+- `example.com/pkg.F1+example.com/pkg.F2` → AND: both F1 and F2
+- `example.com/pkg.A+example.com/pkg.B,example.com/pkg.C` → Mixed: (A AND B) OR C
 
 ### gotask Checker
 
@@ -323,10 +313,7 @@ func (c *MyChecker) CheckGoStmt(e *env.Env, ctxName string, s *site.Site) []anal
 - Test fixtures use `// want` comments for expected diagnostics
 - Each fixture function's doc comment starts with its kind and a title (see [Test Case Comments](#test-case-comments))
 - Cases that several checkers share are in `testdata/src/patterns/`, one file per pattern (see [Where a Test Case Goes](#where-a-test-case-goes))
-- Test structure per checker:
-  - `basic.go` - Simple good/bad cases
-  - `advanced.go` - Complex patterns (defer, loops, channels)
-  - `evil.go` - Adversarial patterns (nesting, IIFE, limitations)
+- A checker's own directory may split its cases into `basic.go`, `advanced.go` and `evil.go` (see [Testdata Naming Conventions](#testdata-naming-conventions))
 
 - `TestAnalyzer` is one table: each case builds its analyzer with `goroutinectx.New(cfg)` and runs in parallel. Do not set the flags of the global `goroutinectx.Analyzer` in a test; a test of the flags themselves builds its own with `AnalyzerWithFlags` (`export_test.go`)
 
@@ -364,8 +351,8 @@ In `patterns`, each checker's variant is a function of its own. When two variant
 - Use [`go/analysis`](https://pkg.go.dev/golang.org/x/tools/go/analysis) framework
 - Prefer [`inspector.WithStack`](https://pkg.go.dev/golang.org/x/tools/go/ast/inspector#Inspector.WithStack) over [`ast.Inspect`](https://pkg.go.dev/go/ast#Inspect) for traversal
 - Type utilities go in `internal/typeutil/`; what counts as a context goes in `internal/ctxkind/`
-- Checker types are unexported; only interface and registry are public
-- Prefix file-specific variables with checker name (e.g., `errgroupGoMethod`)
+- `internal/checkers` exports only what other packages use: `Defs`, `Def`, `Settable`, and the checker types `Defs` builds. Every other name is unexported
+- Prefix file-specific variables with checker name (e.g., `gotaskConstructor`)
 
 ### Comment Guidelines
 
@@ -393,13 +380,17 @@ In `patterns`, each checker's variant is a function of its own. When two variant
 Test cases that document known analyzer limitations use the `[LIMITATION]:` format:
 
 ```go
-// [LIMITATION]: Variable reassignment not tracked - uses first assignment only
-func limitationReassignedFn(ctx context.Context) {
-    fn := func() { doSomething(ctx) }
-    fn = func() { doNothing() }  // Reassigned!
-    go fn()()  // Currently passes - should fail
+// [LIMITATION]: Captured map that holds only a fresh context
+//
+// What a captured map holds is not followed, so a context read from it
+// counts even when it is only fresh, and it passes. It should be reported.
+func limitationCapturedMapFreshCtxGoroutine(ctx context.Context, k string) {
+    m := map[string]context.Context{"a": context.Background()}
+    go func() { use(m[k]) }()
 }
 ```
+
+This case is in `testdata/src/patterns/nesting.go`.
 
 ## Documentation Strategy
 
@@ -423,14 +414,16 @@ func limitationReassignedFn(ctx context.Context) {
 
 ### Testdata Naming Conventions
 
-Test files of a checker's own directory are organized by complexity and purpose. Files in `testdata/src/patterns/` are named for their pattern instead.
+Files in `testdata/src/patterns/` are named for their pattern. Most other directories have one file named for the directory, such as `resolve/resolve.go`. A few split their cases by complexity:
 
-```
-testdata/src/<checker>/
-├── basic.go           # Core functionality - simple good/bad cases
-├── advanced.go        # Complex patterns - higher-order functions, deep nesting
-└── evil.go            # Evil edge cases - adversarial/unusual patterns
-```
+| Directory | Files |
+|-----------|-------|
+| `goroutine/`, `gotask/`, `goroutinederiveand/`, `goroutinederivemixed/` | `basic.go`, `advanced.go`, `evil.go` |
+| `errgroup/` | `basic.go`, `evil.go` |
+| `spawnerlabel/` | `basic.go`, `evil.go`, and a file for each special case |
+| `conc/`, `externalspawner/` | `basic.go` |
+
+When a directory grows past one file, split it this way:
 
 **File Classification Principle:**
 

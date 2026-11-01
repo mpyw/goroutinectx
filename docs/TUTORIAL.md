@@ -10,6 +10,7 @@ This guide explains how the goroutinectx analyzer works, starting from the basic
 4. [Higher-Order Function Support](#higher-order-function-support)
 5. [The Deriver Matching System](#the-deriver-matching-system)
 6. [Why Nested Closures Count](#why-nested-closures-count)
+7. [Suppressing Warnings](#suppressing-warnings)
 
 ---
 
@@ -70,7 +71,7 @@ If a goroutine doesn't have context, it can:
 │                           ↓                                  │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. Report if context is not used                             │
-│    "goroutine does not use context 'ctx'"                    │
+│    goroutine does not propagate context "ctx"                │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -129,7 +130,16 @@ func handler(ctx context.Context) {
 }
 ```
 
-The wait must be one that takes no context, such as `wg.Wait()` or `cmd.Wait()`. A receive from a channel does not count, since the goroutine could select on `ctx.Done()` there. A send after the wait must not block: an unbuffered channel blocks for ever when the caller has left on `ctx.Done()`, and so does a buffered one with more sends than slots, such as two goroutines that send on `make(chan error, 1)`. `-report-waiters` reports these goroutines too.
+The rule has limits. These goroutines are still reported:
+
+| Goroutine | Why it is reported |
+|-----------|--------------------|
+| It waits by a receive from a channel | It could select on `ctx.Done()` there. Only a wait that takes no context counts, such as `wg.Wait()` or `cmd.Wait()` |
+| It sends on an unbuffered channel after the wait | The send blocks for ever when the caller has left on `ctx.Done()` |
+| It sends on a buffered channel with more sends than slots | The same. An example is two goroutines that send on `make(chan error, 1)` |
+
+> [!TIP]
+> Set `-report-waiters` to report the goroutines that only wait and signal, such as the `GOOD` one above.
 
 ---
 
@@ -182,11 +192,11 @@ The analyzer uses type identity, not name matching:
 ```go
 func handler(ctx context.Context) {
     // ctx is shadowed with a different type
-    ctx := "not a context"
-
-    go func() {
-        fmt.Println(ctx)  // Uses shadowed string, NOT context
-    }()  // BAD: original ctx is not used
+    for _, ctx := range []string{"a", "b"} {
+        go func() {
+            fmt.Println(ctx) // Uses the string, NOT the context
+        }() // BAD: the context ctx is not used
+    }
 }
 ```
 
@@ -213,7 +223,7 @@ Functions that return closures are also traced:
 
 ```go
 func handler(ctx context.Context) {
-    g.Go(makeWorker(ctx))  // ctx is passed to factory
+    g.Go(makeWorker(ctx))  // GOOD: ctx is passed to factory
 }
 
 func makeWorker(ctx context.Context) func() error {
@@ -223,18 +233,29 @@ func makeWorker(ctx context.Context) func() error {
 }
 ```
 
-### Limitations
-
-Some patterns can't be traced:
+A factory that is not given ctx is followed too. The analyzer checks the closure it returns:
 
 ```go
 func handler(ctx context.Context) {
-    var fn func() error
-    fn = getFromSomewhere()  // Can't trace through arbitrary calls
-    g.Go(fn)  // LIMITATION: Can't verify ctx usage
+    g.Go(getWorker())  // BAD: the closure it returns does not use ctx
+}
 
-    tasks := make(chan func() error)
-    g.Go(<-tasks)  // LIMITATION: Can't trace through channels
+func getWorker() func() error {
+    return func() error {
+        return doWork()
+    }
+}
+```
+
+### Limitations
+
+A func received from a channel can't be traced. The analyzer does not report it:
+
+```go
+func handler(ctx context.Context) {
+    tasks := make(chan func() error, 1)
+    tasks <- func() error { return doWork() }
+    g.Go(<-tasks)  // LIMITATION: not reported
 }
 ```
 
@@ -249,6 +270,9 @@ When using APM libraries, goroutines often need to call a specific function to d
 ```bash
 goroutinectx -goroutine-deriver=github.com/my-app/apm.NewGoroutineContext ./...
 ```
+
+> [!IMPORTANT]
+> Name each function with the full import path of its package. A short name such as `apm.NewGoroutineContext` is rejected.
 
 ```go
 func handler(ctx context.Context) {
@@ -270,19 +294,19 @@ func handler(ctx context.Context) {
 Multiple alternatives - at least one must be called:
 
 ```bash
--goroutine-deriver=pkg.FuncA,pkg.FuncB
+-goroutine-deriver=github.com/my-app/apm.FuncA,github.com/my-app/apm.FuncB
 ```
 
 ```go
 // GOOD: uses FuncA
 go func() {
-    ctx := pkg.FuncA(ctx)
+    ctx := apm.FuncA(ctx)
     doWork(ctx)
 }()
 
 // GOOD: uses FuncB
 go func() {
-    ctx := pkg.FuncB(ctx)
+    ctx := apm.FuncB(ctx)
     doWork(ctx)
 }()
 ```
@@ -292,20 +316,20 @@ go func() {
 All specified functions must be called:
 
 ```bash
--goroutine-deriver=pkg.FuncA+pkg.FuncB
+-goroutine-deriver=github.com/my-app/apm.FuncA+github.com/my-app/apm.FuncB
 ```
 
 ```go
 // BAD: only FuncA
 go func() {
-    ctx := pkg.FuncA(ctx)
+    ctx := apm.FuncA(ctx)
     doWork(ctx)
 }()
 
 // GOOD: both called
 go func() {
-    ctx := pkg.FuncA(ctx)
-    ctx = pkg.FuncB(ctx)
+    ctx := apm.FuncA(ctx)
+    ctx = apm.FuncB(ctx)
     doWork(ctx)
 }()
 ```
@@ -313,7 +337,7 @@ go func() {
 ### Mixed (New Relic Example)
 
 ```bash
--goroutine-deriver='newrelic.Transaction.NewGoroutine+newrelic.NewContext,apm.NewGoroutineContext'
+-goroutine-deriver='github.com/newrelic/go-agent/v3/newrelic.Transaction.NewGoroutine+github.com/newrelic/go-agent/v3/newrelic.NewContext,github.com/my-app/apm.NewGoroutineContext'
 ```
 
 This means: `(NewGoroutine AND NewContext) OR NewGoroutineContext`
@@ -407,19 +431,29 @@ func handler(ctx context.Context) {
     go func() {
         backgroundTask()
     }()
-
-    //goroutinectx:ignore goroutine,errgroup // suppress multiple checkers
-    g.Go(func() error {
-        return backgroundTask()
-    })
 }
 ```
+
+Separate several names with commas. With `-goroutine-deriver` set, this goroutine gets a report from `goroutine` and one from `goroutinederive`. The ignore silences both:
+
+```go
+func handler(ctx context.Context) {
+    //goroutinectx:ignore goroutine,goroutinederive // suppress both checkers
+    go func() {
+        backgroundTask()
+    }()
+}
+```
+
+> [!NOTE]
+> Name only the checkers that report there. Without `-goroutine-deriver`, the `goroutinederive` checker does not run, so the ignore above is reported as unused for `goroutinederive`.
 
 **Available checker names:**
 - `goroutine` - `go func()` statements
 - `goroutinederive` - goroutine derive function requirement
 - `waitgroup` - `sync.WaitGroup.Go()` calls
 - `errgroup` - `errgroup.Group.Go()` calls
+- `conc` - conc library checks
 - `spawner` - spawner directive checks
 - `spawnerlabel` - spawner label requirement
 - `gotask` - gotask library checks
